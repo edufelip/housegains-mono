@@ -1,0 +1,24 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "instances",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "dueAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "ledger",
+      "fieldPath": "createdAt",
+      "indexes": [{ "queryScope": "COLLECTION", "order": "DESCENDING" }]
+    },
+    {
+      "collectionGroup": "feed",
+      "fieldPath": "createdAt",
+      "indexes": [{ "queryScope": "COLLECTION", "order": "DESCENDING" }]
+    }
+  ]
+}

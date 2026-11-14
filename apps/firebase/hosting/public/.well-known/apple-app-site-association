@@ -1,0 +1,16 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": [
+          "L4N9Z3Z82V.com.housegains.app",
+          "L4N9Z3Z82V.com.housegains.app.dev"
+        ],
+        "components": [
+          { "/": "/j/*", "comment": "Household invite links" },
+          { "/": "/join/*", "comment": "Household invite links (long form)" }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+<!-- Android themed-icon glyph: logo.svg's fork and dumbbell in one color on transparent, fork halo cut out of the dumbbell. Keep the shapes in sync with logo.svg. -->
+<defs>
+<mask id="fork-halo" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
+<rect width="512" height="512" fill="#FFFFFF"/>
+<g transform="rotate(45 256 256)" fill="#000000" stroke="#000000" stroke-width="18" stroke-linejoin="round">
+<path d="M212 160L300 160L300 190C300 232 282 250 274 264L274 414A18 18 0 0 1 238 414L238 264C230 250 212 232 212 190Z"/>
+<rect x="212" y="82" width="22" height="104" rx="11"/>
+<rect x="245" y="82" width="22" height="104" rx="11"/>
+<rect x="278" y="82" width="22" height="104" rx="11"/>
+</g>
+</mask>
+</defs>
+<g mask="url(#fork-halo)">
+<g transform="rotate(-45 256 256)" fill="#FFFFFF">
+<rect x="242" y="130" width="28" height="252" rx="14"/>
+<rect x="190" y="112" width="132" height="44" rx="18"/>
+<rect x="214" y="90" width="84" height="30" rx="14"/>
+<rect x="190" y="356" width="132" height="44" rx="18"/>
+<rect x="214" y="392" width="84" height="30" rx="14"/>
+</g>
+</g>
+<g transform="rotate(45 256 256)" fill="#FFFFFF">
+<path d="M212 160L300 160L300 190C300 232 282 250 274 264L274 414A18 18 0 0 1 238 414L238 264C230 250 212 232 212 190Z"/>
+<rect x="212" y="82" width="22" height="104" rx="11"/>
+<rect x="245" y="82" width="22" height="104" rx="11"/>
+<rect x="278" y="82" width="22" height="104" rx="11"/>
+</g>
+</svg>

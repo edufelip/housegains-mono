@@ -1,0 +1,7 @@
+{
+  "projects": {
+    "default": "housegains-dev",
+    "dev": "housegains-dev",
+    "prod": "housegains-prod"
+  }
+}

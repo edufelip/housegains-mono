@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "988651433934",
+    "project_id": "housegains-dev",
+    "storage_bucket": "housegains-dev.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:988651433934:android:4144650996abfff83a459f",
+        "android_client_info": {
+          "package_name": "com.housegains.app.dev"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCDQmM8U89jIL81MIeHmMzK5KkryYIdm8k"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
