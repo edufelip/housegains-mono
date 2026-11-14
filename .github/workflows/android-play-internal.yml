@@ -10,6 +10,10 @@ on:
         description: Upload to the Play internal testing track
         type: boolean
         default: false
+  # Builds (never uploads) when this workflow changes, to prove signing still works.
+  pull_request:
+    paths:
+      - '.github/workflows/android-play-internal.yml'
 
 concurrency:
   group: android-play-internal
