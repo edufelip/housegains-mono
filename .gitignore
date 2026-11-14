@@ -1,0 +1,13 @@
+# Root tooling only; each app has its own .gitignore.
+/node_modules/
+/.local-bun/
+/.turbo/
+/backups/
+/outputs/
+/.qa/
+/.codex-run-logs/
+/.playwright-mcp/
+/.antigravitycli
+/.claude/settings.local.json
+.DS_Store
+apps/firebase/.firebase/
