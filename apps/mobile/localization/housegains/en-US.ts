@@ -1,0 +1,63 @@
+import { houseGainsScreensEnUS } from './screens/en-US';
+
+const enUS = {
+  'housegains.appearance.title': 'Choose your style',
+  'housegains.appearance.subtitle':
+    'Pick a look for your home. You can change it anytime in Settings.',
+  'housegains.appearance.preview_hint': 'Sample household preview',
+  'housegains.appearance.continue': 'Continue',
+  'housegains.appearance.retry_load': 'Try loading again',
+  'housegains.appearance.retry_save': 'Retry save',
+  'housegains.appearance.saving': 'Saving style…',
+  'housegains.appearance.selected': 'Selected',
+  'housegains.appearance.select': 'Select {theme}',
+  'housegains.appearance.error.load':
+    'Your saved style could not be loaded. Choose a style or try again.',
+  'housegains.appearance.error.save':
+    'Your style is previewing but was not saved. Retry to continue.',
+  'housegains.theme.arcade.name': 'Arcade',
+  'housegains.theme.arcade.description': 'Black quests, electric lime, and high-energy progress.',
+  'housegains.theme.sticker.name': 'Sticker Pop',
+  'housegains.theme.sticker.description':
+    'Butter yellow, bold blue, thick outlines, and hard shadows.',
+  'housegains.theme.soft.name': 'Soft Home',
+  'housegains.theme.soft.description': 'Pale lavender, calm progress, and graceful serif headings.',
+  'housegains.preview.home_name': 'Apto 302',
+  'housegains.preview.member_name': 'Edu',
+  'housegains.preview.member_initials': 'ED',
+  'housegains.preview.sticker_greeting': 'Hey {name}!',
+  'housegains.preview.level': 'LVL 7 · TIDY TITAN',
+  'housegains.preview.streak': '12-day streak',
+  'housegains.preview.week': 'This week',
+  'housegains.preview.points': 'Points this week',
+  'housegains.preview.points_unit': 'PTS',
+  'housegains.preview.points_fraction': 'of {goal} pts',
+  'housegains.preview.rank': 'rank',
+  'housegains.preview.arcade_delta': '{member} leads by {lead} pts. {pointsToPass} points to pass.',
+  'housegains.preview.sticker_delta': '{pointsToPass} more points to move past {member}.',
+  'housegains.preview.goal': 'Weekly goal',
+  'housegains.preview.goal_progress': '{percent}% there',
+  'housegains.preview.arcade_tasks': "Today's quests",
+  'housegains.preview.sticker_tasks': "Today's to-dos",
+  'housegains.preview.soft_tasks': 'Your turn today',
+  'housegains.preview.done_count': '{done} of {total} done',
+  'housegains.preview.task_recycling': 'Take out the recycling',
+  'housegains.preview.task_dishes': 'Wash dinner dishes',
+  'housegains.preview.task_vacuum': 'Vacuum the living room',
+  'housegains.preview.task_plants': 'Water the plants',
+  'housegains.preview.task_done_time': 'Cleared at 6:40 pm',
+  'housegains.preview.task_dishes_hint': 'Yours · after dinner',
+  'housegains.preview.task_vacuum_hint': 'Bia · due today',
+  'housegains.preview.bounty_hint': 'Up for grabs · +5 bonus',
+  'housegains.preview.claim': 'Claim',
+  'housegains.preview.grab_it': 'Grab it',
+  'housegains.preview.greeting': 'Good evening,',
+  'housegains.preview.you': 'You',
+  'housegains.preview.member_rafa': 'Rafa',
+  'housegains.preview.member_bia': 'Bia',
+  'housegains.preview.member_thiago': 'Thiago',
+  ...houseGainsScreensEnUS,
+} as const;
+
+export default enUS;
+export { enUS };

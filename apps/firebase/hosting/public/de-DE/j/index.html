@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="de-DE">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Haushalt beitreten · HouseGains</title>
+  <meta name="description" content="Tritt einem HouseGains-Haushalt mit einem Einladungscode bei.">
+  <meta name="robots" content="noindex">
+  <link rel="alternate" hreflang="en-US" href="https://housegains.app/j/">
+  <link rel="alternate" hreflang="pt-BR" href="https://housegains.app/pt-BR/j/">
+  <link rel="alternate" hreflang="es-ES" href="https://housegains.app/es-ES/j/">
+  <link rel="alternate" hreflang="fr-FR" href="https://housegains.app/fr-FR/j/">
+  <link rel="alternate" hreflang="de-DE" href="https://housegains.app/de-DE/j/">
+  <link rel="alternate" hreflang="it-IT" href="https://housegains.app/it-IT/j/">
+  <link rel="alternate" hreflang="x-default" href="https://housegains.app/j/">
+  <link rel="stylesheet" href="/site.css">
+</head>
+<body>
+  <a class="skip" href="#main">Zum Inhalt springen</a>
+  <header class="top">
+    <div class="wrap top-inner">
+      <a class="brand" href="/de-DE/">HouseGains</a>
+      <nav class="langs" aria-label="Sprache"><ul><li><a href="/j/" hreflang="en-US" lang="en-US">English</a></li><li><a href="/pt-BR/j/" hreflang="pt-BR" lang="pt-BR">Português (Brasil)</a></li><li><a href="/es-ES/j/" hreflang="es-ES" lang="es-ES">Español</a></li><li><a href="/fr-FR/j/" hreflang="fr-FR" lang="fr-FR">Français</a></li><li><a href="/de-DE/j/" hreflang="de-DE" lang="de-DE" aria-current="page">Deutsch</a></li><li><a href="/it-IT/j/" hreflang="it-IT" lang="it-IT">Italiano</a></li></ul></nav>
+    </div>
+    <div class="wrap"><nav class="sitenav" aria-label="Start"><a href="/de-DE/">Start</a><a href="/de-DE/privacy/">Datenschutz</a><a href="/de-DE/terms/">Nutzungsbedingungen</a><a href="/de-DE/support/">Support</a><a href="/de-DE/delete-account/">Konto löschen</a></nav></div>
+  </header>
+  <main id="main" class="wrap">
+<section class="card" aria-labelledby="j-h1">
+<h1 id="j-h1">Tritt deinem Haushalt bei</h1>
+<p>Gib diesen Code in HouseGains ein oder öffne den Link auf deinem Handy.</p>
+<div id="code-box" class="invite" hidden>
+  <p class="label">Dein Einladungscode</p>
+  <p class="code" id="code"></p>
+  <p class="row"><button type="button" class="btn ghost" id="copy">Code kopieren</button> <span id="copy-status" role="status"></span></p>
+  <p class="row"><a class="btn" id="open-app" href="housegains://">In HouseGains öffnen</a></p>
+  <p class="small">Codes laufen nach 7 Tagen ab. Fordere einen neuen an, wenn dieser nicht mehr funktioniert.</p>
+</div>
+<div id="invalid" class="notice" role="alert" hidden>
+  <h2>Dieser Einladungslink funktioniert nicht</h2>
+  <p>Der Code fehlt oder ist ungültig. Bitte deinen Mitbewohner um einen neuen Code oder öffne HouseGains und gib ihn dort ein.</p>
+</div>
+</section>
+<section class="card" aria-labelledby="stores-h">
+<h2 id="stores-h">Noch keine App?</h2>
+<p class="badges"><a class="badge" href="https://apps.apple.com/app/idTODO">Im App Store laden</a> <a class="badge" href="https://play.google.com/store/apps/details?id=com.housegains.app">Jetzt bei Google Play</a></p>
+</section>
+<script>
+(function () {
+  var S = {"copied":"Code kopiert.","copyFailed":"Kopieren nicht möglich. Markiere den Code und kopiere ihn von Hand."};
+  var m = location.pathname.match(/\/(?:j|join)\/([^\/?#]+)\/?$/);
+  var code = "";
+  try { code = m ? decodeURIComponent(m[1]).trim().toUpperCase() : ""; } catch (e) { code = ""; }
+  if (/^[A-HJ-NP-Z2-9]{6}$/.test(code)) {
+    document.getElementById("code").textContent = code;
+    document.getElementById("open-app").setAttribute("href", "housegains://join/" + code);
+    document.getElementById("code-box").hidden = false;
+    document.getElementById("copy").addEventListener("click", function () {
+      var status = document.getElementById("copy-status");
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(
+          function () { status.textContent = S.copied; },
+          function () { status.textContent = S.copyFailed; });
+      } else {
+        status.textContent = S.copyFailed;
+      }
+    });
+  } else {
+    document.getElementById("invalid").hidden = false;
+  }
+})();
+</script>
+  </main>
+  <footer class="foot">
+    <div class="wrap">
+      <p>Entwickelt von Eduardo Felipe, unabhängiger Entwickler. <a href="mailto:support@housegains.app">support@housegains.app</a></p>
+      <p class="small">Gültig ab: 2026-11-13</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,0 +1,16 @@
+#!/usr/bin/env sh
+
+# Git runs hooks from the repository root; the app lives in apps/mobile.
+# Commits that stage no mobile file skip the app's lint-staged.
+git diff --cached --name-only | grep -q '^apps/mobile/' || exit 0
+task_root=$(git rev-parse --show-toplevel)
+task_bun="$task_root/.local-bun/bin/bun"
+if [ ! -x "$task_bun" ]; then
+  task_bun=$(command -v bun) || { echo "Install Bun 1.3.14 with scripts/install-pinned-bun.sh" >&2; exit 1; }
+fi
+if [ "$("$task_bun" --version)" != "1.3.14" ]; then
+  echo "HouseGains hooks require Bun 1.3.14; run scripts/install-pinned-bun.sh" >&2
+  exit 1
+fi
+cd "$task_root/apps/mobile"
+"$task_bun" x lint-staged

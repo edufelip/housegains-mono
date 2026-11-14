@@ -1,0 +1,48 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isMemberOf(hid) {
+      return signedIn()
+        && request.auth.uid in get(/databases/$(database)/documents/households/$(hid)).data.memberUids;
+    }
+
+    // Owner-editable profile fields only. Everything else (householdId, locale
+    // defaults set by the server, timestamps) is written by Cloud Functions.
+    match /users/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow create: if false;
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['displayName', 'locale', 'themeId', 'fcmTokens', 'remindersEnabled'])
+        && request.resource.data.displayName is string
+        && request.resource.data.displayName.size() >= 1
+        && request.resource.data.displayName.size() <= 40
+        && request.resource.data.locale in ['en-US', 'pt-BR', 'es-ES', 'fr-FR', 'de-DE', 'it-IT']
+        && request.resource.data.themeId in ['arcade', 'sticker', 'soft']
+        && request.resource.data.fcmTokens is list
+        && request.resource.data.fcmTokens.size() <= 10
+        && request.resource.data.remindersEnabled is bool;
+      allow delete: if false;
+    }
+
+    match /households/{hid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.memberUids;
+      allow write: if false;
+
+      // members, chores, instances, ledger, feed, meta: members read, nobody writes.
+      match /{collection}/{docId} {
+        allow read: if isMemberOf(hid);
+        allow write: if false;
+      }
+    }
+
+    // inviteCodes, reports, and anything else: no client access.
+  }
+}
