@@ -84,7 +84,7 @@ export const ptBR: Record<TranslationKey, string> = {
     'A autenticação ainda não está configurada. Defina a URL do servidor HouseGains e tente novamente.',
   'auth.terms.title': 'Termos e Privacidade',
   'auth.terms.description':
-    'Antes de continuar, revise e aceite os termos mais recentes do My Champions.',
+    'Antes de continuar, revise e aceite os termos mais recentes do HouseGains.',
   'auth.terms.open_link': 'Abrir termos e política de privacidade',
   'auth.terms.checkbox': 'Li e concordo com os termos e a política de privacidade.',
   'auth.terms.accept_button': 'Aceitar e continuar',
@@ -884,7 +884,7 @@ export const ptBR: Record<TranslationKey, string> = {
   'a11y.selected_count': '{count} selecionado(s)',
   'a11y.student_row': '{name}, {specialty}, {status}',
   'a11y.stat_card': '{value} {label}',
-  'a11y.brand_logo': 'Logo My Champions',
+  'a11y.brand_logo': 'Logo HouseGains',
   'meal.photo_analysis.cta': 'Analisar com IA',
   'meal.photo_analysis.analyzing': 'Analisando sua refeição…',
   'meal.photo_analysis.disclaimer':
