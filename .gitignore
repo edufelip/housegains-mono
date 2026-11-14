@@ -11,3 +11,7 @@
 /.claude/settings.local.json
 .DS_Store
 apps/firebase/.firebase/
+
+# Android release signing (never commit)
+apps/mobile/android/keystore.properties
+*.jks

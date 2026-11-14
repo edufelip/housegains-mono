@@ -1,0 +1,86 @@
+name: Android Play internal
+
+# Manual only: builds the signed prod app bundle (com.housegains.app).
+# Play takes an app's first bundle only through its website, so the first run leaves
+# "upload" off and the bundle is downloaded from the run's artifacts.
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: Upload to the Play internal testing track
+        type: boolean
+        default: false
+
+concurrency:
+  group: android-play-internal
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    name: Build signed bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      APP_VARIANT: prod
+      EXPO_PUBLIC_GOOGLE_OAUTH_ANDROID_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_ANDROID_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_OAUTH_WEB_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_WEB_CLIENT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Write upload key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          cat > android/keystore.properties <<EOF
+          storeFile=$RUNNER_TEMP/upload.jks
+          storePassword=$KEYSTORE_PASSWORD
+          keyAlias=$KEY_ALIAS
+          keyPassword=$KEYSTORE_PASSWORD
+          EOF
+
+      - name: Build bundle
+        working-directory: apps/mobile/android
+        run: ./gradlew bundleProductionRelease -PCI_VERSION_CODE=${{ github.run_number }} --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: housegains-${{ github.run_number }}.aab
+          path: apps/mobile/android/app/build/outputs/bundle/productionRelease/*.aab
+
+      # The app is still a draft in Play, so releases must be drafts too.
+      - name: Upload to Play (internal track)
+        if: inputs.upload
+        uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
+        with:
+          serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
+          packageName: com.housegains.app
+          releaseFiles: apps/mobile/android/app/build/outputs/bundle/productionRelease/*.aab
+          track: internal
+          status: draft
+
+      - name: Remove key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks" android/keystore.properties

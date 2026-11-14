@@ -1,0 +1,108 @@
+name: iOS TestFlight
+
+# Manual only: builds the prod app (com.housegains.app) and uploads it to TestFlight.
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  testflight:
+    name: Build and upload to TestFlight
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: apps/mobile
+    env:
+      APP_VARIANT: prod
+      EXPO_PUBLIC_GOOGLE_OAUTH_IOS_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_IOS_CLIENT_ID }}
+      EXPO_PUBLIC_GOOGLE_OAUTH_WEB_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_WEB_CLIENT_ID }}
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+      TEAM_ID: L4N9Z3Z82V
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_app="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)"
+          [[ -n "$xcode_app" ]] || { echo "Xcode 26 is not installed on this runner." >&2; exit 1; }
+          echo "DEVELOPER_DIR=$xcode_app/Contents/Developer" >> "$GITHUB_ENV"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - uses: actions/cache@v4
+        with:
+          path: apps/mobile/ios/Pods
+          key: pods-${{ runner.os }}-${{ hashFiles('apps/mobile/ios/Podfile.lock') }}
+
+      - name: Install pods
+        working-directory: apps/mobile/ios
+        run: pod install
+
+      - name: Write App Store Connect key
+        env:
+          ASC_KEY_CONTENT: ${{ secrets.APP_STORE_CONNECT_API_KEY_CONTENT }}
+        run: |
+          set -euo pipefail
+          [[ -n "$ASC_KEY_CONTENT" && -n "$ASC_KEY_ID" && -n "$ASC_ISSUER_ID" ]] || { echo "App Store Connect secrets are missing." >&2; exit 1; }
+          printf '%s\n' "$ASC_KEY_CONTENT" > "$RUNNER_TEMP/AuthKey.p8"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          EOF
+
+      # Automatic signing with the API key lets Xcode create the distribution certificate and profile.
+      - name: Archive
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ios/HouseGains.xcworkspace -scheme HouseGains \
+            -configuration Release -destination "generic/platform=iOS" \
+            -archivePath "$RUNNER_TEMP/HouseGains.xcarchive" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            DEVELOPMENT_TEAM="$TEAM_ID" CURRENT_PROJECT_VERSION="${{ github.run_number }}" \
+            archive | tee "$RUNNER_TEMP/xcodebuild.log" | grep -E "error:|\*\* ARCHIVE" || true
+          grep -q "\*\* ARCHIVE SUCCEEDED \*\*" "$RUNNER_TEMP/xcodebuild.log"
+
+      - name: Upload to TestFlight
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/HouseGains.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-testflight-log
+          path: ${{ runner.temp }}/xcodebuild.log
+
+      - name: Remove key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/AuthKey.p8"
