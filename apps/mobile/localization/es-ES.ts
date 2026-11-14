@@ -85,7 +85,7 @@ export const esES: Record<TranslationKey, string> = {
     'La autenticación aún no está configurada. Define la URL del servidor de HouseGains e inténtalo de nuevo.',
   'auth.terms.title': 'Términos y Privacidad',
   'auth.terms.description':
-    'Antes de continuar, revisa y acepta los términos más recientes de My Champions.',
+    'Antes de continuar, revisa y acepta los términos más recientes de HouseGains.',
   'auth.terms.open_link': 'Abrir términos y política de privacidad',
   'auth.terms.checkbox': 'He leído y acepto los términos y la política de privacidad.',
   'auth.terms.accept_button': 'Aceptar y continuar',
@@ -882,7 +882,7 @@ export const esES: Record<TranslationKey, string> = {
   'a11y.selected_count': '{count} seleccionado(s)',
   'a11y.student_row': '{name}, {specialty}, {status}',
   'a11y.stat_card': '{value} {label}',
-  'a11y.brand_logo': 'Logo de My Champions',
+  'a11y.brand_logo': 'Logo de HouseGains',
   'meal.photo_analysis.cta': 'Analizar con IA',
   'meal.photo_analysis.analyzing': 'Analizando tu comida…',
   'meal.photo_analysis.disclaimer':

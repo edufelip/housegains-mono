@@ -79,8 +79,7 @@ export const enUS = {
   'auth.reset_password.error.configuration':
     'Authentication is not configured yet. Set the HouseGains server URL and try again.',
   'auth.terms.title': 'Terms and Privacy',
-  'auth.terms.description':
-    'Before continuing, review and accept the latest terms for My Champions.',
+  'auth.terms.description': 'Before continuing, review and accept the latest terms for HouseGains.',
   'auth.terms.open_link': 'Open terms and privacy policy',
   'auth.terms.checkbox': 'I have read and agree with the terms and privacy policy.',
   'auth.terms.accept_button': 'Accept and continue',
@@ -774,7 +773,7 @@ export const enUS = {
   'a11y.selected_count': '{count} selected',
   'a11y.student_row': '{name}, {specialty}, {status}',
   'a11y.stat_card': '{value} {label}',
-  'a11y.brand_logo': 'My Champions logo',
+  'a11y.brand_logo': 'HouseGains logo',
   'meal.photo_analysis.cta': 'Analyze with AI',
   'meal.photo_analysis.analyzing': 'Analyzing your meal…',
   'meal.photo_analysis.disclaimer': 'These are AI estimates. Please verify before saving.',
