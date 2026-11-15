@@ -1,4 +1,5 @@
 import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https';
+import { setGlobalOptions } from 'firebase-functions/v2';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import './admin';
 import { DomainError } from './domain/errors';
@@ -8,6 +9,8 @@ import * as store from './store';
 // Every callable and scheduled function in the HouseGains v1 contract, region us-central1.
 
 const REGION = 'us-central1';
+
+setGlobalOptions({ maxInstances: 10 });
 
 /** Requires sign-in, then maps DomainError to the HttpsError codes the contract names. */
 function callable(handler: (uid: string, data: unknown) => Promise<unknown>) {
@@ -41,14 +44,14 @@ export const reportContent = callable(store.reportContent);
 export const deleteAccount = callable((uid) => store.deleteAccount(uid));
 
 export const generateInstances = onSchedule(
-  { schedule: '0 3 * * *', timeZone: 'UTC', region: REGION },
+  { schedule: '0 3 * * *', timeZone: 'UTC', region: REGION, timeoutSeconds: 540, maxInstances: 1 },
   async () => {
     await generateAllInstances(new Date());
   },
 );
 
 export const sendReminders = onSchedule(
-  { schedule: 'every 30 minutes', timeZone: 'UTC', region: REGION },
+  { schedule: 'every 30 minutes', timeZone: 'UTC', region: REGION, timeoutSeconds: 540, maxInstances: 1 },
   async () => {
     await runReminders(new Date());
   },

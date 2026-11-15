@@ -1,7 +1,8 @@
 import { getMessaging } from 'firebase-admin/messaging';
 import { FieldValue, Timestamp, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
 import { db } from './admin';
-import { formatLocalTime } from './domain/time';
+import { INSTANCE_HORIZON_DAYS } from './domain/instances';
+import { addDaysToDateKey, dateKeyInTimeZone, formatLocalTime } from './domain/time';
 import { reminderBody, resolveLocale } from './domain/people';
 import { generateChoreInstancesFor } from './store';
 
@@ -12,20 +13,42 @@ const DEAD_TOKEN_CODES = new Set([
   'messaging/invalid-registration-token',
 ]);
 
+const MAX_CONCURRENCY = 10;
+
+async function mapWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  work: (item: T) => Promise<void>,
+): Promise<void> {
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+      while (next < items.length) {
+        const index = next++;
+        await work(items[index]);
+      }
+    }),
+  );
+}
+
 /** Daily 03:00 UTC: fill each active chore's instances up to the 14-day horizon. */
 export async function generateAllInstances(now: Date): Promise<number> {
   const households = await db().collection('households').get();
   let created = 0;
-  for (const household of households.docs) {
+  await mapWithConcurrency(households.docs, MAX_CONCURRENCY, async (household) => {
     const chores = await household.ref.collection('chores').where('isActive', '==', true).get();
+    const timeZone = (household.data().timeZone as string | undefined) ?? 'UTC';
+    const horizon = addDaysToDateKey(dateKeyInTimeZone(now, timeZone), INSTANCE_HORIZON_DAYS);
     for (const chore of chores.docs) {
+      if (typeof chore.get('generatedThrough') === 'string' && chore.get('generatedThrough') >= horizon) continue;
       try {
-        created += await generateChoreInstancesFor(household.id, chore.id, now);
+        const count = await generateChoreInstancesFor(household.id, chore.id, now);
+        created += count;
       } catch (error) {
         console.error('generateInstances failed', household.id, chore.id, error);
       }
     }
-  }
+  });
   return created;
 }
 
@@ -50,6 +73,8 @@ export async function runReminders(now: Date): Promise<void> {
   }
 
   const horizon = Timestamp.fromDate(new Date(now.getTime() + 60 * 60_000));
+  const householdTimeZones = new Map<string, Promise<string>>();
+  const profiles = new Map<string, Promise<Record<string, unknown> | undefined>>();
   for (const status of ['open', 'partial'] as const) {
     const due = await firestore
       .collectionGroup('instances')
@@ -57,29 +82,43 @@ export async function runReminders(now: Date): Promise<void> {
       .where('dueAt', '>', nowTs)
       .where('dueAt', '<=', horizon)
       .get();
-    for (const doc of due.docs) {
-      if (doc.data().reminderSentAt) continue;
+    await mapWithConcurrency(due.docs, MAX_CONCURRENCY, async (doc) => {
+      if (doc.data().reminderSentAt) return;
       try {
-        await sendInstanceReminders(doc, now);
+        await sendInstanceReminders(doc, now, householdTimeZones, profiles);
       } catch (error) {
         console.error('sendReminders failed', doc.ref.path, error);
       }
-    }
+    });
   }
 }
 
-async function sendInstanceReminders(doc: QueryDocumentSnapshot, now: Date): Promise<void> {
+async function sendInstanceReminders(
+  doc: QueryDocumentSnapshot,
+  now: Date,
+  householdTimeZones: Map<string, Promise<string>>,
+  profiles: Map<string, Promise<Record<string, unknown> | undefined>>,
+): Promise<void> {
   const firestore = db();
   const data = doc.data();
   const dueAt = (data.dueAt as Timestamp).toDate();
-  const householdSnap = await doc.ref.parent.parent!.get();
-  const timeZone = (householdSnap.data()?.timeZone as string | undefined) ?? 'UTC';
+  const householdRef = doc.ref.parent.parent!;
+  let timeZonePromise = householdTimeZones.get(householdRef.path);
+  if (!timeZonePromise) {
+    timeZonePromise = householdRef.get().then((snap) => (snap.data()?.timeZone as string | undefined) ?? 'UTC');
+    householdTimeZones.set(householdRef.path, timeZonePromise);
+  }
+  const timeZone = await timeZonePromise;
   const choreName = (data.choreSnapshot?.name as string | undefined) ?? 'Chore';
 
   for (const uid of (data.assigneeIds as string[] | undefined) ?? []) {
     const userRef = firestore.collection('users').doc(uid);
-    const user = await userRef.get();
-    const profile = user.data();
+    let profilePromise = profiles.get(uid);
+    if (!profilePromise) {
+      profilePromise = userRef.get().then((user) => user.data());
+      profiles.set(uid, profilePromise);
+    }
+    const profile = await profilePromise;
     if (!profile || profile.remindersEnabled === false) continue;
     const tokens = ((profile.fcmTokens as unknown[] | undefined) ?? []).filter(
       (token): token is string => typeof token === 'string',
