@@ -4,6 +4,7 @@ import {
   callableErrorKey,
   isoOf,
   mapInvite,
+  mapMember,
   placeholderMember,
   splitMembers,
 } from './household-mapping';
@@ -23,6 +24,11 @@ test('deleted members leave the roster but stay in former members for history', 
   );
   assert.equal(roster[0].role, 'creator');
   assert.equal(formerMembers[0].role, 'member');
+});
+
+test('maps persisted lifetime XP and leaves it absent for legacy member documents', () => {
+  assert.equal(mapMember('a', { xp: 123 }).xp, 123);
+  assert.equal(mapMember('b', {}).xp, undefined);
 });
 
 test('an invite without a use limit gets the default of 8, and a revoked flag is kept', () => {

@@ -1,4 +1,5 @@
 import auth, { type FirebaseAuthTypes } from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
@@ -69,16 +70,29 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
   useEffect(
     () =>
       auth().onAuthStateChanged(async (user) => {
+        if (auth().currentUser?.uid !== user?.uid) return;
         if (!user) {
           setState({ status: 'signedOut', user: null });
           return;
         }
+        const pendingDisplayName = pendingName.current;
+        pendingName.current = undefined;
+        let creatingProfile = false;
         try {
-          await ensureProfile(user, pendingName.current);
+          const profile = await firestore().collection('users').doc(user.uid).get();
+          creatingProfile = !profile.exists;
+          if (creatingProfile) await ensureProfile(user, pendingDisplayName);
+          if (auth().currentUser?.uid !== user.uid) return;
           setState({ status: 'signedIn', user });
         } catch {
-          // The sign-in screen stays up; signing in again retries the profile.
+          if (auth().currentUser?.uid !== user.uid) return;
           setState({ status: 'signedOut', user: null });
+          // A failed first sign-in must be undone, or signing in again fires no auth event.
+          // A failed read (offline) keeps the session so the next launch can retry.
+          if (creatingProfile)
+            void auth()
+              .signOut()
+              .catch(() => undefined);
         }
       }),
     [ensureProfile],
@@ -88,8 +102,9 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
     pendingName.current = name;
     try {
       await operation();
-    } finally {
+    } catch (error) {
       pendingName.current = undefined;
+      throw error;
     }
   };
 
@@ -107,10 +122,9 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
       [apple.fullName?.givenName, apple.fullName?.familyName].filter(Boolean).join(' ') ||
       undefined;
     await withName(name, async () => {
-      const result = await auth().signInWithCredential(
+      await auth().signInWithCredential(
         auth.AppleAuthProvider.credential(apple.identityToken, rawNonce),
       );
-      await ensureProfile(result.user, name);
     });
   };
 
@@ -123,10 +137,7 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
     }
     const name = response.data.user.name ?? undefined;
     await withName(name, async () => {
-      const result = await auth().signInWithCredential(
-        auth.GoogleAuthProvider.credential(response.data.idToken),
-      );
-      await ensureProfile(result.user, name);
+      await auth().signInWithCredential(auth.GoogleAuthProvider.credential(response.data.idToken));
     });
   };
 
@@ -136,12 +147,12 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
     signInWithApple,
     signInWithGoogle,
     signInWithEmail: async (email, password) => {
-      const result = await auth().signInWithEmailAndPassword(email.trim(), password);
-      await ensureProfile(result.user);
+      await auth().signInWithEmailAndPassword(email.trim(), password);
     },
     createAccountWithEmail: async (name, email, password) => {
-      const result = await auth().createUserWithEmailAndPassword(email.trim(), password);
-      await withName(name.trim(), () => ensureProfile(result.user, name.trim()));
+      await withName(name.trim(), async () => {
+        await auth().createUserWithEmailAndPassword(email.trim(), password);
+      });
     },
     sendPasswordReset: async (email) => {
       await auth().sendPasswordResetEmail(email.trim());

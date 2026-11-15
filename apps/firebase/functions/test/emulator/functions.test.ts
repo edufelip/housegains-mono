@@ -1,4 +1,4 @@
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
 import {
   adminAuth,
@@ -71,6 +71,36 @@ describe('invites', () => {
     const user = await withProfile('stranger', 'Stranger');
     await expectError('joinHousehold', user.token, { code: 'ZZZZZZ' }, 'not-found');
     await expectError('joinHousehold', user.token, { code: 'bad!' }, 'not-found');
+  });
+
+  it('allows no more than 20 failed invite guesses per user per hour', async () => {
+    const user = await withProfile('guess-limit', 'Guess Limit');
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await expectError('joinHousehold', user.token, { code: 'ZZZZZZ' }, 'not-found');
+    }
+    await expectError('joinHousehold', user.token, { code: 'ZZZZZZ' }, 'resource-exhausted');
+    expect((await adminDb().doc(`users/${user.uid}`).get()).get('joinAttempts.count')).toBe(20);
+  });
+
+  it('starts a fresh failed-join window after one hour', async () => {
+    const user = await withProfile('guess-window', 'Guess Window');
+    await adminDb().doc(`users/${user.uid}`).update({
+      joinAttempts: { count: 20, windowStart: Timestamp.fromMillis(Date.now() - 60 * 60 * 1000 - 1) },
+    });
+    await expectError('joinHousehold', user.token, { code: 'ZZZZZZ' }, 'not-found');
+    const attempts = (await adminDb().doc(`users/${user.uid}`).get()).get('joinAttempts');
+    expect(attempts.count).toBe(1);
+    expect(attempts.windowStart.toMillis()).toBeGreaterThan(Date.now() - 60 * 60 * 1000);
+  });
+
+  it('does not count successful joins toward the failed invite limit', async () => {
+    const { code } = await createHousehold(await withProfile('good-invite', 'Good Invite'));
+    const user = await withProfile('good-joiner', 'Good Joiner');
+    for (let attempt = 0; attempt < 19; attempt += 1) {
+      await expectError('joinHousehold', user.token, { code: 'ZZZZZZ' }, 'not-found');
+    }
+    await must('joinHousehold', user.token, { code });
+    expect((await adminDb().doc(`users/${user.uid}`).get()).get('joinAttempts.count')).toBe(19);
   });
 
   it('an expired code fails with failed-precondition', async () => {
@@ -165,6 +195,18 @@ describe('completion, bonus and undo', () => {
     expect(bonusRows.map((r) => [r.memberId, r.amount]).sort()).toEqual(
       [[creator.uid, 2], [member.uid, 3]].sort(),
     );
+    expect((await adminDb().doc(`households/${householdId}/members/${creator.uid}`).get()).get('xp')).toBe(12);
+    expect((await adminDb().doc(`households/${householdId}/members/${member.uid}`).get()).get('xp')).toBe(23);
+  });
+
+  it('a member from before the xp counter keeps their ledger history', async () => {
+    const { creator, householdId, choreId } = await setupWithChore();
+    const memberRef = adminDb().doc(`households/${householdId}/members/${creator.uid}`);
+    await memberRef.update({ xp: FieldValue.delete() });
+    await adminDb().collection(`households/${householdId}/ledger`).add({ memberId: creator.uid, amount: 500, source: 'subtask', instanceId: 'old', createdAt: Timestamp.now() });
+    const instance = await nextOpenInstance(householdId, choreId);
+    await must('completeSubtask', creator.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
+    expect((await memberRef.get()).get('xp')).toBe(510);
   });
 
   it('completing the same subtask again is already-exists', async () => {
@@ -195,6 +237,20 @@ describe('completion, bonus and undo', () => {
     const after = await adminDb().doc(`households/${householdId}/instances/${instance.id}`).get();
     expect(after.get('completions')).toEqual([]);
     expect(after.get('status')).toBe('open');
+    expect((await adminDb().doc(`households/${householdId}/members/${creator.uid}`).get()).get('xp')).toBe(0);
+  });
+
+  it('undo reverses every bonus ledger row from member lifetime XP', async () => {
+    const { creator, householdId, choreId } = await setupWithChore({
+      subtasks: [{ id: 'one', name: 'One', xp: 10, position: 0 }],
+      bonusXp: 5,
+    });
+    const instance = await nextOpenInstance(householdId, choreId);
+    await must('completeSubtask', creator.token, { householdId, instanceId: instance.id, subtaskId: 'one' });
+    expect((await adminDb().doc(`households/${householdId}/members/${creator.uid}`).get()).get('xp')).toBe(15);
+    await must('undoSubtask', creator.token, { householdId, instanceId: instance.id, subtaskId: 'one' });
+    expect((await adminDb().doc(`households/${householdId}/members/${creator.uid}`).get()).get('xp')).toBe(0);
+    expect((await ledgerFor(householdId, instance.id)).filter((row) => row.source.startsWith('undo-')).map((row) => row.amount).sort()).toEqual([-10, -5]);
   });
 
   it('undo after five minutes is refused', async () => {
@@ -261,6 +317,36 @@ describe('leaving, removing and deleting', () => {
     expect((await adminDb().doc(`inviteCodes/${code}`).get()).exists).toBe(false);
   });
 
+  it('removing a member revokes the old invite code and rotates the active code', async () => {
+    const { creator, householdId, code } = await setupWithChore();
+    const member = await withProfile('removed-invite', 'Removed');
+    await must('joinHousehold', member.token, { code });
+    await must('removeMember', creator.token, { householdId, uid: member.uid });
+
+    expect((await adminDb().doc(`inviteCodes/${code}`).get()).get('revoked')).toBe(true);
+    const active = await adminDb().doc(`households/${householdId}/meta/invite`).get();
+    expect(active.get('code')).not.toBe(code);
+    await expectError('joinHousehold', member.token, { code }, 'failed-precondition');
+  });
+
+  it('a transaction retry after a concurrent join does not delete a non-empty household', async () => {
+    const creator = await withProfile('retry-leaver', 'Retry Leaver');
+    const { householdId, code } = await createHousehold(creator);
+    const joiners = await Promise.all([
+      withProfile('retry-joiner-a', 'Joiner A'),
+      withProfile('retry-joiner-b', 'Joiner B'),
+      withProfile('retry-joiner-c', 'Joiner C'),
+    ]);
+
+    const results = await Promise.allSettled([
+      must('leaveHousehold', creator.token, { householdId }),
+      ...joiners.map((joiner) => must('joinHousehold', joiner.token, { code })),
+    ]);
+    const household = await adminDb().doc(`households/${householdId}`).get();
+    const successfulJoins = results.slice(1).filter((result) => result.status === 'fulfilled');
+    expect(household.exists || successfulJoins.length === 0).toBe(true);
+  });
+
   it('removeMember by a non-creator is permission-denied', async () => {
     const { creator, householdId, code } = await setupWithChore();
     const a = await withProfile('a', 'A');
@@ -289,10 +375,35 @@ describe('leaving, removing and deleting', () => {
     expect(household.get('memberUids')).toEqual([creator.uid]);
   });
 
+  it('createHousehold and joinHousehold reject profiles marked as deleting', async () => {
+    const { code } = await createHousehold(await withProfile('active-creator', 'Creator'));
+    const deleting = await withProfile('deleting-user', 'Deleting');
+    await adminDb().doc(`users/${deleting.uid}`).update({ deleting: true });
+    await expectError('createHousehold', deleting.token, { name: 'Home', icon: 'house', color: '#76ff03', timeZone: 'UTC' }, 'failed-precondition');
+    await expectError('joinHousehold', deleting.token, { code }, 'failed-precondition');
+  });
+
+  it('deleteAccount prevents a racing createHousehold from leaving an orphaned household', async () => {
+    const user = await withProfile('deleting-race', 'Deleting Race');
+    const results = await Promise.allSettled([
+      must('deleteAccount', user.token, {}),
+      ...Array.from({ length: 4 }, () =>
+        must('createHousehold', user.token, { name: 'Race', icon: 'house', color: '#76ff03', timeZone: 'UTC' }),
+      ),
+    ]);
+    expect(results[0]?.status).toBe('fulfilled');
+    expect((await adminDb().doc(`users/${user.uid}`).get()).exists).toBe(false);
+    expect((await adminDb().collection('households').where('memberUids', 'array-contains', user.uid).get()).size).toBe(0);
+  });
+
   it('reportContent writes a report for a valid target', async () => {
     const { creator, householdId, choreId } = await setupWithChore();
     const report = await must('reportContent', creator.token, { householdId, kind: 'chore', targetId: choreId, reason: 'spam' });
     expect((await adminDb().doc(`reports/${report.reportId}`).get()).get('kind')).toBe('chore');
+    const second = await must('reportContent', creator.token, { householdId, kind: 'chore', targetId: choreId, reason: 'repeated' });
+    expect(second.reportId).toBe(`${creator.uid}_chore_${choreId}`);
+    expect((await adminDb().collection('reports').where('reporterUid', '==', creator.uid).get()).size).toBe(1);
+    expect((await adminDb().doc(`reports/${second.reportId}`).get()).get('reason')).toBe('repeated');
     await expectError('reportContent', creator.token, { householdId, kind: 'chore', targetId: 'missing', reason: '' }, 'not-found');
   });
 });

@@ -124,6 +124,64 @@ describe('HouseGains chore completion screens', () => {
     );
   });
 
+  test('allows the remaining subtasks on a partial instance before its due date', async () => {
+    const onComplete = jest.fn().mockResolvedValue(undefined);
+    const partiallyCompleted: Instance = {
+      ...openInstance,
+      status: 'partial',
+      completions: [
+        {
+          id: 'completion-bia-feed',
+          instanceId: openInstance.id,
+          subtaskId: 'feed',
+          memberId: 'bia',
+          xp: 10,
+          completedAt: '2026-11-13T11:00:00.000Z',
+          isAssist: false,
+        },
+      ],
+    };
+
+    const view = await renderWithTheme(
+      <ChoreDetailScreen
+        householdId="household-1"
+        chore={chore}
+        currentMember={currentMember}
+        hasError={false}
+        instance={partiallyCompleted}
+        members={members}
+        onBack={jest.fn()}
+        onComplete={onComplete}
+        onUndo={jest.fn()}
+      />,
+    );
+
+    const walk = screen.getByTestId('housegains.choreDetail.done.walk');
+    expect(isDisabled(walk)).toBe(false);
+    await act(async () => {
+      await fireEvent.press(walk);
+    });
+    expect(onComplete).toHaveBeenCalledWith(openInstance.id, 'walk');
+
+    await view.rerender(
+      <ThemeProvider>
+        <ChoreDetailScreen
+          householdId="household-1"
+          chore={chore}
+          currentMember={currentMember}
+          hasError={false}
+          instance={{ ...openInstance, status: 'partial', dueAt: '2026-11-12T00:00:00.000Z' }}
+          members={members}
+          onBack={jest.fn()}
+          onComplete={jest.fn()}
+          onUndo={jest.fn()}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(isDisabled(screen.getByTestId('housegains.choreDetail.done.walk'))).toBe(true);
+  });
+
   test('expires the current member undo control at the five-minute deadline', async () => {
     const now = new Date('2026-11-13T12:00:00.000Z');
     jest.useFakeTimers();

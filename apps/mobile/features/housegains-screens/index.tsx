@@ -31,7 +31,7 @@ import {
 } from './main-tab-screens';
 import {
   resolveInstanceChore,
-  deriveTotalXp,
+  totalXpForMember,
   filterInstancesForHouseholdDate,
   makeChoreCopy,
 } from './screen-model';
@@ -398,7 +398,7 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
       );
     const timeZone = data.household.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
     const todayInstances = filterInstancesForHouseholdDate(data.instances, new Date(), timeZone);
-    const totalXp = deriveTotalXp(data.xpLedger, data.currentMember.id);
+    const totalXp = totalXpForMember(data.currentMember, data.xpLedger, data.currentMember.id);
     const props = {
       themeId: appearance.themeId,
       household: data.household,

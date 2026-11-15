@@ -59,10 +59,18 @@ const mockFirebase = {
   currentUser: null as null | { uid: string; email: string | null; displayName: string | null },
   docs: {} as Record<string, Record<string, unknown>>,
   updates: [] as { path: string; data: Record<string, unknown> }[],
+  reads: [] as string[],
+  queries: [] as { path: string; op: string; args: unknown[] }[],
   calls: [] as { name: string; data: unknown }[],
   failures: {} as Record<string, { code: string; message?: string }>,
   signOuts: 0,
   permission: 1,
+  deletedTokens: 0,
+  hangUpdates: false,
+  failProfileRead: false,
+  authStateListener: undefined as
+    | ((user: { uid: string; email: string | null; displayName: string | null } | null) => void)
+    | undefined,
 };
 (globalThis as { mockFirebase?: typeof mockFirebase }).mockFirebase = mockFirebase;
 
@@ -75,7 +83,14 @@ jest.mock('@react-native-firebase/auth', () => {
       mockFirebase.signOuts += 1;
       mockFirebase.currentUser = null;
     },
-    onAuthStateChanged: () => () => undefined,
+    onAuthStateChanged: (listener: (user: typeof mockFirebase.currentUser) => void) => {
+      mockFirebase.authStateListener = listener;
+      return () => {
+        mockFirebase.authStateListener = undefined;
+      };
+    },
+    signInWithEmailAndPassword: async () => ({ user: mockFirebase.currentUser }),
+    createUserWithEmailAndPassword: async () => ({ user: mockFirebase.currentUser }),
     useEmulator: () => undefined,
   });
   return {
@@ -88,18 +103,53 @@ jest.mock('@react-native-firebase/auth', () => {
 });
 
 jest.mock('@react-native-firebase/firestore', () => {
+  const query = (path: string) => ({
+    collection: (name: string) => query(`${path}/${name}`),
+    doc: (id: string) => query(`${path}/${id}`),
+    where: (...args: unknown[]) => {
+      mockFirebase.queries.push({ path, op: 'where', args });
+      return query(path);
+    },
+    orderBy: (...args: unknown[]) => {
+      mockFirebase.queries.push({ path, op: 'orderBy', args });
+      return query(path);
+    },
+    limit: (...args: unknown[]) => {
+      mockFirebase.queries.push({ path, op: 'limit', args });
+      return query(path);
+    },
+    onSnapshot: () => () => undefined,
+    get: async () => {
+      if (mockFirebase.failProfileRead)
+        throw Object.assign(new Error('offline'), { code: 'unavailable' });
+      return {
+        exists: Boolean(mockFirebase.docs[path]),
+        data: () => mockFirebase.docs[path],
+      };
+    },
+    update: async (data: Record<string, unknown>) => {
+      mockFirebase.updates.push({ path, data });
+    },
+  });
   const firestore = () => ({
     doc: (path: string) => ({
-      get: async () => ({ data: () => mockFirebase.docs[path] }),
+      get: async () => {
+        mockFirebase.reads.push(path);
+        return { exists: Boolean(mockFirebase.docs[path]), data: () => mockFirebase.docs[path] };
+      },
       update: async (data: Record<string, unknown>) => {
+        if (mockFirebase.hangUpdates) return new Promise(() => undefined);
         mockFirebase.updates.push({ path, data });
       },
       onSnapshot: (onNext: (snapshot: { data(): unknown }) => void) => {
         onNext({ data: () => mockFirebase.docs[path] });
         return () => undefined;
       },
+      collection: (name: string) => query(`${path}/${name}`),
     }),
+    collection: (name: string) => query(name),
   });
+  firestore.Timestamp = { fromDate: (date: Date) => date };
   firestore.FieldValue = {
     arrayRemove: (value: unknown) => ({ op: 'arrayRemove', value }),
     arrayUnion: (value: unknown) => ({ op: 'arrayUnion', value }),
@@ -111,6 +161,9 @@ jest.mock('@react-native-firebase/messaging', () => {
   const messaging = () => ({
     requestPermission: async () => mockFirebase.permission,
     getToken: async () => 'device-token',
+    deleteToken: async () => {
+      mockFirebase.deletedTokens += 1;
+    },
     onTokenRefresh: () => () => undefined,
   });
   messaging.AuthorizationStatus = {

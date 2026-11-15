@@ -154,10 +154,8 @@ export function ChoreDetailScreen({
   const now = useEligibilityClock(instance, currentMember.id);
   const { pending, actionError, run } = usePendingActions();
   const progress = progressFor(instance);
-  const isPastDue =
-    instance.status !== 'done' &&
-    (instance.status === 'partial' || Date.parse(instance.dueAt) <= now);
-  const isClosed = instance.status === 'partial' || isPastDue;
+  const isPastDue = instance.status !== 'done' && Date.parse(instance.dueAt) <= now;
+  const isClosed = isPastDue;
   const ownCompletions = instance.completions.filter(
     (completion) => completion.memberId === currentMember.id,
   );

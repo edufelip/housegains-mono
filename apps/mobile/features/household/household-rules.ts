@@ -238,7 +238,7 @@ function localDateTimeToInstant(date: string, time: string, timeZone: string): D
   throw new Error('nonexistent_local_due_time');
 }
 
-function dateKeyInTimeZone(date: Date, timeZone: string): string {
+export function dateKeyInTimeZone(date: Date, timeZone: string): string {
   const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone: normalizeTimeZone(timeZone),
     year: 'numeric',
@@ -251,7 +251,7 @@ function dateKeyInTimeZone(date: Date, timeZone: string): string {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-function deviceTimeZone(): string {
+export function deviceTimeZone(): string {
   return normalizeTimeZone(Intl.DateTimeFormat().resolvedOptions().timeZone);
 }
 

@@ -30,6 +30,7 @@ export function mapMember(id: string, data: DocData): Member {
     initials: data.initials ?? '',
     color: data.color ?? '#7c5cff',
     role: data.role === 'creator' ? 'creator' : 'member',
+    ...(typeof data.xp === 'number' ? { xp: data.xp } : {}),
   };
 }
 

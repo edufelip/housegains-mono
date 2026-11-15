@@ -160,6 +160,7 @@ function memberDoc(profile: Record<string, any>, role: 'creator' | 'member', now
     initials: profile.initials,
     color: profile.color,
     role,
+    xp: 0,
     joinedAt: ts(now),
   };
 }
@@ -228,6 +229,7 @@ export async function createHousehold(uid: string, raw: unknown) {
   await db().runTransaction(async (tx) => {
     const user = await tx.get(userRef(uid));
     if (!user.exists) fail('failed-precondition', 'Create your profile first.');
+    if (user.data()!.deleting === true) fail('failed-precondition', 'This account is being deleted.');
     if (user.data()!.householdId) fail('failed-precondition', 'You already belong to a household.');
     tx.set(hRef, {
       name: input.name,
@@ -264,16 +266,35 @@ export async function updateHousehold(uid: string, raw: unknown) {
 
 export async function joinHousehold(uid: string, raw: unknown) {
   const code = normalizeInviteCode(asObject(raw).code);
-  if (!isValidInviteCode(code)) fail('not-found', 'Invite code not found.');
   const now = new Date();
 
-  return db().runTransaction(async (tx) => {
+  const result = await db().runTransaction(async (tx) => {
     const user = await tx.get(userRef(uid));
     if (!user.exists) fail('failed-precondition', 'Create your profile first.');
-    if (user.data()!.householdId) fail('failed-precondition', 'You already belong to a household.');
+    const profile = user.data()!;
+    if (profile.deleting === true) fail('failed-precondition', 'This account is being deleted.');
+    if (profile.householdId) fail('failed-precondition', 'You already belong to a household.');
+
+    const attempts = profile.joinAttempts as { count?: number; windowStart?: Timestamp } | undefined;
+    const windowStart = attempts?.windowStart?.toDate() ?? now;
+    const inWindow = now.getTime() - windowStart.getTime() < 60 * 60 * 1000;
+    const count = inWindow ? attempts?.count ?? 0 : 0;
+    if (count >= 20) fail('resource-exhausted', 'Too many failed invite attempts. Try again later.');
+
+    const recordFailure = (code: 'not-found' | 'failed-precondition' | 'resource-exhausted', message: string) => {
+      tx.set(userRef(uid), {
+        joinAttempts: {
+          count: count + 1,
+          windowStart: ts(inWindow ? windowStart : now),
+        },
+      }, { merge: true });
+      return { error: { code, message } } as const;
+    };
+
+    if (!isValidInviteCode(code)) return recordFailure('not-found', 'Invite code not found.');
 
     const invite = await tx.get(inviteRef(code));
-    if (!invite.exists) fail('not-found', 'Invite code not found.');
+    if (!invite.exists) return recordFailure('not-found', 'Invite code not found.');
     const inv = invite.data()!;
     const problem = inviteProblem(
       {
@@ -284,17 +305,17 @@ export async function joinHousehold(uid: string, raw: unknown) {
       },
       now,
     );
-    if (problem === 'revoked') fail('failed-precondition', 'This invite was revoked.');
-    if (problem === 'expired') fail('failed-precondition', 'This invite has expired.');
-    if (problem === 'full') fail('failed-precondition', 'This invite has reached its use limit.');
+    if (problem === 'revoked') return recordFailure('failed-precondition', 'This invite was revoked.');
+    if (problem === 'expired') return recordFailure('failed-precondition', 'This invite has expired.');
+    if (problem === 'full') return recordFailure('failed-precondition', 'This invite has reached its use limit.');
 
     const hid = inv.householdId as string;
     const hRef = householdRef(hid);
     const household = await tx.get(hRef);
-    if (!household.exists) fail('not-found', 'Invite code not found.');
+    if (!household.exists) return recordFailure('not-found', 'Invite code not found.');
     const hh = household.data()!;
     if ((hh.memberUids as string[]).length >= MAX_HOUSEHOLD_MEMBERS) {
-      fail('resource-exhausted', 'This household is full.');
+      return recordFailure('resource-exhausted', 'This household is full.');
     }
     const meta = await tx.get(inviteMetaRef(hid));
 
@@ -308,8 +329,10 @@ export async function joinHousehold(uid: string, raw: unknown) {
       tx.update(inviteMetaRef(hid), { uses: FieldValue.increment(1) });
     }
     tx.set(userRef(uid), { householdId: hid }, { merge: true });
-    return { householdId: hid };
+    return { householdId: hid } as const;
   });
+  if ('error' in result) fail(result.error.code, result.error.message);
+  return result;
 }
 
 export async function rotateInvite(uid: string, raw: unknown) {
@@ -357,7 +380,8 @@ export async function reportContent(uid: string, raw: unknown) {
   }
   if (kind === 'chore' && !(await choreRef(hid, targetId).get()).exists) fail('not-found', 'Chore not found.');
 
-  const report = await db().collection('reports').add({
+  const reportId = `${uid}_${kind}_${targetId}`;
+  await db().collection('reports').doc(reportId).set({
     reporterUid: uid,
     householdId: hid,
     kind,
@@ -365,7 +389,7 @@ export async function reportContent(uid: string, raw: unknown) {
     reason,
     createdAt: ts(new Date()),
   });
-  return { reportId: report.id };
+  return { reportId };
 }
 
 /**
@@ -379,14 +403,18 @@ export async function reportContent(uid: string, raw: unknown) {
 export async function departMember(
   hid: string,
   targetUid: string,
-  opts: { requireCreatorBy?: string; lenient?: boolean },
+  opts: { requireCreatorBy?: string; lenient?: boolean; rotateInvite?: boolean },
 ): Promise<'left' | 'deleted' | 'noop'> {
   const now = new Date();
   const hRef = householdRef(hid);
+  const newCode = opts.rotateInvite ? await freeInviteCode() : null;
+  const expiresAt = newCode ? ts(new Date(now.getTime() + INVITE_TTL_MS)) : null;
   let deleted = false;
   let noop = false;
 
   await db().runTransaction(async (tx) => {
+    deleted = false;
+    noop = false;
     const household = await tx.get(hRef);
     const user = await tx.get(userRef(targetUid));
     if (opts.requireCreatorBy) {
@@ -409,6 +437,9 @@ export async function departMember(
     const members = await tx.get(hRef.collection('members'));
     const chores = await tx.get(hRef.collection('chores').where('assigneeIds', 'array-contains', targetUid));
     const instances = await tx.get(hRef.collection('instances').where('assigneeIds', 'array-contains', targetUid));
+    const meta = opts.rotateInvite ? await tx.get(inviteMetaRef(hid)) : null;
+    const oldCode = meta?.exists ? (meta.data()!.code as string) : null;
+    const oldInvite = oldCode ? await tx.get(inviteRef(oldCode)) : null;
     const remainingUids = (hh.memberUids as string[]).filter((id) => id !== targetUid);
 
     if (remainingUids.length === 0) {
@@ -441,6 +472,12 @@ export async function departMember(
       { merge: true },
     );
     if (successor) tx.set(hRef.collection('members').doc(successor), { role: 'creator' }, { merge: true });
+    if (newCode && expiresAt) {
+      if (oldCode && oldInvite?.exists) tx.update(inviteRef(oldCode), { revoked: true });
+      const invite = { code: newCode, expiresAt, uses: 0, maxUses: INVITE_MAX_USES, revoked: false };
+      tx.set(inviteRef(newCode), { ...invite, householdId: hid });
+      tx.set(inviteMetaRef(hid), invite);
+    }
     for (const chore of chores.docs) {
       tx.update(chore.ref, { assigneeIds: FieldValue.arrayRemove(targetUid) });
     }
@@ -467,14 +504,26 @@ export async function removeMember(uid: string, raw: unknown) {
   const hid = requireId(input.householdId, 'householdId');
   const target = requireId(input.uid, 'uid');
   if (target === uid) fail('invalid-argument', 'Use leaveHousehold to leave the household.');
-  await departMember(hid, target, { requireCreatorBy: uid });
+  await departMember(hid, target, { requireCreatorBy: uid, rotateInvite: true });
   return { ok: true };
 }
 
 export async function deleteAccount(uid: string) {
-  const user = await userRef(uid).get();
-  const hid = user.data()?.householdId as string | null | undefined;
-  if (hid) await departMember(hid, uid, { lenient: true });
+  const hid = await db().runTransaction(async (tx) => {
+    const user = await tx.get(userRef(uid));
+    if (!user.exists) return null;
+    tx.set(userRef(uid), { deleting: true }, { merge: true });
+    return user.data()?.householdId as string | null | undefined;
+  });
+  if (hid) {
+    try {
+      await departMember(hid, uid, { lenient: true });
+    } catch (error) {
+      // Unlock the profile so a failed deletion doesn't block create and join forever.
+      await userRef(uid).set({ deleting: false }, { merge: true });
+      throw error;
+    }
+  }
   await userRef(uid).delete();
   try {
     await getAuth().deleteUser(uid);
@@ -702,6 +751,27 @@ function ledgerRow(input: {
   };
 }
 
+/** Reads each member's lifetime XP and returns it plus the new rows. Call before any transaction write. */
+async function nextMemberXp(
+  tx: Transaction,
+  hid: string,
+  rows: { memberId: string; amount: number }[],
+): Promise<Map<string, number>> {
+  const deltas = new Map<string, number>();
+  for (const row of rows) deltas.set(row.memberId, (deltas.get(row.memberId) ?? 0) + row.amount);
+  const totals = new Map<string, number>();
+  for (const [memberId, delta] of deltas) {
+    let base = (await tx.get(householdRef(hid).collection('members').doc(memberId))).get('xp');
+    if (typeof base !== 'number') {
+      // Members from before the xp counter: seed it once from their ledger rows.
+      const ledger = await tx.get(ledgerCol(hid).where('memberId', '==', memberId));
+      base = ledger.docs.reduce((sum, doc) => sum + (Number(doc.get('amount')) || 0), 0);
+    }
+    totals.set(memberId, base + delta);
+  }
+  return totals;
+}
+
 export async function completeSubtask(uid: string, raw: unknown) {
   const input = asObject(raw);
   const hid = requireId(input.householdId, 'householdId');
@@ -749,12 +819,16 @@ export async function completeSubtask(uid: string, raw: unknown) {
       }
     }
 
+    const xpTotals = await nextMemberXp(tx, hid, rows);
     tx.update(iRef, {
       completions: completions.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
       status,
       bonusAwards,
     });
     for (const row of rows) tx.set(ledgerCol(hid).doc(), row);
+    for (const [memberId, xp] of xpTotals) {
+      tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
+    }
     return { instanceId, subtaskId, status, completionId: completion.id };
   });
 }
@@ -783,8 +857,14 @@ export async function undoSubtask(uid: string, raw: unknown) {
       fail('failed-precondition', 'Undo is available for 5 minutes after your completion.');
     }
 
-    const ledger = await tx.get(ledgerCol(hid).where('instanceId', '==', instanceId));
-    const rows = ledger.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as Record<string, any> & { id: string });
+    const [subtaskLedger, bonusLedger, undoBonusLedger] = await Promise.all([
+      tx.get(ledgerCol(hid).where('instanceId', '==', instanceId).where('subtaskId', '==', subtaskId)),
+      tx.get(ledgerCol(hid).where('instanceId', '==', instanceId).where('source', '==', 'bonus')),
+      tx.get(ledgerCol(hid).where('instanceId', '==', instanceId).where('source', '==', 'undo-bonus')),
+    ]);
+    const rows = [...subtaskLedger.docs, ...bonusLedger.docs, ...undoBonusLedger.docs].map(
+      (doc) => ({ id: doc.id, ...doc.data() }) as Record<string, any> & { id: string },
+    );
     const reversed = new Set(rows.map((r) => r.reversesEntryId).filter(Boolean));
     const subtaskRow = rows.find(
       (r) =>
@@ -796,8 +876,7 @@ export async function undoSubtask(uid: string, raw: unknown) {
     if (!subtaskRow) fail('failed-precondition', 'The subtask XP entry is missing.');
     const bonusRows = rows.filter((r) => r.source === 'bonus' && !reversed.has(r.id));
 
-    tx.set(
-      ledgerCol(hid).doc(),
+    const undoRows = [
       ledgerRow({
         instanceId,
         subtaskId,
@@ -807,10 +886,9 @@ export async function undoSubtask(uid: string, raw: unknown) {
         createdAt: now,
         reversesEntryId: subtaskRow.id,
       }),
-    );
+    ];
     for (const bonus of bonusRows) {
-      tx.set(
-        ledgerCol(hid).doc(),
+      undoRows.push(
         ledgerRow({
           instanceId,
           memberId: bonus.memberId,
@@ -820,6 +898,11 @@ export async function undoSubtask(uid: string, raw: unknown) {
           reversesEntryId: bonus.id,
         }),
       );
+    }
+    const xpTotals = await nextMemberXp(tx, hid, undoRows);
+    for (const row of undoRows) tx.set(ledgerCol(hid).doc(), row);
+    for (const [memberId, xp] of xpTotals) {
+      tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
     }
 
     const remaining = instance.completions.filter((c) => c.subtaskId !== subtaskId);
