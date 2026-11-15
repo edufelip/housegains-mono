@@ -86,6 +86,12 @@ jobs:
             archive | tee "$RUNNER_TEMP/xcodebuild.log" | grep -E "error:|\*\* ARCHIVE" || true
           grep -q "\*\* ARCHIVE SUCCEEDED \*\*" "$RUNNER_TEMP/xcodebuild.log"
 
+      - name: Verify archived build number
+        run: |
+          set -euo pipefail
+          archived_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$RUNNER_TEMP/HouseGains.xcarchive/Products/Applications/HouseGains.app/Info.plist")
+          [[ "$archived_version" == "$GITHUB_RUN_NUMBER" ]] || { echo "Archived build number does not match this run." >&2; exit 1; }
+
       - name: Upload to TestFlight
         run: |
           xcodebuild -exportArchive \

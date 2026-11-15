@@ -36,3 +36,9 @@ test('no expo-updates native leftovers remain', async () => {
   const manifest = await readFile(`${mobileRoot}/android/app/src/main/AndroidManifest.xml`, 'utf8');
   assert.ok(!manifest.includes('expo.modules.updates'));
 });
+
+test('the iOS app build number follows the Xcode build setting used by release CI', async () => {
+  const info = await readFile(`${mobileRoot}/ios/HouseGains/Info.plist`, 'utf8');
+  const version = info.match(/<key>CFBundleVersion<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+  assert.equal(version, '$(CURRENT_PROJECT_VERSION)');
+});
