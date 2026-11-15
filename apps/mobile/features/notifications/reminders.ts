@@ -25,10 +25,15 @@ async function requestPermission(): Promise<boolean> {
 async function writeToken(uid: string, token: string, remindersEnabled: boolean): Promise<void> {
   const ref = firestore().doc(`users/${uid}`);
   const snapshot = await ref.get();
-  await ref.update({
-    fcmTokens: nextFcmTokens(snapshot.data()?.fcmTokens, token),
-    remindersEnabled,
-  });
+  const tokens = snapshot.data()?.fcmTokens;
+  const existing = Array.isArray(tokens)
+    ? tokens.filter((value): value is string => typeof value === 'string')
+    : [];
+  const update =
+    existing.length > 10 || (existing.length === 10 && !existing.includes(token))
+      ? { fcmTokens: nextFcmTokens(existing, token) }
+      : { fcmTokens: firestore.FieldValue.arrayUnion(token) };
+  await ref.update({ ...update, remindersEnabled });
 }
 
 function isReminderOn(data: Record<string, unknown> | undefined): boolean {
@@ -49,12 +54,7 @@ export async function disableReminders(): Promise<void> {
   const uid = auth().currentUser?.uid;
   if (!uid) return;
   const ref = firestore().doc(`users/${uid}`);
-  const snapshot = await ref.get();
-  const tokens = snapshot.data()?.fcmTokens;
-  await ref.update({
-    fcmTokens: Array.isArray(tokens) ? tokens : [],
-    remindersEnabled: false,
-  });
+  await ref.update({ remindersEnabled: false });
 }
 
 /**

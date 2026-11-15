@@ -149,6 +149,14 @@ export function deriveTotalXp(
   );
 }
 
+export function totalXpForMember(
+  member: { xp?: number },
+  entries: readonly { memberId: string; amount: number }[],
+  memberId: string,
+): number {
+  return typeof member.xp === 'number' ? Math.max(0, member.xp) : deriveTotalXp(entries, memberId);
+}
+
 export function deriveProgression(totalXp: number): {
   level: number;
   titleKey: 'rookie' | 'tidyTitan';

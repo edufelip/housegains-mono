@@ -18,7 +18,9 @@ import {
   type HouseholdSlices,
   type ProfileSnapshot,
 } from './firebase-household-client';
+import { subscribeToUtcDayChanges } from './household-day-clock';
 import { callableErrorKey, mapHousehold, mapInvite, placeholderMember } from './household-mapping';
+import { householdQueryWindow } from './household-query-window';
 import { deriveMemberStreak, deriveWeeklyTotals } from './household-rules';
 import type { Chore, Household, HouseholdViewModel, Member, XpLedgerEntry } from './types';
 
@@ -39,6 +41,11 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
   const [slices, setSlices] = useState<Partial<HouseholdSlices>>({});
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [dayKey, setDayKey] = useState(() => householdQueryWindow(new Date()).dayKey);
+
+  useEffect(() => {
+    return subscribeToUtcDayChanges(setDayKey);
+  }, []);
 
   useEffect(() => {
     setProfile(undefined);
@@ -57,7 +64,7 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
       (patch) => setSlices((previous) => ({ ...previous, ...patch })),
       () => setError(tRef.current('housegains.auth.sync.loadError')),
     );
-  }, [householdId, attempt]);
+  }, [householdId, attempt, dayKey]);
 
   const household = useMemo<Household | null>(() => {
     const doc = slices.householdDoc;
@@ -104,11 +111,11 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
         new Date(),
         household?.timeZone,
       ),
-    [household, ledger],
+    [dayKey, household, ledger],
   );
   const streak = useMemo(
     () => deriveMemberStreak(ledger, currentMember.id, new Date(), household?.timeZone),
-    [currentMember.id, household?.timeZone, ledger],
+    [currentMember.id, dayKey, household?.timeZone, ledger],
   );
 
   // createHousehold and joinHousehold return before the listeners deliver the new household.

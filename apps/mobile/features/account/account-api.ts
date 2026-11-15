@@ -39,14 +39,17 @@ export async function deleteAccount(): Promise<void> {
 export async function signOut(): Promise<void> {
   const uid = auth().currentUser?.uid;
   if (uid) {
-    try {
-      const token = await messaging().getToken();
-      await firestore()
-        .doc(`users/${uid}`)
-        .update({ fcmTokens: firestore.FieldValue.arrayRemove(token) });
-    } catch {
-      // Sign-out must still succeed when the token cannot be removed.
-    }
+    void messaging()
+      .getToken()
+      .then((token) =>
+        firestore()
+          .doc(`users/${uid}`)
+          .update({ fcmTokens: firestore.FieldValue.arrayRemove(token) }),
+      )
+      .catch(() => undefined);
+    void messaging()
+      .deleteToken()
+      .catch(() => undefined);
   }
   await auth().signOut();
 }

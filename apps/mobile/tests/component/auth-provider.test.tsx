@@ -1,0 +1,92 @@
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
+import React from 'react';
+import { Pressable, Text } from 'react-native';
+import { AuthProvider, useAuth } from '@/features/auth/auth-provider';
+
+jest.mock('@/features/appearance', () => ({ useAppearance: () => ({ themeId: 'soft' }) }));
+jest.mock('@/localization/locale-context', () => ({
+  useLocale: () => ({ activeLocale: 'en-US' }),
+}));
+
+const fake = (globalThis as unknown as { mockFirebase: any }).mockFirebase;
+const user = { uid: 'member-1', email: 'member@example.com', displayName: 'Member' };
+async function renderAuth() {
+  return await render(
+    <AuthProvider>
+      <AuthProbe />
+    </AuthProvider>,
+  );
+}
+
+function AuthProbe() {
+  const value = useAuth();
+  return (
+    <>
+      <Text>{value.status}</Text>
+      <Pressable
+        testID="auth.email"
+        onPress={() => void value.signInWithEmail('member@example.com', 'pw')}
+      />
+      <Pressable
+        testID="auth.register"
+        onPress={() => void value.createAccountWithEmail('New Name', 'member@example.com', 'pw')}
+      />
+    </>
+  );
+}
+
+beforeEach(() => {
+  fake.currentUser = user;
+  fake.docs = {};
+  fake.calls = [];
+  fake.authStateListener = undefined;
+});
+
+it('uses a cached profile to sign in without waiting for ensureProfile', async () => {
+  fake.docs['users/member-1'] = { displayName: 'Member' };
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+
+  await act(async () => fake.authStateListener?.(user));
+
+  await waitFor(() => expect(view.getByText('signedIn')).toBeTruthy());
+  expect(fake.calls).toEqual([]);
+});
+
+it('creates a missing profile once through the central auth-state path', async () => {
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+
+  await fireEvent.press(view.getByTestId('auth.email'));
+  expect(fake.calls).toEqual([]);
+  await act(async () => fake.authStateListener?.(user));
+
+  await waitFor(() => expect(view.getByText('signedIn')).toBeTruthy());
+  expect(fake.calls.map(({ name }: { name: string }) => name)).toEqual(['ensureProfile']);
+});
+
+it('ignores a late auth-state result for a different current account', async () => {
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+  fake.currentUser = { ...user, uid: 'new-account' };
+
+  await act(async () => fake.authStateListener?.(user));
+
+  expect(view.getByText('loading')).toBeTruthy();
+  expect(fake.calls).toEqual([]);
+});
+
+it('keeps a registration name for the central profile creation call', async () => {
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+
+  await fireEvent.press(view.getByTestId('auth.register'));
+  await act(async () => fake.authStateListener?.(user));
+
+  await waitFor(() => expect(view.getByText('signedIn')).toBeTruthy());
+  expect(fake.calls[0]?.data).toEqual({
+    displayName: 'New Name',
+    locale: 'en-US',
+    themeId: 'soft',
+  });
+});

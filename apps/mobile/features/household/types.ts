@@ -6,6 +6,7 @@ export interface Member {
   initials: string;
   color: string;
   role: HouseholdRole;
+  xp?: number;
 }
 
 export interface Subtask {

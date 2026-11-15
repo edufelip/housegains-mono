@@ -2,9 +2,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { Alert, Linking } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { signOut } from '@/features/account/account-api';
 import { ThemeProvider } from '@/features/appearance';
 import { DeleteAccountScreen } from '@/features/housegains-screens/account-screens';
 import { HouseGainsSettingsScreen } from '@/features/housegains-screens/main-tab-screens';
+import { disableReminders, enableReminders } from '@/features/notifications/reminders';
 import { translateHouseGains } from '@/localization/housegains/catalog';
 import { LocaleProvider } from '@/localization/locale-context';
 import type { Household, Member } from '@/features/household';
@@ -35,10 +37,13 @@ type FirebaseFake = {
   currentUser: null | { uid: string; email: string | null; displayName: string | null };
   docs: Record<string, Record<string, unknown>>;
   updates: { path: string; data: Record<string, unknown> }[];
+  reads: string[];
   calls: { name: string; data: unknown }[];
   failures: Record<string, { code: string; message?: string }>;
   signOuts: number;
   permission: number;
+  deletedTokens: number;
+  hangUpdates: boolean;
 };
 const fake = (globalThis as unknown as { mockFirebase: FirebaseFake }).mockFirebase;
 
@@ -136,10 +141,13 @@ beforeEach(() => {
   fake.currentUser = { uid: 'me-uid', email: 'ana@example.com', displayName: 'Ana' };
   fake.docs = { 'users/me-uid': { fcmTokens: [], remindersEnabled: true } };
   fake.updates = [];
+  fake.reads = [];
   fake.calls = [];
   fake.failures = {};
   fake.signOuts = 0;
   fake.permission = 1;
+  fake.deletedTokens = 0;
+  fake.hangUpdates = false;
 });
 
 describe('account deletion', () => {
@@ -291,10 +299,38 @@ describe('settings', () => {
       expect(fake.updates).toEqual([
         {
           path: 'users/me-uid',
-          data: { fcmTokens: ['old-token', 'device-token'], remindersEnabled: true },
+          data: {
+            fcmTokens: { op: 'arrayUnion', value: 'device-token' },
+            remindersEnabled: true,
+          },
         },
       ]),
     );
+  });
+
+  it('trims an over-limit token list while keeping at most ten devices', async () => {
+    fake.docs['users/me-uid'] = {
+      fcmTokens: Array.from({ length: 10 }, (_, index) => `token-${index}`),
+      remindersEnabled: false,
+    };
+    await enableReminders();
+    const update = fake.updates[0]?.data as { fcmTokens: string[] };
+    expect(update.fcmTokens).toHaveLength(10);
+    expect(update.fcmTokens).not.toContain('token-0');
+    expect(update.fcmTokens.at(-1)).toBe('device-token');
+  });
+
+  it('disables reminders without reading or rewriting the token list', async () => {
+    await disableReminders();
+    expect(fake.reads).toEqual([]);
+    expect(fake.updates).toEqual([{ path: 'users/me-uid', data: { remindersEnabled: false } }]);
+  });
+
+  it('starts token removal in the background and deletes the messaging token before sign-out', async () => {
+    fake.hangUpdates = true;
+    await signOut();
+    expect(fake.deletedTokens).toBe(1);
+    expect(fake.signOuts).toBe(1);
   });
 
   it('privacy opens the localized HouseGains page', async () => {

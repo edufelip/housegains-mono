@@ -11,6 +11,7 @@ import {
   deriveProgression,
   deriveScoreSnapshot,
   deriveTotalXp,
+  totalXpForMember,
   filterInstancesForHouseholdDate,
   makeChoreCopy,
   orderTodayInstances,
@@ -213,6 +214,12 @@ test('derives level and title from all-time net XP, not weekly points', () => {
     titleKey: 'tidyTitan',
     xpIntoLevel: 0,
   });
+});
+
+test('uses persisted lifetime XP and falls back to the bounded ledger for legacy members', () => {
+  const ledger = [{ memberId: 'me', amount: 70 }];
+  assert.equal(totalXpForMember({ xp: 620 }, ledger, 'me'), 620);
+  assert.equal(totalXpForMember({}, ledger, 'me'), 70);
 });
 
 test('copies catalog chore rules into a new definition with independent subtask ids', () => {

@@ -8,15 +8,12 @@ import {
   mapLedgerEntry,
   splitMembers,
 } from './household-mapping';
+import { householdQueryWindow } from './household-query-window';
 import type { Chore, FeedPost, Instance, Invite, Member, XpLedgerEntry } from './types';
 
 // Firestore reads (live listeners) and callable writes. The shapes follow
 // docs/implementation/firebase-contract.md and apps/firebase/functions/src/store.ts.
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-const INSTANCE_PAST_DAYS = 35;
-const INSTANCE_FUTURE_DAYS = 15;
-const LEDGER_DAYS = 70;
 const FEED_LIMIT = 50;
 
 export interface ProfileSnapshot {
@@ -66,9 +63,7 @@ export function subscribeToHousehold(
 ): Unsubscribe {
   const db = firestore();
   const household = db.collection('households').doc(householdId);
-  const now = Date.now();
-  const at = (offsetDays: number) =>
-    firestore.Timestamp.fromDate(new Date(now + offsetDays * DAY_MS));
+  const window = householdQueryWindow(new Date());
 
   const unsubscribes: Unsubscribe[] = [
     household.onSnapshot((snap) => {
@@ -94,15 +89,16 @@ export function subscribeToHousehold(
     }, onError),
     household
       .collection('instances')
-      .where('dueAt', '>=', at(-INSTANCE_PAST_DAYS))
-      .where('dueAt', '<=', at(INSTANCE_FUTURE_DAYS))
+      .where('dueAt', '>=', firestore.Timestamp.fromDate(window.instanceFrom))
+      .where('dueAt', '<=', firestore.Timestamp.fromDate(window.instanceUntil))
       .orderBy('dueAt')
       .onSnapshot((snap) => {
         onPatch({ instances: snap.docs.map((doc) => mapInstance(doc.id, doc.data())) });
       }, onError),
     household
       .collection('ledger')
-      .where('createdAt', '>=', at(-LEDGER_DAYS))
+      .where('createdAt', '>=', firestore.Timestamp.fromDate(window.ledgerFrom))
+      .orderBy('createdAt', 'desc')
       .onSnapshot((snap) => {
         onPatch({ ledger: snap.docs.map((doc) => mapLedgerEntry(doc.id, doc.data())) });
       }, onError),
