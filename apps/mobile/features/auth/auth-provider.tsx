@@ -85,6 +85,10 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
         } catch {
           if (auth().currentUser?.uid !== user.uid) return;
           setState({ status: 'signedOut', user: null });
+          // Without this the next sign-in as the same user fires no auth event and nothing happens.
+          void auth()
+            .signOut()
+            .catch(() => undefined);
         }
       }),
     [ensureProfile],

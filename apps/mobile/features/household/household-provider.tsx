@@ -18,9 +18,8 @@ import {
   type HouseholdSlices,
   type ProfileSnapshot,
 } from './firebase-household-client';
-import { subscribeToUtcDayChanges } from './household-day-clock';
+import { dayKey as currentDayKey, subscribeToDayTicks } from './household-day-clock';
 import { callableErrorKey, mapHousehold, mapInvite, placeholderMember } from './household-mapping';
-import { householdQueryWindow } from './household-query-window';
 import { deriveMemberStreak, deriveWeeklyTotals } from './household-rules';
 import type { Chore, Household, HouseholdViewModel, Member, XpLedgerEntry } from './types';
 
@@ -41,11 +40,13 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
   const [slices, setSlices] = useState<Partial<HouseholdSlices>>({});
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const [dayKey, setDayKey] = useState(() => householdQueryWindow(new Date()).dayKey);
+  const [dayKey, setDayKey] = useState(() => currentDayKey(new Date()));
+  const timeZoneRef = useRef<string | undefined>(undefined);
 
-  useEffect(() => {
-    return subscribeToUtcDayChanges(setDayKey);
-  }, []);
+  useEffect(
+    () => subscribeToDayTicks(() => setDayKey(currentDayKey(new Date(), timeZoneRef.current))),
+    [],
+  );
 
   useEffect(() => {
     setProfile(undefined);
@@ -58,6 +59,10 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
   const householdId = profile?.householdId ?? null;
   useEffect(() => {
     setSlices({});
+  }, [householdId, attempt]);
+
+  // Re-subscribes on a new day so the query windows move, keeping the data already on screen.
+  useEffect(() => {
     if (!householdId) return undefined;
     return subscribeToHousehold(
       householdId,
@@ -120,6 +125,7 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
 
   // createHousehold and joinHousehold return before the listeners deliver the new household.
   // The screens move on only once it has arrived (or after a timeout).
+  timeZoneRef.current = household?.timeZone;
   const latest = useRef({ hydrated, householdId: household?.id ?? null });
   latest.current = { hydrated, householdId: household?.id ?? null };
   const waiters = useRef(new Set<() => void>());

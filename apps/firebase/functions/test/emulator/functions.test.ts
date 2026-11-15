@@ -1,4 +1,4 @@
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
 import {
   adminAuth,
@@ -197,6 +197,16 @@ describe('completion, bonus and undo', () => {
     );
     expect((await adminDb().doc(`households/${householdId}/members/${creator.uid}`).get()).get('xp')).toBe(12);
     expect((await adminDb().doc(`households/${householdId}/members/${member.uid}`).get()).get('xp')).toBe(23);
+  });
+
+  it('a member from before the xp counter keeps their ledger history', async () => {
+    const { creator, householdId, choreId } = await setupWithChore();
+    const memberRef = adminDb().doc(`households/${householdId}/members/${creator.uid}`);
+    await memberRef.update({ xp: FieldValue.delete() });
+    await adminDb().collection(`households/${householdId}/ledger`).add({ memberId: creator.uid, amount: 500, source: 'subtask', instanceId: 'old', createdAt: Timestamp.now() });
+    const instance = await nextOpenInstance(householdId, choreId);
+    await must('completeSubtask', creator.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
+    expect((await memberRef.get()).get('xp')).toBe(510);
   });
 
   it('completing the same subtask again is already-exists', async () => {

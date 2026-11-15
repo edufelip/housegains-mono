@@ -33,11 +33,11 @@ export function CatalogScreen({
   const [category, setCategory] = useState('all');
   const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
   const pendingIdsRef = useRef(new Set<string>());
-  const pendingSelectionRef = useRef(new Map<string, boolean>());
+  const pendingSelectionRef = useRef(new Map<string, { selected: boolean }>());
   useEffect(() => {
     for (const id of pendingIdsRef.current) {
       const selected = selectedChores.some((saved) => saved.id === id || saved.catalogId === id);
-      if (selected === pendingSelectionRef.current.get(id)) {
+      if (selected === pendingSelectionRef.current.get(id)?.selected) {
         pendingIdsRef.current.delete(id);
         pendingSelectionRef.current.delete(id);
       }
@@ -57,15 +57,22 @@ export function CatalogScreen({
   const toggle = async (chore: Chore, isSelected: boolean) => {
     if (pendingIdsRef.current.has(chore.id)) return;
     pendingIdsRef.current.add(chore.id);
-    pendingSelectionRef.current.set(chore.id, !isSelected);
+    const pending = { selected: !isSelected };
+    pendingSelectionRef.current.set(chore.id, pending);
     setPendingIds(new Set(pendingIdsRef.current));
-    try {
-      await onToggle(chore, isSelected);
-    } catch {
-      // The owning route shows a localized error and leaves the catalog state unchanged.
+    const release = () => {
+      if (pendingSelectionRef.current.get(chore.id) !== pending) return;
       pendingIdsRef.current.delete(chore.id);
       pendingSelectionRef.current.delete(chore.id);
       setPendingIds(new Set(pendingIdsRef.current));
+    };
+    try {
+      await onToggle(chore, isSelected);
+      // Fallback when the snapshot never matches, e.g. another device changed the same chore.
+      setTimeout(release, 5_000);
+    } catch {
+      // The owning route shows a localized error and leaves the catalog state unchanged.
+      release();
     }
   };
 

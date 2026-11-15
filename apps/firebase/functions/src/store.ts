@@ -515,7 +515,15 @@ export async function deleteAccount(uid: string) {
     tx.set(userRef(uid), { deleting: true }, { merge: true });
     return user.data()?.householdId as string | null | undefined;
   });
-  if (hid) await departMember(hid, uid, { lenient: true });
+  if (hid) {
+    try {
+      await departMember(hid, uid, { lenient: true });
+    } catch (error) {
+      // Unlock the profile so a failed deletion doesn't block create and join forever.
+      await userRef(uid).set({ deleting: false }, { merge: true });
+      throw error;
+    }
+  }
   await userRef(uid).delete();
   try {
     await getAuth().deleteUser(uid);
@@ -743,6 +751,27 @@ function ledgerRow(input: {
   };
 }
 
+/** Reads each member's lifetime XP and returns it plus the new rows. Call before any transaction write. */
+async function nextMemberXp(
+  tx: Transaction,
+  hid: string,
+  rows: { memberId: string; amount: number }[],
+): Promise<Map<string, number>> {
+  const deltas = new Map<string, number>();
+  for (const row of rows) deltas.set(row.memberId, (deltas.get(row.memberId) ?? 0) + row.amount);
+  const totals = new Map<string, number>();
+  for (const [memberId, delta] of deltas) {
+    let base = (await tx.get(householdRef(hid).collection('members').doc(memberId))).get('xp');
+    if (typeof base !== 'number') {
+      // Members from before the xp counter: seed it once from their ledger rows.
+      const ledger = await tx.get(ledgerCol(hid).where('memberId', '==', memberId));
+      base = ledger.docs.reduce((sum, doc) => sum + (Number(doc.get('amount')) || 0), 0);
+    }
+    totals.set(memberId, base + delta);
+  }
+  return totals;
+}
+
 export async function completeSubtask(uid: string, raw: unknown) {
   const input = asObject(raw);
   const hid = requireId(input.householdId, 'householdId');
@@ -790,18 +819,15 @@ export async function completeSubtask(uid: string, raw: unknown) {
       }
     }
 
+    const xpTotals = await nextMemberXp(tx, hid, rows);
     tx.update(iRef, {
       completions: completions.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
       status,
       bonusAwards,
     });
-    const xpByMember = new Map<string, number>();
-    for (const row of rows) {
-      tx.set(ledgerCol(hid).doc(), row);
-      xpByMember.set(row.memberId, (xpByMember.get(row.memberId) ?? 0) + row.amount);
-    }
-    for (const [memberId, amount] of xpByMember) {
-      tx.set(householdRef(hid).collection('members').doc(memberId), { xp: FieldValue.increment(amount) }, { merge: true });
+    for (const row of rows) tx.set(ledgerCol(hid).doc(), row);
+    for (const [memberId, xp] of xpTotals) {
+      tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
     }
     return { instanceId, subtaskId, status, completionId: completion.id };
   });
@@ -873,13 +899,10 @@ export async function undoSubtask(uid: string, raw: unknown) {
         }),
       );
     }
-    const xpByMember = new Map<string, number>();
-    for (const row of undoRows) {
-      tx.set(ledgerCol(hid).doc(), row);
-      xpByMember.set(row.memberId, (xpByMember.get(row.memberId) ?? 0) + row.amount);
-    }
-    for (const [memberId, amount] of xpByMember) {
-      tx.set(householdRef(hid).collection('members').doc(memberId), { xp: FieldValue.increment(amount) }, { merge: true });
+    const xpTotals = await nextMemberXp(tx, hid, undoRows);
+    for (const row of undoRows) tx.set(ledgerCol(hid).doc(), row);
+    for (const [memberId, xp] of xpTotals) {
+      tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
     }
 
     const remaining = instance.completions.filter((c) => c.subtaskId !== subtaskId);

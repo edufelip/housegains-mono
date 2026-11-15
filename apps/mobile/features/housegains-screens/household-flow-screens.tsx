@@ -343,13 +343,19 @@ export function AssignChoresScreen({
     pendingChoresRef.current.add(chore.id);
     pendingAssignmentsRef.current.set(chore.id, next);
     setPendingChores(new Set(pendingChoresRef.current));
-    try {
-      await onSetAssignments(chore.id, next);
-    } catch {
-      // The provider keeps the last saved assignment and the route shows an error.
+    const release = () => {
+      if (pendingAssignmentsRef.current.get(chore.id) !== next) return;
       pendingChoresRef.current.delete(chore.id);
       pendingAssignmentsRef.current.delete(chore.id);
       setPendingChores(new Set(pendingChoresRef.current));
+    };
+    try {
+      await onSetAssignments(chore.id, next);
+      // Fallback when the snapshot never matches, e.g. a member was removed meanwhile.
+      setTimeout(release, 5_000);
+    } catch {
+      // The provider keeps the last saved assignment and the route shows an error.
+      release();
     }
   };
 

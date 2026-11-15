@@ -53,4 +53,37 @@ describe('HouseGains catalog screen', () => {
 
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
+
+  test('unlocks a saved chore after 5 seconds when its snapshot never matches', async () => {
+    jest.useFakeTimers();
+    const onToggle = jest.fn().mockResolvedValue(undefined);
+    const chore = CATALOG[0];
+    const view = await render(
+      <ThemeProvider>
+        <CatalogScreen
+          selectedChores={[]}
+          onToggle={onToggle}
+          onOpenChore={jest.fn()}
+          onBuildCustom={jest.fn()}
+          onBack={jest.fn()}
+          onNext={jest.fn()}
+          hasError={false}
+        />
+      </ThemeProvider>,
+    );
+    const press = async () =>
+      act(async () => {
+        fireEvent.press(view.getByTestId(`housegains.catalog.toggle.${chore.id}`));
+        await Promise.resolve();
+      });
+
+    await press();
+    await act(async () => {
+      jest.advanceTimersByTime(5_000);
+    });
+    await press();
+
+    expect(onToggle).toHaveBeenCalledTimes(2);
+    jest.useRealTimers();
+  });
 });

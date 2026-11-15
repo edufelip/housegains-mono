@@ -90,3 +90,16 @@ it('keeps a registration name for the central profile creation call', async () =
     themeId: 'soft',
   });
 });
+
+it('signs out of Firebase when profile setup fails, so signing in again fires a new auth event', async () => {
+  fake.failures = { ensureProfile: { code: 'unavailable' } };
+  fake.signOuts = 0;
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+
+  await act(async () => fake.authStateListener?.(user));
+
+  await waitFor(() => expect(view.getByText('signedOut')).toBeTruthy());
+  expect(fake.signOuts).toBe(1);
+  fake.failures = {};
+});
