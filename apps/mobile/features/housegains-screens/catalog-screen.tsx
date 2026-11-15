@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Pressable, ScrollView, View } from 'react-native';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
@@ -31,7 +31,19 @@ export function CatalogScreen({
   const { tokens } = useAppearance();
   const { t } = useHouseGainsTranslation();
   const [category, setCategory] = useState('all');
-  const [savingId, setSavingId] = useState<string | null>(null);
+  const [pendingIds, setPendingIds] = useState<ReadonlySet<string>>(new Set());
+  const pendingIdsRef = useRef(new Set<string>());
+  const pendingSelectionRef = useRef(new Map<string, boolean>());
+  useEffect(() => {
+    for (const id of pendingIdsRef.current) {
+      const selected = selectedChores.some((saved) => saved.id === id || saved.catalogId === id);
+      if (selected === pendingSelectionRef.current.get(id)) {
+        pendingIdsRef.current.delete(id);
+        pendingSelectionRef.current.delete(id);
+      }
+    }
+    setPendingIds(new Set(pendingIdsRef.current));
+  }, [selectedChores]);
   const visibleCatalog =
     category === 'all' ? CATALOG : CATALOG.filter((chore) => chore.category === category);
   const totalXp = selectedChores.reduce(
@@ -43,13 +55,17 @@ export function CatalogScreen({
   );
 
   const toggle = async (chore: Chore, isSelected: boolean) => {
-    setSavingId(chore.id);
+    if (pendingIdsRef.current.has(chore.id)) return;
+    pendingIdsRef.current.add(chore.id);
+    pendingSelectionRef.current.set(chore.id, !isSelected);
+    setPendingIds(new Set(pendingIdsRef.current));
     try {
       await onToggle(chore, isSelected);
     } catch {
       // The owning route shows a localized error and leaves the catalog state unchanged.
-    } finally {
-      setSavingId(null);
+      pendingIdsRef.current.delete(chore.id);
+      pendingSelectionRef.current.delete(chore.id);
+      setPendingIds(new Set(pendingIdsRef.current));
     }
   };
 
@@ -178,8 +194,8 @@ export function CatalogScreen({
                   { name },
                 )}
                 accessibilityRole="button"
-                accessibilityState={{ selected, disabled: savingId === chore.id }}
-                disabled={savingId === chore.id || (mode === 'manage' && selected)}
+                accessibilityState={{ selected, disabled: pendingIds.has(chore.id) }}
+                disabled={pendingIds.has(chore.id) || (mode === 'manage' && selected)}
                 onPress={() => void toggle(chore, selected)}
                 style={{
                   alignItems: 'center',

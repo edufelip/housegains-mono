@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Clipboard from 'expo-clipboard';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, Share, TextInput, View } from 'react-native';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
@@ -312,23 +312,44 @@ export function AssignChoresScreen({
 }) {
   const { tokens } = useAppearance();
   const { t } = useHouseGainsTranslation();
-  const [busyChore, setBusyChore] = useState<string | null>(null);
+  const [pendingChores, setPendingChores] = useState<ReadonlySet<string>>(new Set());
+  const pendingChoresRef = useRef(new Set<string>());
+  const pendingAssignmentsRef = useRef(new Map<string, string[]>());
+  useEffect(() => {
+    for (const choreId of pendingChoresRef.current) {
+      const chore = chores.find((item) => item.id === choreId);
+      const expected = pendingAssignmentsRef.current.get(choreId);
+      if (
+        chore &&
+        expected &&
+        chore.assigneeIds.length === expected.length &&
+        expected.every((id) => chore.assigneeIds.includes(id))
+      ) {
+        pendingChoresRef.current.delete(choreId);
+        pendingAssignmentsRef.current.delete(choreId);
+      }
+    }
+    setPendingChores(new Set(pendingChoresRef.current));
+  }, [chores]);
   const unassignedCount = chores.filter((chore) => chore.assigneeIds.length === 0).length;
   const canAssign = currentMember.role === 'creator';
 
   const toggleAssignment = async (chore: Chore, member: Member) => {
-    if (!canAssign) return;
+    if (!canAssign || pendingChoresRef.current.has(chore.id)) return;
     const current = chore.assigneeIds;
     const next = current.includes(member.id)
       ? current.filter((id) => id !== member.id)
       : [...current, member.id];
-    setBusyChore(chore.id);
+    pendingChoresRef.current.add(chore.id);
+    pendingAssignmentsRef.current.set(chore.id, next);
+    setPendingChores(new Set(pendingChoresRef.current));
     try {
       await onSetAssignments(chore.id, next);
     } catch {
       // The provider keeps the last saved assignment and the route shows an error.
-    } finally {
-      setBusyChore(null);
+      pendingChoresRef.current.delete(chore.id);
+      pendingAssignmentsRef.current.delete(chore.id);
+      setPendingChores(new Set(pendingChoresRef.current));
     }
   };
 
@@ -392,7 +413,10 @@ export function AssignChoresScreen({
                   })}
                 </Label>
               </View>
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+              <View
+                pointerEvents={pendingChores.has(chore.id) ? 'none' : 'auto'}
+                style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}
+              >
                 {members.map((member) => (
                   <ChoiceChip
                     accessibilityLabel={t('housegains.screens.assignments.assignTo', {
@@ -404,7 +428,7 @@ export function AssignChoresScreen({
                     selected={chore.assigneeIds.includes(member.id)}
                     testID={`housegains.assignments.${chore.id}.${member.id}`}
                     title={`${member.initials} · ${member.name}`}
-                    style={{ opacity: busyChore === chore.id ? 0.62 : 1 }}
+                    style={{ opacity: pendingChores.has(chore.id) ? 0.62 : 1 }}
                   />
                 ))}
               </View>
