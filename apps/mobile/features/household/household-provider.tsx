@@ -126,6 +126,7 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
   // createHousehold and joinHousehold return before the listeners deliver the new household.
   // The screens move on only once it has arrived (or after a timeout).
   timeZoneRef.current = household?.timeZone;
+  useEffect(() => setDayKey(currentDayKey(new Date(), household?.timeZone)), [household?.timeZone]);
   const latest = useRef({ hydrated, householdId: household?.id ?? null });
   latest.current = { hydrated, householdId: household?.id ?? null };
   const waiters = useRef(new Set<() => void>());

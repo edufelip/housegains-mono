@@ -103,3 +103,17 @@ it('signs out of Firebase when profile setup fails, so signing in again fires a 
   expect(fake.signOuts).toBe(1);
   fake.failures = {};
 });
+
+it('keeps the Firebase session when only the profile read fails, e.g. offline', async () => {
+  fake.signOuts = 0;
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+  const get = fake.failProfileRead;
+  fake.failProfileRead = true;
+
+  await act(async () => fake.authStateListener?.(user));
+
+  await waitFor(() => expect(view.getByText('signedOut')).toBeTruthy());
+  expect(fake.signOuts).toBe(0);
+  fake.failProfileRead = get;
+});

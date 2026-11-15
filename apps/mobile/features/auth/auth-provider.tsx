@@ -77,18 +77,22 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
         }
         const pendingDisplayName = pendingName.current;
         pendingName.current = undefined;
+        let creatingProfile = false;
         try {
           const profile = await firestore().collection('users').doc(user.uid).get();
-          if (!profile.exists) await ensureProfile(user, pendingDisplayName);
+          creatingProfile = !profile.exists;
+          if (creatingProfile) await ensureProfile(user, pendingDisplayName);
           if (auth().currentUser?.uid !== user.uid) return;
           setState({ status: 'signedIn', user });
         } catch {
           if (auth().currentUser?.uid !== user.uid) return;
           setState({ status: 'signedOut', user: null });
-          // Without this the next sign-in as the same user fires no auth event and nothing happens.
-          void auth()
-            .signOut()
-            .catch(() => undefined);
+          // A failed first sign-in must be undone, or signing in again fires no auth event.
+          // A failed read (offline) keeps the session so the next launch can retry.
+          if (creatingProfile)
+            void auth()
+              .signOut()
+              .catch(() => undefined);
         }
       }),
     [ensureProfile],

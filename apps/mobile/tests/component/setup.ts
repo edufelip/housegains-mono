@@ -67,6 +67,7 @@ const mockFirebase = {
   permission: 1,
   deletedTokens: 0,
   hangUpdates: false,
+  failProfileRead: false,
   authStateListener: undefined as
     | ((user: { uid: string; email: string | null; displayName: string | null } | null) => void)
     | undefined,
@@ -118,10 +119,14 @@ jest.mock('@react-native-firebase/firestore', () => {
       return query(path);
     },
     onSnapshot: () => () => undefined,
-    get: async () => ({
-      exists: Boolean(mockFirebase.docs[path]),
-      data: () => mockFirebase.docs[path],
-    }),
+    get: async () => {
+      if (mockFirebase.failProfileRead)
+        throw Object.assign(new Error('offline'), { code: 'unavailable' });
+      return {
+        exists: Boolean(mockFirebase.docs[path]),
+        data: () => mockFirebase.docs[path],
+      };
+    },
     update: async (data: Record<string, unknown>) => {
       mockFirebase.updates.push({ path, data });
     },
