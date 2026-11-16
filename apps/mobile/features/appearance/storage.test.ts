@@ -51,6 +51,37 @@ describe('HouseGains appearance storage', () => {
     ]);
   });
 
+  it('accepts config-defined style ids and keeps the saved composition', async () => {
+    storage.getItem = async () =>
+      JSON.stringify({ version: 1, themeId: 'midnight', composition: 'arcade' });
+    assert.deepEqual(await readAppearancePreference(), {
+      status: 'present',
+      themeId: 'midnight',
+      composition: 'arcade',
+    });
+
+    storage.getItem = async () =>
+      JSON.stringify({ version: 1, themeId: 'midnight', composition: 'neon' });
+    assert.deepEqual(await readAppearancePreference(), { status: 'present', themeId: 'midnight' });
+
+    storage.getItem = async () => JSON.stringify({ version: 1, themeId: 'Not An Id' });
+    assert.deepEqual(await readAppearancePreference(), { status: 'invalid' });
+  });
+
+  it('writes the composition next to the style id when given', async () => {
+    const writes: string[] = [];
+    storage.setItem = async (_key, value) => {
+      writes.push(value);
+    };
+
+    await writeAppearancePreference('midnight', 'arcade');
+    await assert.rejects(writeAppearancePreference('Bad Id'), TypeError);
+
+    assert.deepEqual(writes, [
+      JSON.stringify({ version: 1, themeId: 'midnight', composition: 'arcade' }),
+    ]);
+  });
+
   it('surfaces read failures so the provider can offer retry', async () => {
     const failure = new Error('storage unavailable');
     storage.getItem = async () => {

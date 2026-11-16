@@ -68,6 +68,8 @@ const mockFirebase = {
   deletedTokens: 0,
   hangUpdates: false,
   failProfileRead: false,
+  remoteConfigValue: '' as string,
+  remoteConfigFetches: 0,
   authStateListener: undefined as
     | ((user: { uid: string; email: string | null; displayName: string | null } | null) => void)
     | undefined,
@@ -174,6 +176,18 @@ jest.mock('@react-native-firebase/messaging', () => {
     EPHEMERAL: 3,
   };
   return { __esModule: true, default: messaging };
+});
+
+jest.mock('@react-native-firebase/remote-config', () => {
+  const remoteConfig = () => ({
+    getValue: () => ({ asString: () => mockFirebase.remoteConfigValue }),
+    setConfigSettings: async () => undefined,
+    fetchAndActivate: async () => {
+      mockFirebase.remoteConfigFetches += 1;
+      return true;
+    },
+  });
+  return { __esModule: true, default: remoteConfig };
 });
 
 jest.mock('@react-native-firebase/functions', () => ({
