@@ -44,7 +44,8 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
   const pageRef = useRef(0);
   const pagerRef = useRef<ScrollView>(null);
   const [pagerWidth, setPagerWidth] = useState(0);
-  const [sample, setSample] = useState({ w: 0, h: 0 });
+  // Free space for the phone, per page: each page's header has a different height.
+  const [samples, setSamples] = useState<Record<string, { w: number; h: number }>>({});
   const [busy, setBusy] = useState(false);
   // Set synchronously so two taps before a re-render cannot start two saves.
   const busyRef = useRef(false);
@@ -133,8 +134,10 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
 
   const closeSheet = () => setSheetOpen(false);
 
-  const handleSampleLayout = (w: number, h: number) => {
-    setSample((current) => (current.w === w && current.h === h ? current : { w, h }));
+  const handleSampleLayout = (id: string, w: number, h: number) => {
+    setSamples((current) =>
+      current[id]?.w === w && current[id]?.h === h ? current : { ...current, [id]: { w, h } },
+    );
   };
 
   const renderPage = (style: PickerStyle, index: number) => {
@@ -148,6 +151,7 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
     const previousName = previous ? resolvePickerCopy(previous.copy.name, locale, t) : null;
     const nextName = next ? resolvePickerCopy(next.copy.name, locale, t) : null;
     const languageName = LANGUAGE_NAMES[locale].replace(' (Brasil)', '');
+    const sample = samples[style.id] ?? { w: 0, h: 0 };
     const phoneHeight = Math.max(
       300,
       Math.min(sample.h, (sample.w - 2 * SIDE_CONTROL_SPACE) / PHONE_ASPECT, 560),
@@ -254,9 +258,14 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
           </Label>
 
           <View
+            testID={`theme-picker.sample.${style.id}`}
             style={pickerStyles.sampleArea}
             onLayout={(event) =>
-              handleSampleLayout(event.nativeEvent.layout.width, event.nativeEvent.layout.height)
+              handleSampleLayout(
+                style.id,
+                event.nativeEvent.layout.width,
+                event.nativeEvent.layout.height,
+              )
             }
           >
             <View style={pickerStyles.sampleRow}>

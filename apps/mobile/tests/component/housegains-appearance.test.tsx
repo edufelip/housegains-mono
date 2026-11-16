@@ -8,7 +8,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react-native';
-import { AccessibilityInfo, Text } from 'react-native';
+import { AccessibilityInfo, StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Button } from '@/components/housegains/ui';
 import { ThemeProvider, useAppearance } from '@/features/appearance';
@@ -365,6 +365,24 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
     renderPicker();
     await waitForHydrated();
     expect(screen.getAllByTestId('housegains.theme-preview.sticker', HIDDEN)).toHaveLength(1);
+  });
+
+  test('each page sizes its phone from its own free space', async () => {
+    renderPicker();
+    await waitForHydrated();
+    const layout = (id: string, height: number) =>
+      fireEvent(screen.getByTestId(`theme-picker.sample.${id}`, HIDDEN), 'layout', {
+        nativeEvent: { layout: { x: 0, y: 0, width: 350, height } },
+      });
+    await layout('sticker', 400);
+    await layout('soft', 480);
+
+    const phoneHeight = (name: string) =>
+      StyleSheet.flatten(
+        screen.getByLabelText(`Sample household preview: ${name}`, HIDDEN).props.style,
+      ).height;
+    expect(phoneHeight('Sticker Pop')).toBe(400);
+    expect(phoneHeight('Soft Home')).toBe(480);
   });
 
   // Keep this test last: the two overlapping presses open overlapping act() scopes,
