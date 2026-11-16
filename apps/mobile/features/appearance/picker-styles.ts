@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
-import { DsFontFamily } from '@/constants/design-system';
 import { BUNDLED_PICKER_CONFIG, validatePickerConfig, visibleStyleConfigs } from './picker-config';
-import { getThemeTokens } from './tokens';
+import { FontFamily, getThemeTokens } from './tokens';
 import type {
   PickerConfigSource,
   PickerStyle,
@@ -40,7 +39,7 @@ export function toPickerStyle(config: PickerStyleConfig): PickerStyle {
       shadow: { ...base.shadow, color: shadowColor },
       typography: {
         ...base.typography,
-        heading: config.headingFont === 'serif' ? SERIF_FAMILY : DsFontFamily.bold,
+        heading: config.headingFont === 'serif' ? SERIF_FAMILY : FontFamily.bold,
       },
     },
   };

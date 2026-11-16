@@ -1,5 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
+  ActivityIndicator,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -9,7 +11,6 @@ import {
   type ScrollViewProps,
   type StyleProp,
   type TextProps,
-  type TextStyle,
   type ViewProps,
   type ViewStyle,
 } from 'react-native';
@@ -19,8 +20,9 @@ import {
   useAppearance,
   type AppearanceTokens,
   type ThemeId,
+  type TypeRole,
 } from '@/features/appearance';
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 
 type SafeAreaEdge = 'top' | 'right' | 'bottom' | 'left';
 
@@ -53,7 +55,11 @@ export function Screen({
         <ScrollView
           {...scrollProps}
           style={styles.fill}
-          contentContainerStyle={[styles.scrollContent, contentContainerStyle]}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { maxWidth: tokens.layout.maxContentWidth },
+            contentContainerStyle,
+          ]}
           keyboardShouldPersistTaps={scrollProps.keyboardShouldPersistTaps ?? 'handled'}
         >
           {children}
@@ -75,8 +81,8 @@ export function Card({ children, style, ...viewProps }: CardProps) {
     <View
       {...viewProps}
       style={[
-        styles.card,
         {
+          padding: tokens.spacing.md,
           backgroundColor: tokens.surface,
           borderColor: tokens.border,
           borderRadius: tokens.radius,
@@ -123,6 +129,7 @@ export function Button({
   const appearance = useAppearance();
   const tokens = tokensOverride ?? (themeId ? getThemeTokens(themeId) : appearance.tokens);
   const [focused, setFocused] = useState(false);
+  const buttonType = tokens.type.button;
   const variantStyle: ViewStyle =
     variant === 'primary'
       ? { backgroundColor: tokens.primary, borderColor: tokens.border }
@@ -147,6 +154,7 @@ export function Button({
       style={({ pressed }) => [
         styles.button,
         {
+          minHeight: tokens.touchTarget.comfortable,
           borderColor: tokens.border,
           borderRadius: tokens.radius,
           borderWidth: tokens.borderWidth,
@@ -158,22 +166,21 @@ export function Button({
         },
         variantStyle,
         style,
-        pressed && !disabled ? styles.buttonPressed : null,
+        pressed && !disabled
+          ? { opacity: tokens.stateOpacity.pressed, transform: [{ scale: 0.985 }] }
+          : null,
         focused ? { borderColor: tokens.accent } : null,
-        disabled ? styles.buttonDisabled : null,
+        disabled ? { opacity: tokens.stateOpacity.disabled } : null,
       ]}
     >
-      <Text
-        allowFontScaling
-        style={[styles.buttonLabel, { color: labelColor, fontFamily: tokens.typography.medium }]}
-      >
+      <Text allowFontScaling style={[styles.buttonLabel, buttonType, { color: labelColor }]}>
         {title}
       </Text>
     </Pressable>
   );
 }
 
-export type LabelVariant = 'title' | 'heading' | 'body' | 'caption' | 'eyebrow';
+export type LabelVariant = Exclude<TypeRole, 'button'>;
 
 export type LabelProps = Omit<TextProps, 'children'> & {
   children: ReactNode;
@@ -192,16 +199,7 @@ export function Label({
 }: LabelProps) {
   const appearance = useAppearance();
   const tokens = tokensOverride ?? (themeId ? getThemeTokens(themeId) : appearance.tokens);
-  const typography: TextStyle =
-    variant === 'title'
-      ? { fontFamily: tokens.typography.heading, fontSize: 26, lineHeight: 32, fontWeight: '700' }
-      : variant === 'heading'
-        ? { fontFamily: tokens.typography.heading, fontSize: 21, lineHeight: 27, fontWeight: '700' }
-        : variant === 'caption'
-          ? { fontFamily: tokens.typography.body, fontSize: 13, lineHeight: 18 }
-          : variant === 'eyebrow'
-            ? { fontFamily: tokens.typography.medium, fontSize: 12, lineHeight: 16 }
-            : { fontFamily: tokens.typography.body, fontSize: 16, lineHeight: 23 };
+  const quiet = variant === 'caption' || variant === 'eyebrow';
 
   return (
     <Text
@@ -209,13 +207,83 @@ export function Label({
       {...textProps}
       style={[
         styles.label,
-        { color: variant === 'caption' || variant === 'eyebrow' ? tokens.muted : tokens.text },
-        typography,
+        { color: quiet ? tokens.muted : tokens.text },
+        tokens.type[variant],
         style,
       ]}
     >
       {children}
     </Text>
+  );
+}
+
+export type StatePanelKind = 'loading' | 'empty' | 'error' | 'demo' | 'unavailable';
+
+export type StatePanelProps = {
+  kind: StatePanelKind;
+  title: string;
+  description?: string;
+  actionTitle?: string;
+  onAction?: () => void;
+  testID?: string;
+};
+
+const STATE_ICONS: Record<
+  Exclude<StatePanelKind, 'loading'>,
+  ComponentProps<typeof Ionicons>['name']
+> = {
+  empty: 'file-tray-outline',
+  error: 'alert-circle-outline',
+  demo: 'flask-outline',
+  unavailable: 'cloud-offline-outline',
+};
+
+/**
+ * The one way to show loading, empty, error, demo, and unavailable states.
+ * The kind is always conveyed by an icon and the title text, never color alone.
+ * An action (retry, create) renders only when both `actionTitle` and `onAction` are set.
+ */
+export function StatePanel({
+  kind,
+  title,
+  description,
+  actionTitle,
+  onAction,
+  testID,
+}: StatePanelProps) {
+  const { tokens } = useAppearance();
+  const iconColor = kind === 'error' ? tokens.danger : tokens.primary;
+  return (
+    <Card
+      accessibilityRole={kind === 'error' ? 'alert' : undefined}
+      accessibilityLiveRegion={kind === 'loading' ? 'polite' : undefined}
+      style={{ alignItems: 'center', gap: tokens.spacing.sm }}
+      testID={testID}
+    >
+      {kind === 'loading' ? (
+        <ActivityIndicator color={iconColor} size="large" />
+      ) : (
+        <Ionicons
+          accessibilityElementsHidden
+          color={iconColor}
+          importantForAccessibility="no"
+          name={STATE_ICONS[kind]}
+          size={tokens.iconSize.lg}
+        />
+      )}
+      <Label style={{ textAlign: 'center' }} variant="heading">
+        {title}
+      </Label>
+      {description ? <Label style={{ textAlign: 'center' }}>{description}</Label> : null}
+      {actionTitle && onAction ? (
+        <Button
+          onPress={onAction}
+          testID={testID ? `${testID}.action` : undefined}
+          title={actionTitle}
+          variant={kind === 'error' ? 'primary' : 'secondary'}
+        />
+      ) : null}
+    </Card>
   );
 }
 
@@ -230,13 +298,8 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     alignSelf: 'center',
     width: '100%',
-    maxWidth: 720,
-  },
-  card: {
-    padding: 16,
   },
   button: {
-    minHeight: 48,
     paddingHorizontal: 18,
     paddingVertical: 12,
     alignItems: 'center',
@@ -244,18 +307,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   buttonLabel: {
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '600',
     textAlign: 'center',
     flexShrink: 1,
-  },
-  buttonPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.985 }],
-  },
-  buttonDisabled: {
-    opacity: 0.52,
   },
   label: {
     flexShrink: 1,

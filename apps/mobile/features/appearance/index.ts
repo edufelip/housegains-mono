@@ -1,11 +1,19 @@
 export { ThemeProvider, useAppearance } from './appearance-provider';
-export { getThemeTokens, THEME_TOKENS } from './tokens';
+export { FontFamily, getThemeTokens, THEME_TOKENS } from './tokens';
 export {
   APPEARANCE_STORAGE_KEY,
   readAppearancePreference,
   writeAppearancePreference,
 } from './storage';
-export { THEME_IDS, type AppearanceTokens, type HouseGainsTheme, type ThemeId } from './types';
+export {
+  THEME_IDS,
+  TYPE_ROLES,
+  type AppearanceTokens,
+  type HouseGainsTheme,
+  type ThemeId,
+  type TypeRole,
+  type TypeStyle,
+} from './types';
 export {
   BUNDLED_PICKER_CONFIG,
   contrastRatio,

@@ -26,6 +26,9 @@ import type { Chore, Household, HouseholdViewModel, Member, XpLedgerEntry } from
 const HouseholdContext = createContext<HouseholdViewModel | undefined>(undefined);
 const WAIT_FOR_SNAPSHOT_MS = 5000;
 const NO_LEDGER: XpLedgerEntry[] = [];
+// Member colors are household data, not theme tokens, so this fallback is exempt from the
+// design-system color rule.
+// eslint-disable-next-line no-restricted-syntax
 const NO_MEMBER_COLOR = '#7c5cff';
 
 /** Live household state from Firestore, with the writes the screens call. Demo mode is gone. */
