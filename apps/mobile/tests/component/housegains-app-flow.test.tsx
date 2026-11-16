@@ -127,6 +127,8 @@ function signedIn(): AuthValue {
   return {
     status: 'signedIn',
     user: null,
+    signInProblem: null,
+    clearSignInProblem: () => undefined,
     signInWithApple: noop,
     signInWithGoogle: noop,
     signInWithEmail: noop,

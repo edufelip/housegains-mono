@@ -37,7 +37,11 @@ const authPtBR: Record<string, string> = {
   'housegains.auth.error.network': 'Sem conexão. Verifique sua internet e tente de novo.',
   'housegains.auth.error.tooManyRequests':
     'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
+  'housegains.auth.error.methodUnavailable':
+    'Esta opção de entrada não está disponível agora. Tente outra forma de entrar.',
   'housegains.auth.error.generic': 'Algo deu errado. Tente de novo.',
+  'housegains.auth.error.profileSetup':
+    'Você entrou, mas não foi possível configurar seu perfil. Tente de novo.',
   'housegains.auth.sync.loadError':
     'Não foi possível carregar sua casa. Verifique sua conexão e tente de novo.',
   'housegains.auth.sync.profileMissing':
