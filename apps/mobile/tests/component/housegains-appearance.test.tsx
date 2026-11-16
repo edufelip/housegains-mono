@@ -1,6 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, render, screen, userEvent, waitFor, within } from '@testing-library/react-native';
-import { Text } from 'react-native';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  userEvent,
+  waitFor,
+  within,
+} from '@testing-library/react-native';
+import { AccessibilityInfo, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Button } from '@/components/housegains/ui';
 import { ThemeProvider, useAppearance } from '@/features/appearance';
@@ -287,5 +295,110 @@ describe('HouseGains appearance picker', () => {
       themeId: 'soft',
       composition: 'soft',
     });
+  });
+});
+
+function PreviewProbe() {
+  const { previewTheme } = useAppearance();
+  return (
+    <Button title="Preview soft" onPress={() => previewTheme('soft')} testID="probe.preview-soft" />
+  );
+}
+
+describe('HouseGains appearance picker regressions (PR #5 review)', () => {
+  beforeEach(() => {
+    for (const key of Object.keys(mockStorage)) delete mockStorage[key];
+    mockStorage['app.language.override'] = 'en-US';
+    jest
+      .mocked(AsyncStorage.getItem)
+      .mockImplementation(async (key: string) => mockStorage[key] ?? null);
+    jest.mocked(AsyncStorage.setItem).mockImplementation(async (key: string, value: string) => {
+      mockStorage[key] = value;
+    });
+    fakeFirebase.remoteConfigValue = '';
+    fakeFirebase.remoteConfigFetches = 0;
+  });
+
+  test('mounting never previews a style; Next previews the next page', async () => {
+    mockStorage['housegains.appearance.v1'] = JSON.stringify({ version: 1, themeId: 'soft' });
+    renderPicker();
+    await waitForHydrated();
+    expect(screen.getByTestId('appearance.theme')).toHaveTextContent('soft');
+
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    await userEvent.setup().press(screen.getByTestId('theme-picker.next.sticker'));
+    await waitFor(() => expect(screen.getByTestId('appearance.theme')).toHaveTextContent('arcade'));
+    expect(announce).toHaveBeenCalledWith('2 of 3: Arcade');
+  });
+
+  test('Retry save stores the failed page style even if another style is previewed', async () => {
+    jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
+    const onContinue = jest.fn();
+    render(
+      <SafeAreaProvider initialMetrics={metrics}>
+        <LocaleProvider>
+          <ThemeProvider>
+            <ThemePickerScreen onContinue={onContinue} />
+            <AppearanceProbe />
+            <PreviewProbe />
+          </ThemeProvider>
+        </LocaleProvider>
+      </SafeAreaProvider>,
+    );
+    await waitForHydrated();
+    const user = userEvent.setup();
+    await user.press(screen.getByTestId('theme-choose.sticker'));
+    await waitFor(() => expect(screen.getByTestId('theme-picker.save-error')).toBeTruthy());
+
+    await user.press(screen.getByTestId('probe.preview-soft'));
+    await user.press(screen.getByTestId('theme-choose.sticker'));
+
+    await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1));
+    expect(JSON.parse(mockStorage['housegains.appearance.v1'])).toEqual({
+      version: 1,
+      themeId: 'sticker',
+      composition: 'sticker',
+    });
+  });
+
+  test('each sample preview test id is unique', async () => {
+    renderPicker();
+    await waitForHydrated();
+    expect(screen.getAllByTestId('housegains.theme-preview.sticker', HIDDEN)).toHaveLength(1);
+  });
+
+  // Keep this test last: the two overlapping presses open overlapping act() scopes,
+  // which can leave React's act queue unusable for a following render.
+  test('a second tap on Choose while saving does not start a second save', async () => {
+    const pending: (() => void)[] = [];
+    jest.mocked(AsyncStorage.setItem).mockImplementation(
+      (key: string, value: string) =>
+        new Promise<void>((resolve) => {
+          pending.push(() => {
+            mockStorage[key] = value;
+            resolve();
+          });
+        }),
+    );
+    const onContinue = jest.fn();
+    renderPicker(onContinue);
+    await waitForHydrated();
+
+    // Start both presses before either settles: both handlers run before React re-renders,
+    // like two fast touches on a device.
+    const button = screen.getByTestId('theme-choose.sticker');
+    const first = fireEvent.press(button);
+    const second = fireEvent.press(button);
+    await waitFor(() => expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1));
+    // Release every write that gets queued, so a second save (the bug) cannot hang the suite.
+    for (let round = 0; round < 3; round += 1) {
+      await act(async () => {
+        while (pending.length) pending.shift()?.();
+      });
+    }
+    await Promise.all([first, second]);
+
+    await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1));
+    expect(AsyncStorage.setItem).toHaveBeenCalledTimes(1);
   });
 });

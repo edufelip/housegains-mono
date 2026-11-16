@@ -13,7 +13,7 @@ import {
   type TextInputProps,
 } from 'react-native';
 import { Button, Label, Screen } from '@/components/housegains/ui';
-import { useAppearance } from '@/features/appearance';
+import { isDarkColor, useAppearance } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { authErrorKey } from './auth-errors';
 import { useAuth } from './auth-provider';
@@ -28,7 +28,8 @@ const ERROR_COLOR = '#B4233B';
 
 /** Sign in with Apple (iOS), Google (when provisioned), or email. Shown whenever no user is signed in. */
 export function SignInScreen() {
-  const { tokens, themeId } = useAppearance();
+  const { tokens } = useAppearance();
+  const darkCanvas = isDarkColor(tokens.canvas);
   const { t, locale } = useHouseGainsTranslation();
   const auth = useAuth();
   const [mode, setMode] = useState<Mode>('signIn');
@@ -126,7 +127,7 @@ export function SignInScreen() {
             {appleEnabled ? (
               <AppleAuthentication.AppleAuthenticationButton
                 buttonStyle={
-                  themeId === 'arcade'
+                  darkCanvas
                     ? AppleAuthentication.AppleAuthenticationButtonStyle.WHITE
                     : AppleAuthentication.AppleAuthenticationButtonStyle.BLACK
                 }
@@ -139,7 +140,7 @@ export function SignInScreen() {
             ) : null}
             {googleEnabled ? (
               <GoogleSigninButton
-                color={themeId === 'arcade' ? 'light' : 'dark'}
+                color={darkCanvas ? 'light' : 'dark'}
                 disabled={busy}
                 onPress={() => void run(auth.signInWithGoogle)}
                 style={styles.social}

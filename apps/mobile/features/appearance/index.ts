@@ -10,6 +10,7 @@ export {
   BUNDLED_PICKER_CONFIG,
   contrastRatio,
   isDarkColor,
+  statusBarStyleFor,
   resolvePickerCopy,
   validatePickerConfig,
 } from './picker-config';

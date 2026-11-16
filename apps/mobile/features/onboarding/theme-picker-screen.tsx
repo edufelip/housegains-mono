@@ -1,3 +1,4 @@
+import { StatusBar } from 'expo-status-bar';
 import { useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
@@ -17,7 +18,11 @@ import { LanguagePicker } from '@/components/housegains/language-picker';
 import { PHONE_ASPECT, PhonePreview } from '@/components/housegains/phone-preview';
 import { Button, Label } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
-import { isDarkColor, resolvePickerCopy } from '@/features/appearance/picker-config';
+import {
+  isDarkColor,
+  resolvePickerCopy,
+  statusBarStyleFor,
+} from '@/features/appearance/picker-config';
 import { LANGUAGE_NAMES } from '@/localization/core';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import type { PickerStyle } from '@/features/appearance/picker-config-types';
@@ -30,16 +35,8 @@ type ThemePickerScreenProps = {
 const SIDE_CONTROL_SPACE = 54;
 
 export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps) {
-  const {
-    hydrated,
-    styles,
-    loadError,
-    saveError,
-    previewTheme,
-    selectTheme,
-    retryLoad,
-    retrySave,
-  } = useAppearance();
+  const { hydrated, styles, loadError, saveError, previewTheme, selectTheme, retryLoad } =
+    useAppearance();
   const { t, locale } = useHouseGainsTranslation();
   const insets = useSafeAreaInsets();
 
@@ -49,6 +46,8 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
   const [pagerWidth, setPagerWidth] = useState(0);
   const [sample, setSample] = useState({ w: 0, h: 0 });
   const [busy, setBusy] = useState(false);
+  // Set synchronously so two taps before a re-render cannot start two saves.
+  const busyRef = useRef(false);
   const [savingId, setSavingId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -82,6 +81,9 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
     pageRef.current = index;
     setPage(index);
     previewTheme(styles[index].id);
+    AccessibilityInfo.announceForAccessibility(
+      `${t('housegains.appearance.page_position', { index: index + 1, total: styles.length })}: ${resolvePickerCopy(styles[index].copy.name, locale, t)}`,
+    );
   };
 
   const handleMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -99,48 +101,35 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
     showPage(index);
   };
 
-  // The only place that saves. A failure keeps the user on this page.
-  const choose = async (id: string) => {
-    if (busy) return;
+  const runLocked = async (task: () => Promise<void>) => {
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
-    setFailedId(null);
-    setSavingId(id);
     try {
-      await selectTheme(id);
-      onContinue();
-    } catch {
-      setFailedId(id);
+      await task();
     } finally {
+      busyRef.current = false;
       setBusy(false);
-      setSavingId(null);
     }
   };
 
-  const retry = async (id: string) => {
-    if (busy) return;
-    setBusy(true);
-    setFailedId(null);
-    setSavingId(id);
-    try {
-      await retrySave();
-      onContinue();
-    } catch {
-      setFailedId(id);
-    } finally {
-      setBusy(false);
-      setSavingId(null);
-    }
-  };
+  // The only place that saves; Retry save uses it too, with the failed page's own style.
+  // A failure keeps the user on this page.
+  const choose = (id: string) =>
+    runLocked(async () => {
+      setFailedId(null);
+      setSavingId(id);
+      try {
+        await selectTheme(id);
+        onContinue();
+      } catch {
+        setFailedId(id);
+      } finally {
+        setSavingId(null);
+      }
+    });
 
-  const reloadPreference = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await retryLoad();
-    } finally {
-      setBusy(false);
-    }
-  };
+  const reloadPreference = () => runLocked(() => retryLoad());
 
   const closeSheet = () => setSheetOpen(false);
 
@@ -295,7 +284,7 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
                 <Text style={[pickerStyles.arrowGlyph, { color: k.text }]}>‹</Text>
               </Pressable>
 
-              <View testID={`housegains.theme-preview.${style.id}`}>
+              <View>
                 <PhonePreview
                   styleId={style.id}
                   composition={style.composition}
@@ -435,7 +424,7 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
             tokens={k}
             testID={`theme-choose.${style.id}`}
             title={chooseTitle}
-            onPress={() => void (retrying ? retry(style.id) : choose(style.id))}
+            onPress={() => void choose(style.id)}
             disabled={!hydrated || busy}
           />
         </View>
@@ -445,6 +434,7 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
 
   return (
     <View testID="housegains.theme-picker" style={pickerStyles.root}>
+      {sheetStyle ? <StatusBar style={statusBarStyleFor(sheetStyle.tokens.canvas)} /> : null}
       <ScrollView
         ref={pagerRef}
         horizontal

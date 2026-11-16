@@ -111,6 +111,8 @@ export function findStyleForSelection(
       const bundledByComposition = bundled.all.find((style) => style.composition === composition);
       if (bundledByComposition) return bundledByComposition;
     }
+    // A saved id we cannot place: use the first bundled style, never a remote-only one.
+    return bundled.visible[0];
   }
   return resolved.visible[0] ?? bundled.visible[0];
 }

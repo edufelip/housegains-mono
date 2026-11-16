@@ -276,3 +276,12 @@ describe('colour helpers', () => {
     assert.equal(isDarkColor('#FFFDF0'), false);
   });
 });
+
+describe('statusBarStyleFor', () => {
+  it('follows the canvas colour, not the layout family', async () => {
+    const { statusBarStyleFor } = await import('./picker-config');
+    assert.equal(statusBarStyleFor('#0D1117'), 'light');
+    assert.equal(statusBarStyleFor('#FFFDF0'), 'dark');
+    assert.equal(statusBarStyleFor('#0B1220'), 'light');
+  });
+});

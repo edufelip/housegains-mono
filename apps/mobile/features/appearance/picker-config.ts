@@ -139,6 +139,11 @@ export function isDarkColor(hex: string): boolean {
   return relativeLuminance(hex) < 0.2;
 }
 
+/** Status bar content style for a background colour: light text on dark canvases. */
+export function statusBarStyleFor(canvas: string): 'light' | 'dark' {
+  return isDarkColor(canvas) ? 'light' : 'dark';
+}
+
 const defaultHasKey = (key: string): boolean =>
   SUPPORTED_LOCALES.every((locale) =>
     Object.prototype.hasOwnProperty.call(HOUSEGAINS_DICTIONARIES[locale], key),
