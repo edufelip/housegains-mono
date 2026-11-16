@@ -49,6 +49,7 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
   const [busy, setBusy] = useState(false);
   // Set synchronously so two taps before a re-render cannot start two saves.
   const busyRef = useRef(false);
+  const nameRefs = useRef<Record<string, Text | null>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [failedId, setFailedId] = useState<string | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -82,9 +83,13 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
     pageRef.current = index;
     setPage(index);
     previewTheme(styles[index].id);
-    AccessibilityInfo.announceForAccessibility(
-      `${t('housegains.appearance.page_position', { index: index + 1, total: styles.length })}: ${resolvePickerCopy(styles[index].copy.name, locale, t)}`,
-    );
+    // Move screen-reader focus to the new page's heading (it reads "2 of 3: Arcade"); the
+    // control that was pressed now sits on a page hidden from accessibility.
+    const id = styles[index].id;
+    setTimeout(() => {
+      const node = nameRefs.current[id];
+      if (node) AccessibilityInfo.sendAccessibilityEvent(node, 'focus');
+    }, 100);
   };
 
   const handleMomentumEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -178,7 +183,22 @@ export default function ThemePickerScreen({ onContinue }: ThemePickerScreenProps
               color: k.text,
             };
 
-    const nameText = <Text style={nameStyle}>{name}</Text>;
+    const nameText = (
+      <Text
+        ref={(node) => {
+          nameRefs.current[style.id] = node;
+        }}
+        accessibilityRole="header"
+        accessibilityLabel={`${t('housegains.appearance.page_position', {
+          index: index + 1,
+          total: styles.length,
+        })}: ${name}`}
+        testID={`theme-picker.name.${style.id}`}
+        style={nameStyle}
+      >
+        {name}
+      </Text>
+    );
 
     return (
       <SafeAreaView

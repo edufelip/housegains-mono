@@ -325,10 +325,14 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
     await waitForHydrated();
     expect(screen.getByTestId('appearance.theme')).toHaveTextContent('soft');
 
-    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    const focus = jest.spyOn(AccessibilityInfo, 'sendAccessibilityEvent');
     await userEvent.setup().press(screen.getByTestId('theme-picker.next.sticker'));
     await waitFor(() => expect(screen.getByTestId('appearance.theme')).toHaveTextContent('arcade'));
-    expect(announce).toHaveBeenCalledWith('2 of 3: Arcade');
+    // Screen-reader focus moves to the new page's heading, which reads its position.
+    await waitFor(() => expect(focus).toHaveBeenCalledWith(expect.anything(), 'focus'));
+    expect(screen.getByTestId('theme-picker.name.arcade').props.accessibilityLabel).toBe(
+      '2 of 3: Arcade',
+    );
   });
 
   test('Retry save stores the failed page style even if another style is previewed', async () => {
