@@ -9,7 +9,7 @@ These HouseGains screens are specified in `docs/screens/housegains-v1.md`. Statu
 
 | Screen ID | Screen | Primary purpose | Status |
 |---|---|---|---|
-| Picker | Appearance picker | Preview and intentionally select Arcade, Sticker Pop, or Soft Home | In progress |
+| Picker | Appearance picker | Swipe a full-screen pager of Sticker Pop, Arcade, and Soft Home previews; a page's Choose button saves that style | In progress |
 | G1 | Create household | Create household profile as creator | In progress |
 | G2 | Pick chores | Add household-owned copies from catalog | In progress |
 | G3 | Invite housemates | Share code, QR, or deep link | In progress |

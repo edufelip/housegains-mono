@@ -1175,6 +1175,21 @@ Picker and preview keys are present in all three HouseGains locale dictionaries.
 | `housegains.auth.sync.notFound` | HouseGains | Auth: sync | That item no longer exists. | Este item não existe mais. | Este elemento ya no existe. | |
 | `housegains.auth.sync.offline` | HouseGains | Auth: sync | You're offline. Your change was not saved. Try again when you reconnect. | Você está offline. Sua alteração não foi salva. Tente de novo quando reconectar. | Estás sin conexión. Tu cambio no se guardó. Inténtalo de nuevo al reconectarte. | |
 
+## HouseGains v1 — Style picker pager keys
+
+New keys for the horizontal style picker (task T2). They are added to all six bundles in `apps/mobile/localization/housegains/`, next to the other `housegains.appearance.*` keys. Values are exact. The existing `housegains.appearance.continue` and `select` keys are kept as-is in the table above.
+
+| Key | Screen | Usage | en-US | pt-BR | es-ES | fr-FR | de-DE | it-IT | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `housegains.appearance.choose` | Picker | Choose button per page | Choose {theme} | Escolher {theme} | Elegir {theme} | Choisir {theme} | {theme} wählen | Scegli {theme} | Named values in braces are interpolated. |
+| `housegains.appearance.swipe_hint` | Picker | Pager hint | Swipe to compare all {count} styles | Deslize para comparar os {count} estilos | Desliza para comparar los {count} estilos | Fais glisser pour comparer les {count} styles | Wische, um alle {count} Stile zu vergleichen | Scorri per confrontare i {count} stili | Named values in braces are interpolated. |
+| `housegains.appearance.previous` | Picker | Previous page button | Previous style | Estilo anterior | Estilo anterior | Style précédent | Vorheriger Stil | Stile precedente |  |
+| `housegains.appearance.next` | Picker | Next page button | Next style | Próximo estilo | Estilo siguiente | Style suivant | Nächster Stil | Stile successivo |  |
+| `housegains.appearance.page_position` | Picker | Page position label | {index} of {total} | {index} de {total} | {index} de {total} | {index} sur {total} | {index} von {total} | {index} di {total} | Named values in braces are interpolated. |
+| `housegains.appearance.language_button` | Picker | Language button on each page | Language: {language}. Change | Idioma: {language}. Alterar | Idioma: {language}. Cambiar | Langue : {language}. Modifier | Sprache: {language}. Ändern | Lingua: {language}. Cambia | Named values in braces are interpolated. |
+| `housegains.appearance.language_done` | Picker | Language sheet Done button | Done | Concluído | Listo | Terminé | Fertig | Fine |  |
+| `housegains.preview.clock` | Picker preview | Sample status-bar time | 9:41 | 9:41 | 9:41 | 9:41 | 9:41 | 9:41 | Reference-only sample value. |
+
 ## HouseGains six-language source
 
 The active HouseGains app supports Portuguese, Spanish, French, German and Italian, plus English. The complete generated [six-language copy table](../housegains-localized-copy.md) includes every string in all six locales; the older fitness-product rows above remain archived reference material.

@@ -12,7 +12,7 @@
 
 ## Journey
 
-New household: appearance picker → G1 Create household → G2 Pick chores → G3 Invite housemates → G4 Assign chores → Today. Existing member: appearance picker → G5 Join by code or deep link → Today. The first creator may continue to Settings, Ranks, or Feed from the household shell. Settings can reopen the appearance picker without restarting onboarding.
+New household: appearance picker → G1 Create household → G2 Pick chores → G3 Invite housemates → G4 Assign chores → Today. Existing member: appearance picker → G5 Join by code or deep link → Today. The first creator may continue to Settings, Ranks, or Feed from the household shell. Settings can reopen the appearance picker without restarting onboarding. On the appearance picker, swiping only previews; the page's "Choose {style}" button is the only action that saves the style and continues.
 
 The shared shell exposes Today, chore creation, Ranks, Feed, and Settings. Creating or selecting a chore never changes its XP behavior by appearance.
 
@@ -22,7 +22,7 @@ Routes are proposed product destinations; route wiring remains part of implement
 
 | ID / screen | Proposed destination | Purpose and primary actions | Required states and rules |
 |---|---|---|---|
-| Appearance picker | Onboarding / appearance | Preview Arcade, Sticker Pop, and Soft Home using the same sample content; select one, then Continue. | No default selection; selected state is not color-only; all options reachable on narrow screens; preview does not commit; selected style persists through restart. |
+| Appearance picker | Onboarding / appearance | Horizontal pager of full-screen pages in config order (Sticker Pop, Arcade, Soft Home), each drawn in its own style with a mini phone sample of the same content. Swipe, Previous, or Next only previews; each page's "Choose {style}" button saves and continues. | No pre-selection; saving locks the pager and buttons; per-page save error with "Retry save"; load error with "Try loading again"; selected state is not color-only; all pages reachable on narrow screens; preview does not commit; selected style persists through restart; language sheet applies a choice immediately, with Retry on failure. |
 | G1 Create household | Household / create | Enter household name and choose household icon/color; create as creator. The creator can edit the profile later in Settings. | Loading, invalid/missing name, failure/retry, success. Do not show live membership before creation succeeds. |
 | G2 Pick chores | Household / catalog | Browse catalog and add selected chores to the household. | Empty/loading/error; a selection creates a household-owned copy with its own subtasks and XP. |
 | G3 Invite housemates | Household / invite | Show invite code, QR, and shareable deep link; regenerate invite. | Code is six characters from A–Z excluding I/O and 2–9; seven-day expiry; eight uses; expired, exhausted, and revoked states are explicit; regenerating revokes the old code. |

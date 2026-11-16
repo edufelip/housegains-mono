@@ -35,7 +35,7 @@ The HouseGains references are three complete visual compositions. Use the suppli
 
 ## Appearance picker
 
-Show three labeled previews built from the same sample chore and score data. Tapping a preview changes only the temporary preview; a separate Continue action stores the intentional choice. Show selection with text or an icon as well as an outline or color. On narrow phones, make every option discoverable by a scrollable stack or a paged carousel with position indicators. Do not choose a style for the user on first run.
+Show the styles as a horizontal pager of full-screen pages, one per style, in the order set by the style picker config (Sticker Pop, Arcade, Soft Home). Each page is drawn entirely in its own style and shows a mini phone sample built from the same sample chore and score data. Swiping, or the Previous and Next buttons, changes only the preview. Each page has one "Choose {style}" button; only that button stores the choice, and then the app continues. Show position with page dots and a "Swipe to compare" hint. Show selection with text or an icon as well as an outline or color. Do not choose a style for the user on first run: nothing is pre-selected. While saving, lock the pager and every button; a save failure shows an error on that page and changes its button to "Retry save"; a failed load of the stored choice shows "Try loading again" on every page. The language button opens a sheet styled like the current page.
 
 Settings can switch styles after setup without repeating onboarding or changing chore data. Persist the selected appearance locally and wait for hydration before drawing the themed shell.
 

@@ -75,16 +75,23 @@ Active app copy in English, Portuguese, Spanish, French, German and Italian. Gen
 | `housegains.account.section.household` | Household | Casa | Hogar | Foyer | Haushalt | Casa |
 | `housegains.account.section.reminders` | Reminders | Lembretes | Recordatorios | Rappels | Erinnerungen | Promemoria |
 | `housegains.account.signOut` | Sign out | Sair | Cerrar sesión | Se déconnecter | Abmelden | Esci |
+| `housegains.appearance.choose` | Choose {theme} | Escolher {theme} | Elegir {theme} | Choisir {theme} | {theme} wählen | Scegli {theme} |
 | `housegains.appearance.continue` | Continue | Continuar | Continuar | Continuer | Weiter | Continua |
 | `housegains.appearance.error.load` | Your saved style could not be loaded. Choose a style or try again. | Não foi possível carregar seu estilo salvo. Escolha um estilo ou tente novamente. | No se pudo cargar tu estilo guardado. Elige un estilo o inténtalo de nuevo. | Impossible de charger ton style enregistré. Choisis un style ou réessaie. | Dein gespeicherter Stil konnte nicht geladen werden. Wähle einen Stil aus oder versuche es erneut. | Impossibile caricare lo stile salvato. Scegline uno o riprova. |
 | `housegains.appearance.error.save` | Your style is previewing but was not saved. Retry to continue. | Seu estilo está na prévia, mas não foi salvo. Tente novamente para continuar. | El estilo se muestra en la vista previa, pero no se guardó. Inténtalo de nuevo para continuar. | Ton style s’affiche dans l’aperçu, mais il n’a pas été enregistré. Réessaie pour continuer. | Dein Stil wird in der Vorschau angezeigt, wurde aber nicht gespeichert. Versuche es erneut, um fortzufahren. | Lo stile è visualizzato in anteprima, ma non è stato salvato. Riprova per continuare. |
+| `housegains.appearance.language_button` | Language: {language}. Change | Idioma: {language}. Alterar | Idioma: {language}. Cambiar | Langue : {language}. Modifier | Sprache: {language}. Ändern | Lingua: {language}. Cambia |
+| `housegains.appearance.language_done` | Done | Concluído | Listo | Terminé | Fertig | Fine |
+| `housegains.appearance.next` | Next style | Próximo estilo | Estilo siguiente | Style suivant | Nächster Stil | Stile successivo |
+| `housegains.appearance.page_position` | {index} of {total} | {index} de {total} | {index} de {total} | {index} sur {total} | {index} von {total} | {index} di {total} |
 | `housegains.appearance.preview_hint` | Sample household preview | Prévia de uma casa de exemplo | Vista previa de un hogar de ejemplo | Aperçu d’un foyer exemple | Vorschau eines Beispielhaushalts | Anteprima di una casa di esempio |
+| `housegains.appearance.previous` | Previous style | Estilo anterior | Estilo anterior | Style précédent | Vorheriger Stil | Stile precedente |
 | `housegains.appearance.retry_load` | Try loading again | Tentar carregar novamente | Intentar cargar de nuevo | Réessayer le chargement | Erneut laden | Riprova a caricare |
 | `housegains.appearance.retry_save` | Retry save | Tentar salvar novamente | Intentar guardar de nuevo | Réessayer l’enregistrement | Erneut speichern | Riprova a salvare |
 | `housegains.appearance.saving` | Saving style… | Salvando estilo… | Guardando estilo… | Enregistrement du style… | Stil wird gespeichert… | Salvataggio dello stile… |
 | `housegains.appearance.select` | Select {theme} | Selecionar {theme} | Elegir {theme} | Sélectionner {theme} | {theme} auswählen | Seleziona {theme} |
 | `housegains.appearance.selected` | Selected | Selecionado | Seleccionado | Sélectionné | Ausgewählt | Selezionato |
 | `housegains.appearance.subtitle` | Pick a look for your home. You can change it anytime in Settings. | Escolha o visual da sua casa. Você pode mudar quando quiser em Configurações. | Elige el aspecto de tu hogar. Puedes cambiarlo cuando quieras en Ajustes. | Choisis l’ambiance de ton foyer. Tu pourras la modifier à tout moment dans les paramètres. | Wähle einen Look für dein Zuhause. Du kannst ihn jederzeit in den Einstellungen ändern. | Scegli l’aspetto della tua casa. Puoi cambiarlo quando vuoi nelle Impostazioni. |
+| `housegains.appearance.swipe_hint` | Swipe to compare all {count} styles | Deslize para comparar os {count} estilos | Desliza para comparar los {count} estilos | Fais glisser pour comparer les {count} styles | Wische, um alle {count} Stile zu vergleichen | Scorri per confrontare i {count} stili |
 | `housegains.appearance.title` | Choose your style | Escolha seu estilo | Elige tu estilo | Choisis ton style | Wähle deinen Stil | Scegli il tuo stile |
 | `housegains.auth.apple.accessibilityLabel` | Sign in with Apple | Entrar com a Apple | Iniciar sesión con Apple | Se connecter avec Apple | Mit Apple anmelden | Accedi con Apple |
 | `housegains.auth.create.haveAccount` | I already have an account | Já tenho uma conta | Ya tengo una cuenta | J'ai déjà un compte | Ich habe schon ein Konto | Ho già un account |
@@ -164,6 +171,7 @@ Active app copy in English, Portuguese, Spanish, French, German and Italian. Gen
 | `housegains.preview.arcade_tasks` | Today's quests | Missões de hoje | Misiones de hoy | Missions du jour | Heutige Missionen | Missioni di oggi |
 | `housegains.preview.bounty_hint` | Up for grabs · +5 bonus | Disponível · bônus de +5 | Disponible · +5 extra | À prendre · bonus de +5 | Für alle verfügbar · +5 Bonus | Disponibile · +5 bonus |
 | `housegains.preview.claim` | Claim | Assumir | Reclamar | Prendre | Übernehmen | Assegna a te |
+| `housegains.preview.clock` | 9:41 | 9:41 | 9:41 | 9:41 | 9:41 | 9:41 |
 | `housegains.preview.done_count` | {done} of {total} done | {done} de {total} concluídas | {done} de {total} completadas | {done} sur {total} terminées | {done} von {total} erledigt | {done} completate su {total} |
 | `housegains.preview.goal` | Weekly goal | Meta semanal | Meta semanal | Objectif hebdomadaire | Wochenziel | Obiettivo settimanale |
 | `housegains.preview.goal_progress` | {percent}% there | {percent}% concluídos | Llevas el {percent}% | À {percent} % | Zu {percent} % erreicht | Al {percent}% |
