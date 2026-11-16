@@ -14,7 +14,12 @@ import {
   type ViewStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { getThemeTokens, useAppearance, type ThemeId } from '@/features/appearance';
+import {
+  getThemeTokens,
+  useAppearance,
+  type AppearanceTokens,
+  type ThemeId,
+} from '@/features/appearance';
 import type { ReactNode } from 'react';
 
 type SafeAreaEdge = 'top' | 'right' | 'bottom' | 'left';
@@ -99,6 +104,7 @@ export type ButtonProps = {
   variant?: ButtonVariant;
   accessibilityLabel?: string;
   themeId?: ThemeId;
+  tokens?: AppearanceTokens;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -110,11 +116,12 @@ export function Button({
   variant = 'primary',
   accessibilityLabel,
   themeId,
+  tokens: tokensOverride,
   style,
   testID,
 }: ButtonProps) {
   const appearance = useAppearance();
-  const tokens = themeId ? getThemeTokens(themeId) : appearance.tokens;
+  const tokens = tokensOverride ?? (themeId ? getThemeTokens(themeId) : appearance.tokens);
   const [focused, setFocused] = useState(false);
   const variantStyle: ViewStyle =
     variant === 'primary'
@@ -172,11 +179,19 @@ export type LabelProps = Omit<TextProps, 'children'> & {
   children: ReactNode;
   variant?: LabelVariant;
   themeId?: ThemeId;
+  tokens?: AppearanceTokens;
 };
 
-export function Label({ children, variant = 'body', themeId, style, ...textProps }: LabelProps) {
+export function Label({
+  children,
+  variant = 'body',
+  themeId,
+  tokens: tokensOverride,
+  style,
+  ...textProps
+}: LabelProps) {
   const appearance = useAppearance();
-  const tokens = themeId ? getThemeTokens(themeId) : appearance.tokens;
+  const tokens = tokensOverride ?? (themeId ? getThemeTokens(themeId) : appearance.tokens);
   const typography: TextStyle =
     variant === 'title'
       ? { fontFamily: tokens.typography.heading, fontSize: 26, lineHeight: 32, fontWeight: '700' }

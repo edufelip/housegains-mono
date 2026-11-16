@@ -41,8 +41,9 @@ test.each(['pt-BR', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'] as const)(
   'can select %s before onboarding and retain it after remount',
   async (locale) => {
     const view = await render(app());
+    await fireEvent.press(view.getByTestId('theme-picker.next.sticker'));
+    await fireEvent.press(view.getByTestId('theme-picker.language.arcade'));
     const button = await view.findByTestId(`housegains.onboarding.language.${locale}`);
-    await fireEvent.press(view.getByTestId('theme-option.arcade'));
     await fireEvent.press(button);
     await waitFor(() =>
       expect(
@@ -50,7 +51,7 @@ test.each(['pt-BR', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'] as const)(
       ).toBeTruthy(),
     );
     expect(mockStorage['app.language.override']).toBe(locale);
-    expect(view.getByTestId('theme-option.arcade').props.accessibilityState.selected).toBe(true);
+    expect(view.getByTestId('theme-page.arcade').props.accessibilityElementsHidden).toBe(false);
     await view.unmount();
     const resumed = await render(app());
     await waitFor(() =>
@@ -62,6 +63,7 @@ test.each(['pt-BR', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'] as const)(
 );
 test('a failed language write keeps the saved locale and exposes a working retry', async () => {
   const view = await render(app());
+  await fireEvent.press(view.getByTestId('theme-picker.language.sticker'));
   const button = await view.findByTestId('housegains.onboarding.language.fr-FR');
   jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
   await fireEvent.press(button);

@@ -15,6 +15,13 @@ const enUS = {
     'Your saved style could not be loaded. Choose a style or try again.',
   'housegains.appearance.error.save':
     'Your style is previewing but was not saved. Retry to continue.',
+  'housegains.appearance.choose': 'Choose {theme}',
+  'housegains.appearance.swipe_hint': 'Swipe to compare all {count} styles',
+  'housegains.appearance.previous': 'Previous style',
+  'housegains.appearance.next': 'Next style',
+  'housegains.appearance.page_position': '{index} of {total}',
+  'housegains.appearance.language_button': 'Language: {language}. Change',
+  'housegains.appearance.language_done': 'Done',
   'housegains.theme.arcade.name': 'Arcade',
   'housegains.theme.arcade.description': 'Black quests, electric lime, and high-energy progress.',
   'housegains.theme.sticker.name': 'Sticker Pop',
@@ -56,6 +63,7 @@ const enUS = {
   'housegains.preview.member_rafa': 'Rafa',
   'housegains.preview.member_bia': 'Bia',
   'housegains.preview.member_thiago': 'Thiago',
+  'housegains.preview.clock': '9:41',
   ...houseGainsScreensEnUS,
 } as const;
 

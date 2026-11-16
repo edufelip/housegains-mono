@@ -4,7 +4,7 @@
 
 ## Acceptance criteria
 
-- **AC-618 — Appearance picker:** Given first-run setup, when a member previews the three styles, then no style is committed until Continue and all three choices are reachable and distinguishable without color alone.
+- **AC-618 — Appearance picker:** Given first-run setup, when a member swipes through the three pages, then nothing is pre-selected, no style is saved until that page's "Choose {style}" button is pressed, and all three pages are reachable and distinguishable without color alone.
 - **AC-619 — Household and invite:** Given a creator, when an invite is generated, then it is six characters from the allowed alphabet, expires in seven days, permits at most eight successful joins, supports code/QR/deep link, and regeneration invalidates the previous code.
 - **AC-620 — Membership and catalog copies:** Given a member joins or selects a catalog chore, when the operation succeeds, then the membership is recorded or an independent household-owned chore copy is created; changing the source catalog does not mutate the copy.
 - **AC-621 — Assignment and builder limits:** Given a household chore, when the creator saves it, then it can have zero or multiple member assignees and has 1–10 subtasks, 5–100 XP per subtask, and 0–50 bonus XP.

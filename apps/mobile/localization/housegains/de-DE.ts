@@ -16,6 +16,13 @@ const deDE: Record<keyof typeof enUS, string> = {
     'Dein gespeicherter Stil konnte nicht geladen werden. Wähle einen Stil aus oder versuche es erneut.',
   'housegains.appearance.error.save':
     'Dein Stil wird in der Vorschau angezeigt, wurde aber nicht gespeichert. Versuche es erneut, um fortzufahren.',
+  'housegains.appearance.choose': '{theme} wählen',
+  'housegains.appearance.swipe_hint': 'Wische, um alle {count} Stile zu vergleichen',
+  'housegains.appearance.previous': 'Vorheriger Stil',
+  'housegains.appearance.next': 'Nächster Stil',
+  'housegains.appearance.page_position': '{index} von {total}',
+  'housegains.appearance.language_button': 'Sprache: {language}. Ändern',
+  'housegains.appearance.language_done': 'Fertig',
   'housegains.theme.arcade.name': 'Arcade',
   'housegains.theme.arcade.description':
     'Dunkle Missionen, leuchtendes Limettengrün und Fortschritt voller Energie.',
@@ -60,6 +67,7 @@ const deDE: Record<keyof typeof enUS, string> = {
   'housegains.preview.member_rafa': 'Rafa',
   'housegains.preview.member_bia': 'Bia',
   'housegains.preview.member_thiago': 'Thiago',
+  'housegains.preview.clock': '9:41',
   ...houseGainsScreensDeDE,
 };
 

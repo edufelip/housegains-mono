@@ -16,6 +16,13 @@ const itIT: Record<keyof typeof enUS, string> = {
     'Impossibile caricare lo stile salvato. Scegline uno o riprova.',
   'housegains.appearance.error.save':
     'Lo stile è visualizzato in anteprima, ma non è stato salvato. Riprova per continuare.',
+  'housegains.appearance.choose': 'Scegli {theme}',
+  'housegains.appearance.swipe_hint': 'Scorri per confrontare i {count} stili',
+  'housegains.appearance.previous': 'Stile precedente',
+  'housegains.appearance.next': 'Stile successivo',
+  'housegains.appearance.page_position': '{index} di {total}',
+  'housegains.appearance.language_button': 'Lingua: {language}. Cambia',
+  'housegains.appearance.language_done': 'Fine',
   'housegains.theme.arcade.name': 'Arcade',
   'housegains.theme.arcade.description':
     'Missioni scure, verde lime elettrico e progressi pieni di energia.',
@@ -61,6 +68,7 @@ const itIT: Record<keyof typeof enUS, string> = {
   'housegains.preview.member_rafa': 'Rafa',
   'housegains.preview.member_bia': 'Bia',
   'housegains.preview.member_thiago': 'Thiago',
+  'housegains.preview.clock': '9:41',
   ...houseGainsScreensItIT,
 };
 

@@ -43,6 +43,7 @@
     "@react-native-firebase/firestore": "23.8.8",
     "@react-native-firebase/functions": "23.8.8",
     "@react-native-firebase/messaging": "23.8.8",
+    "@react-native-firebase/remote-config": "23.8.8",
     "@react-native-google-signin/google-signin": "16.1.2",
     "expo": "~54.0.33",
     "expo-apple-authentication": "~8.0.8",

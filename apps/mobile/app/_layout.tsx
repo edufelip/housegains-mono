@@ -8,18 +8,18 @@ import { GeistMono_500Medium } from '@expo-google-fonts/geist-mono';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { ThemeProvider, useAppearance } from '@/features/appearance';
+import { statusBarStyleFor, ThemeProvider, useAppearance } from '@/features/appearance';
 import { AuthProvider } from '@/features/auth';
 import { HouseholdProvider } from '@/features/household';
 import { HouseGainsCrashBoundary } from '@/features/observability/crashlytics';
 import { LocaleProvider } from '@/localization/locale-context';
 
 function HouseGainsStack() {
-  const { themeId, tokens } = useAppearance();
+  const { tokens } = useAppearance();
   useFonts({ Geist_400Regular, Geist_500Medium, Geist_700Bold, GeistMono_500Medium });
   return (
     <>
-      <StatusBar style={themeId === 'arcade' ? 'light' : 'dark'} />
+      <StatusBar style={statusBarStyleFor(tokens.canvas)} />
       <Stack
         screenOptions={{ headerShown: false, contentStyle: { backgroundColor: tokens.canvas } }}
       />

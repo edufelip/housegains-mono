@@ -16,6 +16,13 @@ const frFR: Record<keyof typeof enUS, string> = {
     'Impossible de charger ton style enregistré. Choisis un style ou réessaie.',
   'housegains.appearance.error.save':
     'Ton style s’affiche dans l’aperçu, mais il n’a pas été enregistré. Réessaie pour continuer.',
+  'housegains.appearance.choose': 'Choisir {theme}',
+  'housegains.appearance.swipe_hint': 'Fais glisser pour comparer les {count} styles',
+  'housegains.appearance.previous': 'Style précédent',
+  'housegains.appearance.next': 'Style suivant',
+  'housegains.appearance.page_position': '{index} sur {total}',
+  'housegains.appearance.language_button': 'Langue : {language}. Modifier',
+  'housegains.appearance.language_done': 'Terminé',
   'housegains.theme.arcade.name': 'Arcade',
   'housegains.theme.arcade.description':
     'Des missions sur fond noir, du vert citron électrique et une progression pleine d’énergie.',
@@ -60,6 +67,7 @@ const frFR: Record<keyof typeof enUS, string> = {
   'housegains.preview.member_rafa': 'Rafa',
   'housegains.preview.member_bia': 'Bia',
   'housegains.preview.member_thiago': 'Thiago',
+  'housegains.preview.clock': '9:41',
   ...houseGainsScreensFrFR,
 };
 

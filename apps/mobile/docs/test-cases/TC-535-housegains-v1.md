@@ -6,7 +6,7 @@
 
 | ID | Area | Preconditions | Steps | Expected result |
 |---|---|---|---|---|
-| TC-535 | Appearance | Fresh setup, three variants available | Preview each style, select one, continue, restart, then change style in Settings | Intentional selection persists; all previews use the same content; changing style leaves household data unchanged. |
+| TC-535 | Appearance | Fresh setup, three variants available | Swipe through each page and use Previous/Next; press Choose on one page; force a save failure and press Retry save; restart; then change style in Settings | Swipes and Previous/Next do not save; only Choose saves and continues; a save failure shows Retry save on that page; the saved style persists; all previews use the same content; changing style leaves household data unchanged. |
 | TC-536 | Household and invite | Creator household exists | Generate, share, join with a valid invite; attempt a 7-day-expired, revoked, malformed, and eight-use invite | Code alphabet/length and lifecycle rules are enforced; only valid join adds membership; QR and deep link resolve to the same invite. |
 | TC-537 | Catalog copies | Household and catalog template exist | Add a catalog chore; change template fixture; reopen household chore | Household copy retains its own content and is not mutated by catalog source change. |
 | TC-538 | Assignments | Household has multiple members | Save two assignees, then zero assignees; attempt to assign a non-member | Multiple and unassigned states save; non-member assignment is rejected. |

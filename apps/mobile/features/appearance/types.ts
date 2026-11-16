@@ -41,7 +41,12 @@ export type AppearanceTokens = {
   };
 };
 
+/**
+ * Saved choice. `themeId` is a style id (bundled or config-defined, see picker-config-types.ts);
+ * `composition` records the style's layout so a later-hidden style can still be resolved (rule R6).
+ */
 export type AppearancePreference = {
   version: 1;
-  themeId: ThemeId;
+  themeId: string;
+  composition?: ThemeId;
 };

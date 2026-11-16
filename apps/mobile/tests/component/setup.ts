@@ -68,6 +68,9 @@ const mockFirebase = {
   deletedTokens: 0,
   hangUpdates: false,
   failProfileRead: false,
+  remoteConfigValue: '' as string,
+  remoteConfigFetches: 0,
+  remoteConfigFetchedValue: null as string | null,
   authStateListener: undefined as
     | ((user: { uid: string; email: string | null; displayName: string | null } | null) => void)
     | undefined,
@@ -174,6 +177,38 @@ jest.mock('@react-native-firebase/messaging', () => {
     EPHEMERAL: 3,
   };
   return { __esModule: true, default: messaging };
+});
+
+// Like the native SDK, activated values are only readable after ensureInitialized() loads them
+// from disk; before that getValue returns the (empty) default.
+let mockRemoteConfigInitialized = false;
+beforeEach(() => {
+  mockRemoteConfigInitialized = false;
+});
+jest.mock('@react-native-firebase/remote-config', () => {
+  const remoteConfig = () => ({
+    // Loading activated values from disk takes a tick, like the native SDK.
+    ensureInitialized: () =>
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          mockRemoteConfigInitialized = true;
+          resolve();
+        }, 0),
+      ),
+    getValue: () => ({
+      asString: () => (mockRemoteConfigInitialized ? mockFirebase.remoteConfigValue : ''),
+    }),
+    setConfigSettings: async () => undefined,
+    fetchAndActivate: async () => {
+      mockFirebase.remoteConfigFetches += 1;
+      // A newer server value becomes the activated value (read on the next cold start).
+      if (mockFirebase.remoteConfigFetchedValue !== null) {
+        mockFirebase.remoteConfigValue = mockFirebase.remoteConfigFetchedValue;
+      }
+      return true;
+    },
+  });
+  return { __esModule: true, default: remoteConfig };
 });
 
 jest.mock('@react-native-firebase/functions', () => ({

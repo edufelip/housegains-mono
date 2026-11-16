@@ -124,6 +124,27 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
 - `/privacy`, `/terms`, `/support`, `/delete-account` in 6 languages (`/pt-BR/privacy` …),
   English at the root path.
 
+## Remote Config
+
+The appearance picker's pages come from one Firebase Remote Config parameter, `style_picker_config`.
+
+- **Value:** a JSON string in contract v1: `{ "schemaVersion": 1, "styles": [...] }`. Each style sets `id`, `enabled`, `order`, `composition`, `nameTreatment`, `headingFont`, `copy` (`name` and `description`, each `{ key }` or `{ text }`) and `tokens`. Types: `apps/mobile/features/appearance/picker-config-types.ts`. Validator: `picker-config.ts`.
+- **Bundled fallback:** the config bundled in the app is used whenever the parameter is missing, unparseable, or fails rules R1 and R3.
+- **Activation:** the provider reads the already-activated value once at start. A background `fetchAndActivate` stores the newer value, which takes effect at the next cold start, never mid-screen.
+- **Client package:** `@react-native-firebase/remote-config` 23.8.8.
+- **Validation rules:**
+  - R1: not an object, `schemaVersion !== 1`, or `styles` not an array; the whole config is ignored.
+  - R2: a style failing a check is dropped with one error line and other styles are kept; unknown fields are ignored. R2a: `id` matches `STYLE_ID_PATTERN` and is unique. R2b: `composition`, `nameTreatment` and `headingFont` are in their allowed sets, `order` is a finite number, `enabled` is boolean or absent. R2c: every color token is `#RRGGBB`, `radius` is 0–32, `borderWidth` is 0–4.
+  - R3: fewer than 2 valid enabled styles; the whole config is ignored.
+  - R4: contrast of text/canvas, text/surface, muted/canvas and onPrimary/primary below 3:1 drops the style; below 4.5:1 keeps it with a warning.
+  - R5: `copy.name` and `copy.description` are either a `{ key }` present in all six locale bundles, or a non-empty `{ text }` for each of en-US, pt-BR, es-ES, fr-FR, de-DE and it-IT.
+  - R6: a saved style that is hidden or missing still resolves: the full `styles` list first, then the bundled style with that id, then the bundled style with the saved composition, then the first bundled visible style.
+  - R7: new ids are allowed; they reuse a shipped composition.
+  - R8: the value is read once at start; the background fetch applies at the next cold start.
+  - R9: a style's tokens apply app-wide while that style is active.
+  - R10: a bundled id whose canvas, primary or accent differs from the bundled value but whose description is still the bundled key gets the warning "description may no longer match".
+- **Visible pages:** styles with `enabled !== false`, sorted by `order`, then `id`. Page order comes from this config: Sticker Pop, Arcade, Soft Home.
+
 ## Mobile client
 
 `apps/mobile/features/household/firebase-household-client.ts` implements the same

@@ -16,6 +16,13 @@ const esES: Record<keyof typeof enUS, string> = {
     'No se pudo cargar tu estilo guardado. Elige un estilo o inténtalo de nuevo.',
   'housegains.appearance.error.save':
     'El estilo se muestra en la vista previa, pero no se guardó. Inténtalo de nuevo para continuar.',
+  'housegains.appearance.choose': 'Elegir {theme}',
+  'housegains.appearance.swipe_hint': 'Desliza para comparar los {count} estilos',
+  'housegains.appearance.previous': 'Estilo anterior',
+  'housegains.appearance.next': 'Estilo siguiente',
+  'housegains.appearance.page_position': '{index} de {total}',
+  'housegains.appearance.language_button': 'Idioma: {language}. Cambiar',
+  'housegains.appearance.language_done': 'Listo',
   'housegains.theme.arcade.name': 'Arcade',
   'housegains.theme.arcade.description':
     'Misiones oscuras, verde lima eléctrico y progreso lleno de energía.',
@@ -60,6 +67,7 @@ const esES: Record<keyof typeof enUS, string> = {
   'housegains.preview.member_rafa': 'Rafa',
   'housegains.preview.member_bia': 'Bia',
   'housegains.preview.member_thiago': 'Thiago',
+  'housegains.preview.clock': '9:41',
   ...houseGainsScreensEsES,
 };
 
