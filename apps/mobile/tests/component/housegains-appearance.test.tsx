@@ -114,7 +114,7 @@ describe('HouseGains appearance picker', () => {
 
   test('renders the pages in order sticker, arcade, soft and saves nothing before Choose', async () => {
     const onContinue = jest.fn();
-    renderPicker(onContinue);
+    await renderPicker(onContinue);
 
     await waitForHydrated();
     expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade', 'theme-page.soft']);
@@ -124,7 +124,7 @@ describe('HouseGains appearance picker', () => {
 
   test('Choose on arcade saves the style and continues once', async () => {
     const onContinue = jest.fn();
-    renderPicker(onContinue);
+    await renderPicker(onContinue);
     await waitForHydrated();
 
     await userEvent.setup().press(screen.getByTestId('theme-choose.arcade', HIDDEN));
@@ -140,7 +140,7 @@ describe('HouseGains appearance picker', () => {
   test('a failed save shows the save error and the same button retries', async () => {
     const onContinue = jest.fn();
     jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
-    renderPicker(onContinue);
+    await renderPicker(onContinue);
     await waitForHydrated();
 
     const user = userEvent.setup();
@@ -159,7 +159,7 @@ describe('HouseGains appearance picker', () => {
 
   test('a failed read shows the load error, and retry clears it', async () => {
     jest.mocked(AsyncStorage.getItem).mockRejectedValueOnce(new Error('storage unavailable'));
-    renderPicker();
+    await renderPicker();
 
     await waitFor(() => expect(screen.getByTestId('theme-picker.load-error')).toBeTruthy());
 
@@ -169,7 +169,7 @@ describe('HouseGains appearance picker', () => {
   });
 
   test('the language sheet switches the page titles and Done closes it', async () => {
-    renderPicker();
+    await renderPicker();
     await waitForHydrated();
     const user = userEvent.setup();
 
@@ -189,7 +189,7 @@ describe('HouseGains appearance picker', () => {
     const config = JSON.parse(JSON.stringify(BUNDLED_PICKER_CONFIG));
     config.styles.find((style: { id: string }) => style.id === 'soft').enabled = false;
     fakeFirebase.remoteConfigValue = JSON.stringify(config);
-    renderPicker();
+    await renderPicker();
 
     await waitFor(() => expect(pageIds()).toHaveLength(2));
     expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade']);
@@ -198,14 +198,14 @@ describe('HouseGains appearance picker', () => {
 
   test('an invalid remote config falls back to the three bundled pages', async () => {
     fakeFirebase.remoteConfigValue = '{ not json';
-    renderPicker();
+    await renderPicker();
 
     await waitForHydrated();
     expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade', 'theme-page.soft']);
   });
 
   test('schedules one background remote config fetch when the provider mounts', async () => {
-    renderPicker();
+    await renderPicker();
 
     await waitFor(() => expect(fakeFirebase.remoteConfigFetches).toBe(1));
   });
@@ -213,7 +213,7 @@ describe('HouseGains appearance picker', () => {
   test('keeps a preview selected after a failed save and retries before continuing', async () => {
     const onContinue = jest.fn();
     jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
-    renderPicker(onContinue);
+    await renderPicker(onContinue);
 
     await waitForHydrated();
     const user = userEvent.setup();
@@ -239,7 +239,7 @@ describe('HouseGains appearance picker', () => {
       .mockRejectedValueOnce(new Error('storage unavailable'))
       .mockImplementation(async (key: string) => mockStorage[key] ?? null);
 
-    renderPicker();
+    await renderPicker();
 
     await waitFor(() =>
       expect(screen.getByTestId('appearance.load-error')).toHaveTextContent('error'),
@@ -321,7 +321,7 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
 
   test('mounting never previews a style; Next previews the next page', async () => {
     mockStorage['housegains.appearance.v1'] = JSON.stringify({ version: 1, themeId: 'soft' });
-    renderPicker();
+    await renderPicker();
     await waitForHydrated();
     expect(screen.getByTestId('appearance.theme')).toHaveTextContent('soft');
 
@@ -334,7 +334,7 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
   test('Retry save stores the failed page style even if another style is previewed', async () => {
     jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
     const onContinue = jest.fn();
-    render(
+    await render(
       <SafeAreaProvider initialMetrics={metrics}>
         <LocaleProvider>
           <ThemeProvider>
@@ -362,13 +362,13 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
   });
 
   test('each sample preview test id is unique', async () => {
-    renderPicker();
+    await renderPicker();
     await waitForHydrated();
     expect(screen.getAllByTestId('housegains.theme-preview.sticker', HIDDEN)).toHaveLength(1);
   });
 
   test('each page sizes its phone from its own free space', async () => {
-    renderPicker();
+    await renderPicker();
     await waitForHydrated();
     const layout = (id: string, height: number) =>
       fireEvent(screen.getByTestId(`theme-picker.sample.${id}`, HIDDEN), 'layout', {
@@ -399,7 +399,7 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
         }),
     );
     const onContinue = jest.fn();
-    renderPicker(onContinue);
+    await renderPicker(onContinue);
     await waitForHydrated();
 
     // Start both presses before either settles: both handlers run before React re-renders,
