@@ -1,7 +1,6 @@
 import { Platform } from 'react-native';
-import { DsFontFamily } from '@/constants/design-system';
 import { BUNDLED_PICKER_CONFIG, validatePickerConfig, visibleStyleConfigs } from './picker-config';
-import { getThemeTokens } from './tokens';
+import { buildType, FontFamily, getThemeTokens } from './tokens';
 import type {
   PickerConfigSource,
   PickerStyle,
@@ -24,6 +23,7 @@ export function toPickerStyle(config: PickerStyleConfig): PickerStyle {
       : config.composition === 'arcade'
         ? colours.primary
         : base.shadow.color;
+  const heading = config.headingFont === 'serif' ? SERIF_FAMILY : FontFamily.bold;
   return {
     id: config.id,
     enabled: config.enabled !== false,
@@ -38,10 +38,9 @@ export function toPickerStyle(config: PickerStyleConfig): PickerStyle {
       radius,
       borderWidth,
       shadow: { ...base.shadow, color: shadowColor },
-      typography: {
-        ...base.typography,
-        heading: config.headingFont === 'serif' ? SERIF_FAMILY : DsFontFamily.bold,
-      },
+      typography: { ...base.typography, heading },
+      // The role scale follows the resolved heading, or Label headings ignore the config.
+      type: buildType(heading),
     },
   };
 }

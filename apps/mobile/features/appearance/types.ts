@@ -3,6 +3,27 @@ export const THEME_IDS = ['arcade', 'sticker', 'soft'] as const;
 export type ThemeId = (typeof THEME_IDS)[number];
 export type HouseGainsTheme = ThemeId;
 
+/** Typography roles. Screens pick a role; they never set size, family or weight directly. */
+export const TYPE_ROLES = [
+  'display',
+  'title',
+  'heading',
+  'body',
+  'caption',
+  'eyebrow',
+  'button',
+  'code',
+] as const;
+
+export type TypeRole = (typeof TYPE_ROLES)[number];
+
+export type TypeStyle = {
+  fontFamily: string;
+  fontSize: number;
+  lineHeight: number;
+  fontWeight: '400' | '500' | '600' | '700';
+};
+
 export type AppearanceTokens = {
   canvas: string;
   surface: string;
@@ -14,6 +35,8 @@ export type AppearanceTokens = {
   accent: string;
   success: string;
   danger: string;
+  /** Backdrop behind modals and sheets. */
+  scrim: string;
   radius: number;
   borderWidth: number;
   shadow: {
@@ -39,6 +62,16 @@ export type AppearanceTokens = {
     medium: string;
     mono: string;
   };
+  /** Role-based type scale (family resolved per theme). */
+  type: Record<TypeRole, TypeStyle>;
+  /** Minimum interactive sizes in dp: `min` is the floor, `comfortable` is the default control height. */
+  touchTarget: { min: number; comfortable: number };
+  /** Icon sizes in dp. */
+  iconSize: { sm: number; md: number; lg: number };
+  /** Opacity for interaction states. Never use opacity alone to convey meaning. */
+  stateOpacity: { pressed: number; disabled: number };
+  /** Screen layout constants in dp. */
+  layout: { gutter: number; maxContentWidth: number };
 };
 
 /**

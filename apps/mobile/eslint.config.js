@@ -1,8 +1,10 @@
 // https://docs.expo.dev/guides/using-eslint/
+/* global __dirname -- CommonJS flat config */
 const { defineConfig } = require('eslint/config');
 const tsParser = require('@typescript-eslint/parser');
 const tsPlugin = require('@typescript-eslint/eslint-plugin');
 const expoConfig = require('eslint-config-expo/flat');
+const designSystemConfig = require('./eslint.design-system.cjs');
 
 const typedTypeScriptConfig = tsPlugin.configs['flat/recommended-type-checked'].map((config) => ({
   ...config,
@@ -85,4 +87,5 @@ module.exports = defineConfig([
       '@typescript-eslint/unbound-method': 'warn',
     },
   },
+  ...designSystemConfig,
 ]);

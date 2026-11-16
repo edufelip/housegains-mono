@@ -52,6 +52,15 @@ Whenever behavior changes, update all impacted artifacts:
 - No user-facing copy literals are allowed in screen `TSX` files; use localization keys and locale bundles.
 - Every new screen must ship with keys populated in all six bundles (`en-US`, `pt-BR`, `es-ES`, `fr-FR`, `de-DE`, `it-IT`) in the same change.
 
+## Design System (UI work)
+- All new or changed UI must be built from the design system in `docs/design-system/` (start at `README.md`). Visual direction for the three themes is `DESIGN.md`; values are in `features/appearance/tokens.ts`.
+- Read tokens with `useAppearance().tokens`. No hex or `rgb()` colors, `fontFamily` strings, or numeric `fontSize` in `features/**` and `components/**` `.tsx` files; ESLint (`eslint.design-system.cjs`) fails CI on them.
+- Reuse the component catalog (`docs/design-system/components.md`) before adding a component, and document any new shared component in the same change.
+- Design loading, empty, error (with retry), partial, completed, and demo states; use `StatePanel`. Never convey meaning by color alone.
+- Verify new UI in all three themes (Arcade, Sticker Pop, Soft Home) and at the largest text size.
+- The design-system checklist in `docs/design-system/README.md` must pass before a UI task is complete. Files on the `LEGACY_FILES` list in `eslint.design-system.cjs` may only be removed, never added.
+- If the design system and code disagree, fix one of them in the same change.
+
 ## Done Criteria For Any Session
 A session is only complete when:
 1. Code matches current docs.

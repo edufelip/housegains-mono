@@ -199,7 +199,7 @@ export function ReportSheet({
 
   return (
     <Modal animationType="slide" onRequestClose={onClose} transparent visible={visible}>
-      <View style={{ backgroundColor: 'rgba(0,0,0,0.4)', flex: 1, justifyContent: 'flex-end' }}>
+      <View style={{ backgroundColor: tokens.scrim, flex: 1, justifyContent: 'flex-end' }}>
         <Card
           style={{
             borderBottomLeftRadius: 0,

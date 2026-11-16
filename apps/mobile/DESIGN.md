@@ -6,7 +6,9 @@ status: In progress
 
 # Design direction
 
-The HouseGains references are three complete visual compositions. Use the supplied screenshots as visual authority for those compositions and use the active implementation contract for behavior. Keep selection, XP, assignments, and data identical across styles. This specification documents intended design and does not claim that any variant is implemented.
+> **Building UI?** Start with the [design system](docs/design-system/README.md): foundations, theming, components, patterns, accessibility, motion, copy, and the new-UI checklist. This file is the visual direction for the three themes; the design system is the rulebook for building with them.
+
+The HouseGains references are three complete visual compositions. Use the supplied screenshots as visual authority for those compositions and use the active implementation contract for behavior. Keep selection, XP, assignments, and data identical across styles. The three variants are implemented (dashboards and docks in `components/housegains/variants/`); behavior is defined by the active implementation contract.
 
 ## Arcade
 

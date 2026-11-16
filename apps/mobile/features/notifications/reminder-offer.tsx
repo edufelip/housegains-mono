@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useEffect, useState } from 'react';
 import { Modal, View } from 'react-native';
 import { Button, Card, Label } from '@/components/housegains/ui';
+import { useAppearance } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { enableReminders } from './reminders';
 
@@ -37,6 +38,7 @@ export function ReminderOffer({ requested, onHandled }: { requested: boolean; on
     };
   }, [requested, onHandled]);
 
+  const { tokens } = useAppearance();
   const turnOn = () => {
     setVisible(false);
     void enableReminders().catch(() => false);
@@ -51,7 +53,7 @@ export function ReminderOffer({ requested, onHandled }: { requested: boolean; on
     >
       <View
         style={{
-          backgroundColor: 'rgba(0,0,0,0.4)',
+          backgroundColor: tokens.scrim,
           flex: 1,
           justifyContent: 'center',
           padding: 24,
