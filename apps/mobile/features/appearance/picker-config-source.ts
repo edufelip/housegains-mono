@@ -5,7 +5,10 @@ export const PICKER_CONFIG_PARAM = 'style_picker_config';
 /** Value activated by an earlier session, parsed. null when unset, empty, or Remote Config is unavailable. Never throws. */
 export async function loadActivatedPickerConfig(): Promise<unknown | null> {
   try {
-    const raw = remoteConfig().getValue(PICKER_CONFIG_PARAM).asString();
+    const config = remoteConfig();
+    // Activated values load from disk asynchronously; reading before this returns the default.
+    await config.ensureInitialized();
+    const raw = config.getValue(PICKER_CONFIG_PARAM).asString();
     if (!raw) return null;
     try {
       return JSON.parse(raw);

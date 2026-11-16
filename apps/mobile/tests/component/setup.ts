@@ -178,9 +178,20 @@ jest.mock('@react-native-firebase/messaging', () => {
   return { __esModule: true, default: messaging };
 });
 
+// Like the native SDK, activated values are only readable after ensureInitialized() loads them
+// from disk; before that getValue returns the (empty) default.
+let mockRemoteConfigInitialized = false;
+beforeEach(() => {
+  mockRemoteConfigInitialized = false;
+});
 jest.mock('@react-native-firebase/remote-config', () => {
   const remoteConfig = () => ({
-    getValue: () => ({ asString: () => mockFirebase.remoteConfigValue }),
+    ensureInitialized: async () => {
+      mockRemoteConfigInitialized = true;
+    },
+    getValue: () => ({
+      asString: () => (mockRemoteConfigInitialized ? mockFirebase.remoteConfigValue : ''),
+    }),
     setConfigSettings: async () => undefined,
     fetchAndActivate: async () => {
       mockFirebase.remoteConfigFetches += 1;
