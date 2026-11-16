@@ -15,7 +15,7 @@ import {
 import { useAppearance } from '@/features/appearance';
 import { callFunction } from '@/features/firebase';
 import { useLocale } from '@/localization/locale-context';
-import { SIGN_IN_CANCELLED_CODE } from './auth-errors';
+import { authErrorKey, SIGN_IN_CANCELLED_CODE } from './auth-errors';
 import { createRawNonce, hashNonce } from './nonce';
 import { googleWebClientId } from './providers';
 
@@ -24,6 +24,8 @@ export type AuthStatus = 'loading' | 'signedOut' | 'signedIn';
 export interface AuthValue {
   status: AuthStatus;
   user: FirebaseAuthTypes.User | null;
+  /** Translation key for a problem after a successful sign-in, such as a failed profile setup. */
+  signInProblem: string | null;
   signInWithApple(): Promise<void>;
   signInWithGoogle(): Promise<void>;
   signInWithEmail(email: string, password: string): Promise<void>;
@@ -46,6 +48,7 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
     status: 'loading',
     user: null,
   });
+  const [signInProblem, setSignInProblem] = useState<string | null>(null);
   const latest = useRef({ locale: activeLocale, themeId });
   latest.current = { locale: activeLocale, themeId };
   // Apple and Google send the name only on the first sign-in; it is read before the auth state changes.
@@ -83,9 +86,16 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
           creatingProfile = !profile.exists;
           if (creatingProfile) await ensureProfile(user, pendingDisplayName);
           if (auth().currentUser?.uid !== user.uid) return;
+          setSignInProblem(null);
           setState({ status: 'signedIn', user });
-        } catch {
+        } catch (error) {
           if (auth().currentUser?.uid !== user.uid) return;
+          const key = authErrorKey(error);
+          setSignInProblem(
+            key && key !== 'housegains.auth.error.generic'
+              ? key
+              : 'housegains.auth.error.profileSetup',
+          );
           setState({ status: 'signedOut', user: null });
           // A failed first sign-in must be undone, or signing in again fires no auth event.
           // A failed read (offline) keeps the session so the next launch can retry.
@@ -109,6 +119,7 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
   };
 
   const signInWithApple = async () => {
+    setSignInProblem(null);
     const rawNonce = createRawNonce(Crypto.randomUUID());
     const apple = await AppleAuthentication.signInAsync({
       requestedScopes: [
@@ -129,6 +140,7 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
   };
 
   const signInWithGoogle = async () => {
+    setSignInProblem(null);
     const response = await GoogleSignin.signIn();
     if (response.type === 'cancelled') {
       throw Object.assign(new Error('Google sign-in was cancelled.'), {
@@ -144,12 +156,15 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
   const value: AuthValue = {
     status: state.status,
     user: state.user,
+    signInProblem,
     signInWithApple,
     signInWithGoogle,
     signInWithEmail: async (email, password) => {
+      setSignInProblem(null);
       await auth().signInWithEmailAndPassword(email.trim(), password);
     },
     createAccountWithEmail: async (name, email, password) => {
+      setSignInProblem(null);
       await withName(name.trim(), async () => {
         await auth().createUserWithEmailAndPassword(email.trim(), password);
       });

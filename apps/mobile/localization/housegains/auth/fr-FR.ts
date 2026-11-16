@@ -37,7 +37,11 @@ const authFrFR: Record<string, string> = {
   'housegains.auth.error.network': 'Pas de connexion. Vérifie ta connexion internet et réessaie.',
   'housegains.auth.error.tooManyRequests':
     'Trop de tentatives. Attends quelques minutes et réessaie.',
+  'housegains.auth.error.methodUnavailable':
+    'Cette option de connexion n’est pas disponible pour le moment. Utilise plutôt l’e-mail.',
   'housegains.auth.error.generic': 'Une erreur est survenue. Réessaie.',
+  'housegains.auth.error.profileSetup':
+    'Tu es connecté, mais ton profil n’a pas pu être configuré. Réessaie.',
   'housegains.auth.sync.loadError':
     'Impossible de charger ton foyer. Vérifie ta connexion et réessaie.',
   'housegains.auth.sync.profileMissing':

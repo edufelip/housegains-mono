@@ -26,6 +26,20 @@ test('known Firebase auth codes map to their message keys', () => {
     'housegains.auth.error.tooManyRequests',
   );
   assert.equal(authErrorKey({ code: 'auth/invalid-email' }), 'housegains.auth.validation.email');
+  assert.equal(
+    authErrorKey({ code: 'auth/operation-not-allowed' }),
+    'housegains.auth.error.methodUnavailable',
+  );
+  assert.equal(
+    authErrorKey({ code: 'auth/admin-restricted-operation' }),
+    'housegains.auth.error.methodUnavailable',
+  );
+});
+
+test('an unavailable callable or Firestore read (offline) shows the network message', () => {
+  assert.equal(authErrorKey({ code: 'unavailable' }), 'housegains.auth.error.network');
+  assert.equal(authErrorKey({ code: 'functions/unavailable' }), 'housegains.auth.error.network');
+  assert.equal(authErrorKey({ code: 'firestore/unavailable' }), 'housegains.auth.error.network');
 });
 
 test('unknown, missing or code-less errors fall back to the generic message', () => {

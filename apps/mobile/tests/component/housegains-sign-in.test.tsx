@@ -48,6 +48,7 @@ function authWith(overrides: Partial<AuthValue> = {}): AuthValue {
   return {
     status: 'signedOut',
     user: null,
+    signInProblem: null,
     signInWithApple: noop,
     signInWithGoogle: noop,
     signInWithEmail: noop,
@@ -109,6 +110,35 @@ describe('provider buttons', () => {
     mockGoogleId = 'web-client-id.apps.googleusercontent.com';
     const shown = await renderSignIn(authWith());
     expect(shown.queryByTestId('housegains.auth.google')).toBeTruthy();
+  });
+
+  test('Apple switched off in Firebase shows the method-unavailable message', async () => {
+    jest.replaceProperty(Platform, 'OS', 'ios');
+    const signInWithApple = jest.fn(async () => {
+      throw Object.assign(new Error('disabled'), { code: 'auth/operation-not-allowed' });
+    });
+    const view = await renderSignIn(authWith({ signInWithApple }));
+
+    await fireEvent.press(view.getByTestId('housegains.auth.apple'));
+
+    await waitFor(() =>
+      expect(view.getByTestId('housegains.auth.message').props.children).toBe(
+        en('housegains.auth.error.methodUnavailable'),
+      ),
+    );
+    expect(signInWithApple).toHaveBeenCalledTimes(1);
+  });
+
+  test('a problem after sign-in (profile setup) is shown on the sign-in screen', async () => {
+    const view = await renderSignIn(
+      authWith({ signInProblem: 'housegains.auth.error.profileSetup' }),
+    );
+
+    await waitFor(() =>
+      expect(view.getByTestId('housegains.auth.message').props.children).toBe(
+        en('housegains.auth.error.profileSetup'),
+      ),
+    );
   });
 });
 

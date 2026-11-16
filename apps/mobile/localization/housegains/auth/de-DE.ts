@@ -38,7 +38,11 @@ const authDeDE: Record<string, string> = {
   'housegains.auth.error.network': 'Keine Verbindung. Prüfe dein Internet und versuche es erneut.',
   'housegains.auth.error.tooManyRequests':
     'Zu viele Versuche. Warte ein paar Minuten und versuche es erneut.',
+  'housegains.auth.error.methodUnavailable':
+    'Diese Anmeldeoption ist im Moment nicht verfügbar. Nutze stattdessen die E-Mail-Adresse.',
   'housegains.auth.error.generic': 'Etwas ist schiefgelaufen. Versuche es erneut.',
+  'housegains.auth.error.profileSetup':
+    'Du bist angemeldet, aber dein Profil konnte nicht eingerichtet werden. Versuche es erneut.',
   'housegains.auth.sync.loadError':
     'Dein Haushalt konnte nicht geladen werden. Prüfe deine Verbindung und versuche es erneut.',
   'housegains.auth.sync.profileMissing':

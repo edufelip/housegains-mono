@@ -33,7 +33,11 @@ const authEnUS: Record<string, string> = {
   'housegains.auth.error.weakPassword': 'Choose a password with at least 6 characters.',
   'housegains.auth.error.network': 'No connection. Check your internet and try again.',
   'housegains.auth.error.tooManyRequests': 'Too many attempts. Wait a few minutes and try again.',
+  'housegains.auth.error.methodUnavailable':
+    'This sign-in option is not available right now. Use email instead.',
   'housegains.auth.error.generic': 'Something went wrong. Try again.',
+  'housegains.auth.error.profileSetup':
+    'You signed in, but your profile could not be set up. Try again.',
   'housegains.auth.sync.loadError':
     'Your household could not be loaded. Check your connection and try again.',
   'housegains.auth.sync.profileMissing':

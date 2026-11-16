@@ -39,6 +39,7 @@ export function SignInScreen() {
   const [busy, setBusy] = useState(false);
   const [messageKey, setMessageKey] = useState<string | null>(null);
   const [resetSent, setResetSent] = useState(false);
+  const shownKey = messageKey ?? auth.signInProblem;
   const googleEnabled = googleWebClientId() !== '';
   const appleEnabled = Platform.OS === 'ios';
 
@@ -205,13 +206,13 @@ export function SignInScreen() {
           {busy ? <ActivityIndicator color={tokens.primary} /> : null}
         </View>
 
-        {messageKey ? (
+        {shownKey ? (
           <Label
             accessibilityRole="alert"
             style={{ color: ERROR_COLOR }}
             testID="housegains.auth.message"
           >
-            {t(messageKey)}
+            {t(shownKey)}
           </Label>
         ) : null}
         {resetSent ? (

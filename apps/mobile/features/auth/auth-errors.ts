@@ -13,7 +13,13 @@ const KEY_BY_CODE: Record<string, string> = {
   'auth/invalid-email': 'housegains.auth.validation.email',
   'auth/network-request-failed': 'housegains.auth.error.network',
   'functions/unavailable': 'housegains.auth.error.network',
+  // Callable errors arrive without the "functions/" prefix.
+  unavailable: 'housegains.auth.error.network',
+  'firestore/unavailable': 'housegains.auth.error.network',
   'auth/too-many-requests': 'housegains.auth.error.tooManyRequests',
+  // The sign-in method is switched off in this Firebase project.
+  'auth/operation-not-allowed': 'housegains.auth.error.methodUnavailable',
+  'auth/admin-restricted-operation': 'housegains.auth.error.methodUnavailable',
 };
 
 /** Returns the message key, or null when the user simply cancelled (show nothing). */
