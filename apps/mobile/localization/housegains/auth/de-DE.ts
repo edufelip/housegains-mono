@@ -39,7 +39,7 @@ const authDeDE: Record<string, string> = {
   'housegains.auth.error.tooManyRequests':
     'Zu viele Versuche. Warte ein paar Minuten und versuche es erneut.',
   'housegains.auth.error.methodUnavailable':
-    'Diese Anmeldeoption ist im Moment nicht verfügbar. Nutze stattdessen die E-Mail-Adresse.',
+    'Diese Anmeldeoption ist im Moment nicht verfügbar. Probiere eine andere Anmeldemethode.',
   'housegains.auth.error.generic': 'Etwas ist schiefgelaufen. Versuche es erneut.',
   'housegains.auth.error.profileSetup':
     'Du bist angemeldet, aber dein Profil konnte nicht eingerichtet werden. Versuche es erneut.',

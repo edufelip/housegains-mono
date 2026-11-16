@@ -37,7 +37,7 @@ const authItIT: Record<string, string> = {
   'housegains.auth.error.network': 'Nessuna connessione. Controlla internet e riprova.',
   'housegains.auth.error.tooManyRequests': 'Troppi tentativi. Aspetta qualche minuto e riprova.',
   'housegains.auth.error.methodUnavailable':
-    'Questa opzione di accesso non è disponibile al momento. Usa l’email.',
+    'Questa opzione di accesso non è disponibile al momento. Prova un altro metodo di accesso.',
   'housegains.auth.error.generic': 'Qualcosa è andato storto. Riprova.',
   'housegains.auth.error.profileSetup':
     'Hai effettuato l’accesso, ma non è stato possibile configurare il tuo profilo. Riprova.',

@@ -45,6 +45,7 @@ export function SignInScreen() {
 
   const switchMode = (next: Mode) => {
     setMode(next);
+    auth.clearSignInProblem();
     setMessageKey(null);
     setResetSent(false);
   };

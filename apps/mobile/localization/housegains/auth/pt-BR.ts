@@ -38,7 +38,7 @@ const authPtBR: Record<string, string> = {
   'housegains.auth.error.tooManyRequests':
     'Muitas tentativas. Aguarde alguns minutos e tente de novo.',
   'housegains.auth.error.methodUnavailable':
-    'Esta opção de entrada não está disponível agora. Use o e-mail.',
+    'Esta opção de entrada não está disponível agora. Tente outra forma de entrar.',
   'housegains.auth.error.generic': 'Algo deu errado. Tente de novo.',
   'housegains.auth.error.profileSetup':
     'Você entrou, mas não foi possível configurar seu perfil. Tente de novo.',

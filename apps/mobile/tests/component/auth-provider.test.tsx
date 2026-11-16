@@ -28,6 +28,7 @@ function AuthProbe() {
         testID="auth.email"
         onPress={() => void value.signInWithEmail('member@example.com', 'pw')}
       />
+      <Pressable testID="auth.clearProblem" onPress={() => value.clearSignInProblem()} />
       <Pressable
         testID="auth.register"
         onPress={() => void value.createAccountWithEmail('New Name', 'member@example.com', 'pw')}
@@ -130,4 +131,31 @@ it('keeps the Firebase session when only the profile read fails, e.g. offline', 
   await waitFor(() => expect(view.getByText('signedOut')).toBeTruthy());
   expect(fake.signOuts).toBe(0);
   fake.failProfileRead = get;
+});
+
+it('clears a sign-in problem when the user dismisses it', async () => {
+  fake.failures = { ensureProfile: { code: 'internal' } };
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+  await act(async () => fake.authStateListener?.(user));
+  await waitFor(() => expect(view.getByText('housegains.auth.error.profileSetup')).toBeTruthy());
+  fake.failures = {};
+
+  await fireEvent.press(view.getByTestId('auth.clearProblem'));
+
+  expect(view.queryByText('housegains.auth.error.profileSetup')).toBeNull();
+  expect(view.getByText('no problem')).toBeTruthy();
+});
+
+it('clears the previous sign-in problem when a new sign-in attempt starts', async () => {
+  fake.failures = { ensureProfile: { code: 'internal' } };
+  const view = await renderAuth();
+  await waitFor(() => expect(fake.authStateListener).toBeDefined());
+  await act(async () => fake.authStateListener?.(user));
+  await waitFor(() => expect(view.getByText('housegains.auth.error.profileSetup')).toBeTruthy());
+  fake.failures = {};
+
+  await fireEvent.press(view.getByTestId('auth.email'));
+
+  await waitFor(() => expect(view.getByText('no problem')).toBeTruthy());
 });

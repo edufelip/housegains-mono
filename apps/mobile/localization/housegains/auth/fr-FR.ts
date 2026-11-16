@@ -38,7 +38,7 @@ const authFrFR: Record<string, string> = {
   'housegains.auth.error.tooManyRequests':
     'Trop de tentatives. Attends quelques minutes et réessaie.',
   'housegains.auth.error.methodUnavailable':
-    'Cette option de connexion n’est pas disponible pour le moment. Utilise plutôt l’e-mail.',
+    'Cette option de connexion n’est pas disponible pour le moment. Essaie une autre méthode.',
   'housegains.auth.error.generic': 'Une erreur est survenue. Réessaie.',
   'housegains.auth.error.profileSetup':
     'Tu es connecté, mais ton profil n’a pas pu être configuré. Réessaie.',

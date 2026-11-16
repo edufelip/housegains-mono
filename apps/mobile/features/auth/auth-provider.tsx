@@ -26,6 +26,8 @@ export interface AuthValue {
   user: FirebaseAuthTypes.User | null;
   /** Translation key for a problem after a successful sign-in, such as a failed profile setup. */
   signInProblem: string | null;
+  /** Dismisses a post-sign-in problem, for example when the user moves to another form. */
+  clearSignInProblem(): void;
   signInWithApple(): Promise<void>;
   signInWithGoogle(): Promise<void>;
   signInWithEmail(email: string, password: string): Promise<void>;
@@ -157,6 +159,7 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
     status: state.status,
     user: state.user,
     signInProblem,
+    clearSignInProblem: () => setSignInProblem(null),
     signInWithApple,
     signInWithGoogle,
     signInWithEmail: async (email, password) => {
@@ -170,6 +173,7 @@ export function AuthProvider({ children }: PropsWithChildren): React.JSX.Element
       });
     },
     sendPasswordReset: async (email) => {
+      setSignInProblem(null);
       await auth().sendPasswordResetEmail(email.trim());
     },
     signOut: async () => {

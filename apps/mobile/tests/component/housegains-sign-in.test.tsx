@@ -49,6 +49,7 @@ function authWith(overrides: Partial<AuthValue> = {}): AuthValue {
     status: 'signedOut',
     user: null,
     signInProblem: null,
+    clearSignInProblem: () => undefined,
     signInWithApple: noop,
     signInWithGoogle: noop,
     signInWithEmail: noop,
@@ -137,6 +138,33 @@ describe('provider buttons', () => {
     await waitFor(() =>
       expect(view.getByTestId('housegains.auth.message').props.children).toBe(
         en('housegains.auth.error.profileSetup'),
+      ),
+    );
+  });
+
+  test('moving to the password-reset form dismisses a problem from the last sign-in', async () => {
+    const clearSignInProblem = jest.fn();
+    const view = await renderSignIn(
+      authWith({ signInProblem: 'housegains.auth.error.profileSetup', clearSignInProblem }),
+    );
+
+    await fireEvent.press(view.getByTestId('housegains.auth.forgot'));
+
+    expect(clearSignInProblem).toHaveBeenCalledTimes(1);
+  });
+
+  test('a validation message on this screen wins over a problem from the last sign-in', async () => {
+    const view = await renderSignIn(
+      authWith({ signInProblem: 'housegains.auth.error.profileSetup' }),
+    );
+
+    await fireEvent.changeText(view.getByTestId('housegains.auth.email'), 'not-an-email');
+    await fireEvent.changeText(view.getByTestId('housegains.auth.password'), 'secret123');
+    await fireEvent.press(view.getByTestId('housegains.auth.submit'));
+
+    await waitFor(() =>
+      expect(view.getByTestId('housegains.auth.message').props.children).toBe(
+        en('housegains.auth.validation.email'),
       ),
     );
   });

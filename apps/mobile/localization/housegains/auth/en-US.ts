@@ -34,7 +34,7 @@ const authEnUS: Record<string, string> = {
   'housegains.auth.error.network': 'No connection. Check your internet and try again.',
   'housegains.auth.error.tooManyRequests': 'Too many attempts. Wait a few minutes and try again.',
   'housegains.auth.error.methodUnavailable':
-    'This sign-in option is not available right now. Use email instead.',
+    'This sign-in option is not available right now. Try another way to sign in.',
   'housegains.auth.error.generic': 'Something went wrong. Try again.',
   'housegains.auth.error.profileSetup':
     'You signed in, but your profile could not be set up. Try again.',

@@ -39,7 +39,7 @@ const authEsES: Record<string, string> = {
   'housegains.auth.error.tooManyRequests':
     'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.',
   'housegains.auth.error.methodUnavailable':
-    'Esta opción de inicio de sesión no está disponible ahora. Usa el correo electrónico.',
+    'Esta opción de inicio de sesión no está disponible ahora. Prueba otra forma de iniciar sesión.',
   'housegains.auth.error.generic': 'Algo salió mal. Inténtalo de nuevo.',
   'housegains.auth.error.profileSetup':
     'Iniciaste sesión, pero no se pudo configurar tu perfil. Inténtalo de nuevo.',
