@@ -34,7 +34,11 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 
 const fakeFirebase = (
   globalThis as unknown as {
-    mockFirebase: { remoteConfigValue: string; remoteConfigFetches: number };
+    mockFirebase: {
+      remoteConfigValue: string;
+      remoteConfigFetches: number;
+      remoteConfigFetchedValue: string | null;
+    };
   }
 ).mockFirebase;
 
@@ -110,6 +114,7 @@ describe('HouseGains appearance picker', () => {
     });
     fakeFirebase.remoteConfigValue = '';
     fakeFirebase.remoteConfigFetches = 0;
+    fakeFirebase.remoteConfigFetchedValue = null;
   });
 
   test('renders the pages in order sticker, arcade, soft and saves nothing before Choose', async () => {
@@ -317,6 +322,7 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
     });
     fakeFirebase.remoteConfigValue = '';
     fakeFirebase.remoteConfigFetches = 0;
+    fakeFirebase.remoteConfigFetchedValue = null;
   });
 
   test('mounting never previews a style; Next previews the next page', async () => {
@@ -387,6 +393,21 @@ describe('HouseGains appearance picker regressions (PR #5 review)', () => {
       ).height;
     expect(phoneHeight('Sticker Pop')).toBe(400);
     expect(phoneHeight('Soft Home')).toBe(480);
+  });
+
+  test('a newly fetched config applies on the next launch, not the current one (R8)', async () => {
+    const softHidden = structuredClone(BUNDLED_PICKER_CONFIG);
+    softHidden.styles = softHidden.styles.map((style) =>
+      style.id === 'soft' ? { ...style, enabled: false } : style,
+    );
+    fakeFirebase.remoteConfigFetchedValue = JSON.stringify(softHidden);
+
+    await renderPicker();
+    await waitForHydrated();
+    await waitFor(() => expect(fakeFirebase.remoteConfigFetches).toBe(1));
+
+    expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade', 'theme-page.soft']);
+    expect(fakeFirebase.remoteConfigValue).toBe(JSON.stringify(softHidden));
   });
 
   // Keep this test last: the two overlapping presses open overlapping act() scopes,

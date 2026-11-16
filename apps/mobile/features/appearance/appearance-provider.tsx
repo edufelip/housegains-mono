@@ -68,11 +68,13 @@ export function ThemeProvider({ children }: AppearanceProviderProps) {
   useEffect(() => {
     let cancelled = false;
     void loadActivatedPickerConfig().then((raw) => {
+      // Fetch only after this launch's value is read, so a newer value always waits for the next
+      // cold start instead of racing the read.
+      refreshPickerConfigInBackground();
       if (cancelled) return;
       setResolved(resolvePickerStyles(raw));
       setConfigReady(true);
     });
-    refreshPickerConfigInBackground();
     return () => {
       cancelled = true;
     };
