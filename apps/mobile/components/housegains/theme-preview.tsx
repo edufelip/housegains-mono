@@ -7,14 +7,28 @@ import {
   type ViewStyle,
 } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
-import { getThemeTokens, type ThemeId } from '@/features/appearance';
+import { getThemeTokens, type AppearanceTokens, type ThemeId } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import type { ReactNode } from 'react';
 
+type PreviewVariant = 'card' | 'phone';
+
 type ThemePreviewProps = {
   themeId: ThemeId;
+  tokens?: AppearanceTokens;
+  variant?: PreviewVariant;
+  styleId?: string;
   style?: StyleProp<ViewStyle>;
 };
+
+function previewContainerStyle(
+  tokens: AppearanceTokens,
+  variant: PreviewVariant,
+): StyleProp<ViewStyle> {
+  return variant === 'phone'
+    ? [styles.preview, styles.phonePreview, { backgroundColor: tokens.canvas }]
+    : [styles.preview, { backgroundColor: tokens.canvas, padding: 13 }];
+}
 
 function MiniText({
   children,
@@ -32,11 +46,13 @@ function MiniText({
   );
 }
 
-function ArcadePreview() {
-  const tokens = getThemeTokens('arcade');
+type CompositionProps = { tokens: AppearanceTokens; variant: PreviewVariant };
+
+function ArcadePreview({ tokens, variant }: CompositionProps) {
   const { t } = useHouseGainsTranslation();
+  const phone = variant === 'phone';
   return (
-    <View style={[styles.preview, { backgroundColor: tokens.canvas, padding: 13 }]}>
+    <View style={previewContainerStyle(tokens, variant)}>
       <View style={styles.headerRow}>
         <View style={[styles.arcadeAvatar, { backgroundColor: tokens.primary }]}>
           <MiniText style={[styles.initials, { color: tokens.onPrimary }]}>
@@ -148,17 +164,61 @@ function ArcadePreview() {
             <MiniText style={[styles.xpBadgeText, { color: tokens.onPrimary }]}>+20</MiniText>
           </View>
         </View>
+        {phone ? (
+          <>
+            <View
+              style={[
+                styles.arcadeTask,
+                { borderColor: tokens.border, backgroundColor: tokens.surface },
+              ]}
+            >
+              <View style={[styles.emptyCheck, { borderColor: '#586270' }]} />
+              <View style={styles.flexOne}>
+                <MiniText style={[styles.taskName, { color: tokens.text }]}>
+                  {t('housegains.preview.task_vacuum')}
+                </MiniText>
+                <MiniText style={[styles.taskSub, { color: tokens.muted }]}>
+                  {t('housegains.preview.task_vacuum_hint')}
+                </MiniText>
+              </View>
+              <View style={[styles.xpBadge, { backgroundColor: tokens.primary }]}>
+                <MiniText style={[styles.xpBadgeText, { color: tokens.onPrimary }]}>+25</MiniText>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.arcadeTask,
+                { borderColor: tokens.border, backgroundColor: tokens.surface },
+              ]}
+            >
+              <View style={[styles.emptyCheck, { borderColor: '#586270' }]} />
+              <View style={styles.flexOne}>
+                <MiniText style={[styles.taskName, { color: tokens.text }]}>
+                  {t('housegains.preview.task_plants')}
+                </MiniText>
+                <MiniText style={[styles.taskSub, { color: tokens.muted }]}>
+                  {t('housegains.preview.bounty_hint')}
+                </MiniText>
+              </View>
+              <View style={[styles.ctaPill, { borderWidth: 1, borderColor: tokens.accent }]}>
+                <MiniText style={[styles.ctaText, { color: tokens.accent }]}>
+                  {t('housegains.preview.claim')}
+                </MiniText>
+              </View>
+            </View>
+          </>
+        ) : null}
       </View>
-      <MiniDock themeId="arcade" />
+      <MiniDock themeId="arcade" tokens={tokens} variant={variant} />
     </View>
   );
 }
 
-function StickerPreview() {
-  const tokens = getThemeTokens('sticker');
+function StickerPreview({ tokens, variant }: CompositionProps) {
   const { t } = useHouseGainsTranslation();
+  const phone = variant === 'phone';
   return (
-    <View style={[styles.preview, { backgroundColor: tokens.canvas, padding: 13 }]}>
+    <View style={previewContainerStyle(tokens, variant)}>
       <View style={styles.stickerHeader}>
         <View style={styles.flexOne}>
           <MiniText style={[styles.houseName, { color: tokens.text }]}>
@@ -257,18 +317,76 @@ function StickerPreview() {
             <MiniText style={[styles.stickerXpText, { color: tokens.text }]}>+20</MiniText>
           </View>
         </View>
+        {phone ? (
+          <>
+            <View
+              style={[
+                styles.stickerTask,
+                { backgroundColor: tokens.surface, borderColor: tokens.border },
+              ]}
+            >
+              <View style={[styles.stickerEmpty, { borderColor: tokens.border }]} />
+              <View style={styles.flexOne}>
+                <MiniText lines={2} style={[styles.taskName, { color: tokens.text }]}>
+                  {t('housegains.preview.task_vacuum')}
+                </MiniText>
+                <MiniText style={[styles.taskSub, { color: tokens.muted }]}>
+                  {t('housegains.preview.task_vacuum_hint')}
+                </MiniText>
+              </View>
+              <View
+                style={[
+                  styles.stickerXp,
+                  { backgroundColor: tokens.accent, borderColor: tokens.border },
+                ]}
+              >
+                <MiniText style={[styles.stickerXpText, { color: tokens.text }]}>+25</MiniText>
+              </View>
+            </View>
+            <View
+              style={[
+                styles.stickerTask,
+                { backgroundColor: tokens.surface, borderColor: tokens.border },
+              ]}
+            >
+              <View style={[styles.stickerEmpty, { borderColor: tokens.border }]} />
+              <View style={styles.flexOne}>
+                <MiniText lines={2} style={[styles.taskName, { color: tokens.text }]}>
+                  {t('housegains.preview.task_plants')}
+                </MiniText>
+                <MiniText style={[styles.taskSub, { color: tokens.muted }]}>
+                  {t('housegains.preview.bounty_hint')}
+                </MiniText>
+              </View>
+              <View
+                style={[
+                  styles.ctaPill,
+                  {
+                    borderWidth: 2,
+                    borderColor: tokens.border,
+                    backgroundColor: tokens.primary,
+                  },
+                ]}
+              >
+                <MiniText style={[styles.ctaText, { color: tokens.onPrimary }]}>
+                  {t('housegains.preview.grab_it')}
+                </MiniText>
+              </View>
+            </View>
+          </>
+        ) : null}
       </View>
-      <MiniDock themeId="sticker" />
+      <MiniDock themeId="sticker" tokens={tokens} variant={variant} />
     </View>
   );
 }
 
-function SoftPreview() {
-  const tokens = getThemeTokens('soft');
+function SoftPreview({ tokens, variant }: CompositionProps) {
   const { t } = useHouseGainsTranslation();
+  const phone = variant === 'phone';
   const ringCircumference = 2 * Math.PI * 29;
   return (
-    <View style={[styles.preview, { backgroundColor: tokens.canvas, padding: 13 }]}>
+    <View style={previewContainerStyle(tokens, variant)}>
       <View style={styles.softHeader}>
         <View style={styles.flexOne}>
           <MiniText style={[styles.softGreeting, { color: tokens.text }]}>
@@ -387,8 +505,44 @@ function SoftPreview() {
             +20
           </MiniText>
         </View>
+        {phone ? (
+          <>
+            <View style={[styles.softTask, { backgroundColor: tokens.surface }]}>
+              <View style={[styles.softEmpty, { borderColor: '#C8BFE3' }]} />
+              <View style={styles.flexOne}>
+                <MiniText lines={1} style={[styles.taskName, { color: tokens.text }]}>
+                  {t('housegains.preview.task_vacuum')}
+                </MiniText>
+                <MiniText style={[styles.taskSub, { color: tokens.muted }]}>
+                  {t('housegains.preview.task_vacuum_hint')}
+                </MiniText>
+              </View>
+              <MiniText
+                style={[styles.softXp, { color: tokens.primary, backgroundColor: '#EAE6FF' }]}
+              >
+                +25
+              </MiniText>
+            </View>
+            <View style={[styles.softTask, { backgroundColor: tokens.surface }]}>
+              <View style={[styles.softEmpty, { borderColor: '#C8BFE3' }]} />
+              <View style={styles.flexOne}>
+                <MiniText lines={1} style={[styles.taskName, { color: tokens.text }]}>
+                  {t('housegains.preview.task_plants')}
+                </MiniText>
+                <MiniText style={[styles.taskSub, { color: tokens.muted }]}>
+                  {t('housegains.preview.bounty_hint')}
+                </MiniText>
+              </View>
+              <View style={[styles.ctaPill, { backgroundColor: '#FDE2D3' }]}>
+                <MiniText style={[styles.ctaText, { color: '#9D4C2A' }]}>
+                  {t('housegains.preview.claim')}
+                </MiniText>
+              </View>
+            </View>
+          </>
+        ) : null}
       </View>
-      <MiniDock themeId="soft" />
+      <MiniDock themeId="soft" tokens={tokens} variant={variant} />
     </View>
   );
 }
@@ -404,7 +558,7 @@ function MemberChip({
   points: number;
   fill: string;
   active?: boolean;
-  tokens: ReturnType<typeof getThemeTokens>;
+  tokens: AppearanceTokens;
 }) {
   return (
     <View
@@ -420,8 +574,15 @@ function MemberChip({
   );
 }
 
-function MiniDock({ themeId }: { themeId: ThemeId }) {
-  const tokens = getThemeTokens(themeId);
+function MiniDock({
+  themeId,
+  tokens,
+  variant,
+}: {
+  themeId: ThemeId;
+  tokens: AppearanceTokens;
+  variant: PreviewVariant;
+}) {
   return (
     <View
       accessibilityElementsHidden
@@ -438,6 +599,7 @@ function MiniDock({ themeId }: { themeId: ThemeId }) {
                 borderRadius: 15,
               }
             : { backgroundColor: '#211A35', borderColor: '#211A35', borderRadius: 24 },
+        variant === 'phone' ? { marginTop: 'auto' } : null,
       ]}
     >
       {['⌂', '▧'].map((icon, index) => (
@@ -486,33 +648,70 @@ function MiniDock({ themeId }: { themeId: ThemeId }) {
   );
 }
 
-export function ThemePreview({ themeId, style }: ThemePreviewProps) {
+export function ThemePreview({
+  themeId,
+  tokens,
+  variant = 'card',
+  styleId,
+  style,
+}: ThemePreviewProps) {
   const { t } = useHouseGainsTranslation();
+  const resolvedTokens = tokens ?? getThemeTokens(themeId);
   const Preview =
     themeId === 'arcade' ? ArcadePreview : themeId === 'sticker' ? StickerPreview : SoftPreview;
   return (
     <View
       accessible={false}
-      testID={`housegains.theme-preview.${themeId}`}
-      style={[styles.previewFrame, style]}
+      testID={`housegains.theme-preview.${styleId ?? themeId}`}
+      style={[
+        styles.previewFrame,
+        variant === 'phone' ? styles.phoneFrame : styles.cardFrame,
+        style,
+      ]}
       accessibilityLabel={t('housegains.appearance.preview_hint')}
     >
-      <Preview />
+      <Preview tokens={resolvedTokens} variant={variant} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   previewFrame: {
-    height: 270,
     overflow: 'hidden',
     borderRadius: 18,
+  },
+  cardFrame: {
+    height: 270,
+  },
+  phoneFrame: {
+    flex: 1,
+    borderRadius: 0,
   },
   preview: {
     flex: 1,
     overflow: 'hidden',
     borderRadius: 18,
     justifyContent: 'space-between',
+  },
+  phonePreview: {
+    justifyContent: 'flex-start',
+    gap: 10,
+    paddingTop: 30,
+    paddingBottom: 14,
+    paddingHorizontal: 13,
+    borderRadius: 0,
+  },
+  ctaPill: {
+    minHeight: 18,
+    paddingHorizontal: 6,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  ctaText: {
+    fontSize: 8,
+    lineHeight: 10,
+    fontFamily: 'Geist_700Bold',
   },
   flexOne: {
     flex: 1,

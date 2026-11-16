@@ -1,9 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { act, render, screen, userEvent, waitFor } from '@testing-library/react-native';
+import { act, render, screen, userEvent, waitFor, within } from '@testing-library/react-native';
 import { Text } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Button } from '@/components/housegains/ui';
 import { ThemeProvider, useAppearance } from '@/features/appearance';
+import { BUNDLED_PICKER_CONFIG } from '@/features/appearance/picker-config';
 import ThemePickerScreen from '@/features/onboarding/theme-picker-screen';
+import { HOUSEGAINS_DICTIONARIES } from '@/localization/housegains/catalog';
+import { LocaleProvider } from '@/localization/locale-context';
 
 const mockStorage: Record<string, string> = {};
 
@@ -19,6 +23,17 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     }),
   },
 }));
+
+const fakeFirebase = (
+  globalThis as unknown as {
+    mockFirebase: { remoteConfigValue: string; remoteConfigFetches: number };
+  }
+).mockFirebase;
+
+const metrics = {
+  frame: { x: 0, y: 0, width: 390, height: 844 },
+  insets: { top: 0, bottom: 0, left: 0, right: 0 },
+};
 
 function AppearanceProbe() {
   const { themeId, selected, hydrated, loadError } = useAppearance();
@@ -51,77 +66,157 @@ function AppearanceActions() {
   );
 }
 
+function renderPicker(onContinue: () => void = jest.fn()) {
+  return render(
+    <SafeAreaProvider initialMetrics={metrics}>
+      <LocaleProvider>
+        <ThemeProvider>
+          <ThemePickerScreen onContinue={onContinue} />
+          <AppearanceProbe />
+        </ThemeProvider>
+      </LocaleProvider>
+    </SafeAreaProvider>,
+  );
+}
+
+// Pages off screen are hidden from accessibility, so they need includeHiddenElements.
+const HIDDEN = { includeHiddenElements: true } as const;
+
+function pageIds() {
+  return screen.getAllByTestId(/^theme-page\./, HIDDEN).map((page) => page.props.testID);
+}
+
+async function waitForHydrated() {
+  await waitFor(() => expect(screen.getByTestId('appearance.hydrated')).toHaveTextContent('yes'));
+}
+
 describe('HouseGains appearance picker', () => {
   beforeEach(() => {
-    delete mockStorage['housegains.appearance.v1'];
+    for (const key of Object.keys(mockStorage)) delete mockStorage[key];
+    mockStorage['app.language.override'] = 'en-US';
     jest
       .mocked(AsyncStorage.getItem)
       .mockImplementation(async (key: string) => mockStorage[key] ?? null);
     jest.mocked(AsyncStorage.setItem).mockImplementation(async (key: string, value: string) => {
       mockStorage[key] = value;
     });
+    fakeFirebase.remoteConfigValue = '';
+    fakeFirebase.remoteConfigFetches = 0;
   });
 
-  test('keeps all themes unselected until a preview is chosen and Continue commits it', async () => {
+  test('renders the pages in order sticker, arcade, soft and saves nothing before Choose', async () => {
     const onContinue = jest.fn();
-    await render(
-      <ThemeProvider>
-        <ThemePickerScreen onContinue={onContinue} />
-        <AppearanceProbe />
-      </ThemeProvider>,
-    );
+    renderPicker(onContinue);
 
-    await waitFor(() => expect(screen.getByTestId('appearance.hydrated')).toHaveTextContent('yes'));
-    expect(screen.getByTestId('housegains.theme-preview.arcade')).toBeTruthy();
-    expect(screen.getByTestId('housegains.theme-preview.sticker')).toBeTruthy();
-    expect(screen.getByTestId('housegains.theme-preview.soft')).toBeTruthy();
-    expect(screen.getByTestId('theme-option.arcade').props.accessibilityState.selected).toBe(false);
-    expect(screen.getByTestId('theme-option.sticker').props.accessibilityState.selected).toBe(
-      false,
-    );
-    expect(screen.getByTestId('theme-option.soft').props.accessibilityState.selected).toBe(false);
-    expect(screen.getByTestId('appearance.selected')).toHaveTextContent('none');
-    expect(AsyncStorage.setItem).not.toHaveBeenCalled();
-
-    await userEvent.setup().press(screen.getByTestId('theme-option.sticker'));
-
-    expect(screen.getByTestId('appearance.theme')).toHaveTextContent('sticker');
-    expect(screen.getByTestId('appearance.selected')).toHaveTextContent('none');
+    await waitForHydrated();
+    expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade', 'theme-page.soft']);
     expect(AsyncStorage.setItem).not.toHaveBeenCalled();
     expect(onContinue).not.toHaveBeenCalled();
+  });
 
-    await userEvent.setup().press(screen.getByTestId('theme-picker.continue'));
+  test('Choose on arcade saves the style and continues once', async () => {
+    const onContinue = jest.fn();
+    renderPicker(onContinue);
+    await waitForHydrated();
 
-    await waitFor(() =>
-      expect(screen.getByTestId('appearance.selected')).toHaveTextContent('sticker'),
-    );
+    await userEvent.setup().press(screen.getByTestId('theme-choose.arcade', HIDDEN));
+
+    await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1));
     expect(AsyncStorage.setItem).toHaveBeenCalledWith(
       'housegains.appearance.v1',
-      JSON.stringify({ version: 1, themeId: 'sticker' }),
+      JSON.stringify({ version: 1, themeId: 'arcade', composition: 'arcade' }),
     );
-    expect(onContinue).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId('appearance.selected')).toHaveTextContent('arcade');
+  });
+
+  test('a failed save shows the save error and the same button retries', async () => {
+    const onContinue = jest.fn();
+    jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
+    renderPicker(onContinue);
+    await waitForHydrated();
+
+    const user = userEvent.setup();
+    await user.press(screen.getByTestId('theme-choose.sticker'));
+
+    await waitFor(() => expect(screen.getByTestId('theme-picker.save-error')).toBeTruthy());
+    expect(within(screen.getByTestId('theme-choose.sticker')).getByText('Retry save')).toBeTruthy();
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await user.press(screen.getByTestId('theme-choose.sticker'));
+
+    await waitFor(() => expect(onContinue).toHaveBeenCalledTimes(1));
+    expect(AsyncStorage.setItem).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('appearance.selected')).toHaveTextContent('sticker');
+  });
+
+  test('a failed read shows the load error, and retry clears it', async () => {
+    jest.mocked(AsyncStorage.getItem).mockRejectedValueOnce(new Error('storage unavailable'));
+    renderPicker();
+
+    await waitFor(() => expect(screen.getByTestId('theme-picker.load-error')).toBeTruthy());
+
+    await userEvent.setup().press(screen.getByTestId('theme-picker.retry-load'));
+
+    await waitFor(() => expect(screen.queryByTestId('theme-picker.load-error')).toBeNull());
+  });
+
+  test('the language sheet switches the page titles and Done closes it', async () => {
+    renderPicker();
+    await waitForHydrated();
+    const user = userEvent.setup();
+
+    await user.press(screen.getByTestId('theme-picker.language.sticker'));
+    expect(screen.getByTestId('theme-picker.language-sheet')).toBeTruthy();
+
+    await user.press(screen.getByTestId('housegains.onboarding.language.pt-BR'));
+
+    const ptTitle = HOUSEGAINS_DICTIONARIES['pt-BR']['housegains.appearance.title'];
+    await waitFor(() => expect(screen.getAllByText(ptTitle).length).toBeGreaterThan(0));
+
+    await user.press(screen.getByTestId('theme-picker.language.done'));
+    await waitFor(() => expect(screen.queryByTestId('theme-picker.language-sheet')).toBeNull());
+  });
+
+  test('a remote config that hides soft leaves two pages', async () => {
+    const config = JSON.parse(JSON.stringify(BUNDLED_PICKER_CONFIG));
+    config.styles.find((style: { id: string }) => style.id === 'soft').enabled = false;
+    fakeFirebase.remoteConfigValue = JSON.stringify(config);
+    renderPicker();
+
+    await waitFor(() => expect(pageIds()).toHaveLength(2));
+    expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade']);
+    expect(screen.queryByTestId('theme-page.soft')).toBeNull();
+  });
+
+  test('an invalid remote config falls back to the three bundled pages', async () => {
+    fakeFirebase.remoteConfigValue = '{ not json';
+    renderPicker();
+
+    await waitForHydrated();
+    expect(pageIds()).toEqual(['theme-page.sticker', 'theme-page.arcade', 'theme-page.soft']);
+  });
+
+  test('schedules one background remote config fetch when the provider mounts', async () => {
+    renderPicker();
+
+    await waitFor(() => expect(fakeFirebase.remoteConfigFetches).toBe(1));
   });
 
   test('keeps a preview selected after a failed save and retries before continuing', async () => {
     const onContinue = jest.fn();
     jest.mocked(AsyncStorage.setItem).mockRejectedValueOnce(new Error('storage unavailable'));
-    await render(
-      <ThemeProvider>
-        <ThemePickerScreen onContinue={onContinue} />
-        <AppearanceProbe />
-      </ThemeProvider>,
-    );
+    renderPicker(onContinue);
 
-    await waitFor(() => expect(screen.getByTestId('appearance.hydrated')).toHaveTextContent('yes'));
-    await userEvent.setup().press(screen.getByTestId('theme-option.soft'));
-    await userEvent.setup().press(screen.getByTestId('theme-picker.continue'));
+    await waitForHydrated();
+    const user = userEvent.setup();
+    await user.press(screen.getByTestId('theme-choose.soft', HIDDEN));
 
-    await waitFor(() => expect(screen.getByTestId('theme-picker.save-error')).toBeTruthy());
+    await waitFor(() => expect(screen.getByTestId('theme-picker.save-error', HIDDEN)).toBeTruthy());
     expect(screen.getByTestId('appearance.theme')).toHaveTextContent('soft');
     expect(screen.getByTestId('appearance.selected')).toHaveTextContent('none');
     expect(onContinue).not.toHaveBeenCalled();
 
-    await userEvent.setup().press(screen.getByTestId('theme-picker.retry-save'));
+    await user.press(screen.getByTestId('theme-choose.soft', HIDDEN));
 
     await waitFor(() =>
       expect(screen.getByTestId('appearance.selected')).toHaveTextContent('soft'),
@@ -136,12 +231,7 @@ describe('HouseGains appearance picker', () => {
       .mockRejectedValueOnce(new Error('storage unavailable'))
       .mockImplementation(async (key: string) => mockStorage[key] ?? null);
 
-    await render(
-      <ThemeProvider>
-        <ThemePickerScreen onContinue={jest.fn()} />
-        <AppearanceProbe />
-      </ThemeProvider>,
-    );
+    renderPicker();
 
     await waitFor(() =>
       expect(screen.getByTestId('appearance.load-error')).toHaveTextContent('error'),
@@ -195,6 +285,7 @@ describe('HouseGains appearance picker', () => {
     expect(JSON.parse(mockStorage['housegains.appearance.v1'])).toEqual({
       version: 1,
       themeId: 'soft',
+      composition: 'soft',
     });
   });
 });

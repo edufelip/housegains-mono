@@ -4,7 +4,7 @@ import { Pressable, ScrollView, View } from 'react-native';
 import { LanguagePicker } from '@/components/housegains/language-picker';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { ArcadeDock, SoftDock, StickerDock } from '@/components/housegains/variants';
-import { useAppearance, getThemeTokens, type ThemeId } from '@/features/appearance';
+import { resolvePickerCopy, useAppearance, type StyleId } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { AboutSection, AccountSection, ReminderSection } from './account-screens';
 import { HouseholdPeopleSection } from './household-safety';
@@ -250,19 +250,18 @@ export function HouseGainsSettingsScreen({
   onOpenChores(): void;
   onEditHousehold(): void;
   onOpenInvite(): void;
-  onSelectTheme(themeId: ThemeId): Promise<void>;
+  onSelectTheme(themeId: StyleId): Promise<void>;
   onDeleteAccount(): void;
   onLeftHousehold(): void;
   hasError: boolean;
   onError: (hasError: boolean) => void;
 }) {
-  const { tokens, themeId, selected: savedTheme, saveError } = useAppearance();
-  const { t } = useHouseGainsTranslation();
+  const { tokens, styleId, styles, selected: savedTheme, saveError } = useAppearance();
+  const { t, locale } = useHouseGainsTranslation();
   const [themeBusy, setThemeBusy] = useState(false);
   const isCreator = currentMember.role === 'creator';
-  const themes: ThemeId[] = ['arcade', 'sticker', 'soft'];
 
-  const selectTheme = async (id: ThemeId) => {
+  const selectTheme = async (id: StyleId) => {
     if (themeBusy || (id === savedTheme && !saveError)) return;
     setThemeBusy(true);
     onError(false);
@@ -292,7 +291,7 @@ export function HouseGainsSettingsScreen({
           {saveError ? (
             <Button
               disabled={themeBusy}
-              onPress={() => void selectTheme(themeId)}
+              onPress={() => void selectTheme(styleId)}
               title={t('housegains.screens.common.retry')}
               testID="housegains.settings.themeRetry"
             />
@@ -334,19 +333,21 @@ export function HouseGainsSettingsScreen({
       <Card style={{ gap: 12 }}>
         <Label variant="heading">{t('housegains.screens.settings.appearance')}</Label>
         <Label variant="caption">{t('housegains.screens.settings.appearanceDescription')}</Label>
-        {themes.map((id) => {
-          const themeTokens = getThemeTokens(id);
-          const selected = themeId === id;
+        {styles.map((style) => {
+          const themeTokens = style.tokens;
+          const name = resolvePickerCopy(style.copy.name, locale, t);
+          const description = resolvePickerCopy(style.copy.description, locale, t);
+          const selected = styleId === style.id;
           return (
             <Pressable
               accessibilityLabel={t('housegains.screens.settings.selectTheme', {
-                theme: t(`housegains.theme.${id}.name`),
+                theme: name,
               })}
               accessibilityRole="radio"
               accessibilityState={{ selected, disabled: themeBusy }}
               disabled={themeBusy}
-              key={id}
-              onPress={() => void selectTheme(id)}
+              key={style.id}
+              onPress={() => void selectTheme(style.id)}
               style={{
                 alignItems: 'center',
                 backgroundColor: themeTokens.canvas,
@@ -359,7 +360,7 @@ export function HouseGainsSettingsScreen({
                 gap: 11,
                 padding: 12,
               }}
-              testID={`housegains.settings.theme.${id}`}
+              testID={`housegains.settings.theme.${style.id}`}
             >
               <View
                 style={{
@@ -372,11 +373,9 @@ export function HouseGainsSettingsScreen({
                 }}
               />
               <View style={{ flex: 1 }}>
-                <Label style={{ color: themeTokens.text, fontWeight: '800' }}>
-                  {t(`housegains.theme.${id}.name`)}
-                </Label>
+                <Label style={{ color: themeTokens.text, fontWeight: '800' }}>{name}</Label>
                 <Label variant="caption" style={{ color: themeTokens.muted }}>
-                  {t(`housegains.theme.${id}.description`)}
+                  {description}
                 </Label>
               </View>
               <Ionicons
