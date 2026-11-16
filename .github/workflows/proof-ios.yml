@@ -1,0 +1,133 @@
+name: Proof iOS style picker (temporary)
+
+# Throwaway branch only: regenerates Podfile.lock and screenshots the style picker on an iOS simulator.
+on:
+  push:
+    branches: [proof/ios-style-picker]
+
+permissions:
+  contents: read
+
+jobs:
+  proof:
+    runs-on: macos-15
+    timeout-minutes: 90
+    defaults:
+      run:
+        working-directory: apps/mobile
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcode_app="$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -n 1)"
+          echo "DEVELOPER_DIR=$xcode_app/Contents/Developer" >> "$GITHUB_ENV"
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+      - name: Install pods
+        working-directory: apps/mobile/ios
+        run: pod install
+      - name: Upload Podfile.lock
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: podfile-lock
+          path: apps/mobile/ios/Podfile.lock
+      - name: Build Release for simulator
+        run: |
+          set -o pipefail
+          xcodebuild -workspace ios/HouseGains.xcworkspace -scheme HouseGains \
+            -configuration Release -sdk iphonesimulator \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath "$RUNNER_TEMP/derived" \
+            ARCHS=arm64 ONLY_ACTIVE_ARCH=YES CODE_SIGNING_ALLOWED=NO build \
+            | tee "$RUNNER_TEMP/xcodebuild.log" | grep -E "error:|\*\* BUILD" || true
+          grep -q "\*\* BUILD SUCCEEDED \*\*" "$RUNNER_TEMP/xcodebuild.log"
+      - name: Boot simulator and install
+        shell: bash
+        run: |
+          set -euo pipefail
+          udid="$(xcrun simctl list devices available -j | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];c=[x for k,v in d.items() if 'iOS' in k for x in v if x['name'].startswith('iPhone') and 'Pro Max' not in x['name'] and 'Plus' not in x['name'] and 'Air' not in x['name'] and 'SE' not in x['name']];print(sorted(c,key=lambda x:x['name'])[-1]['udid'])")"
+          echo "UDID=$udid" >> "$GITHUB_ENV"
+          xcrun simctl boot "$udid"
+          xcrun simctl bootstatus "$udid" -b
+          app="$RUNNER_TEMP/derived/Build/Products/Release-iphonesimulator/HouseGains.app"
+          bundle="$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")"
+          echo "BUNDLE=$bundle" >> "$GITHUB_ENV"
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl list devices | grep "$udid"
+      - name: Install Maestro
+        run: |
+          curl -fsSL "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+      - name: Walk through the picker
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/shots"
+          cat > "$RUNNER_TEMP/flow.yaml" <<YAML
+          appId: ${BUNDLE}
+          ---
+          - launchApp:
+              clearState: true
+          - extendedWaitUntil:
+              visible:
+                id: "theme-choose.sticker"
+              timeout: 90000
+          - waitForAnimationToEnd
+          - takeScreenshot: ios-01-sticker-first-launch
+          - tapOn:
+              id: "theme-picker.next.sticker"
+          - waitForAnimationToEnd
+          - takeScreenshot: ios-02-arcade-next-button
+          - swipe:
+              start: 90%, 45%
+              end: 10%, 45%
+          - waitForAnimationToEnd
+          - takeScreenshot: ios-03-soft-swipe
+          - tapOn:
+              id: "theme-picker.language.soft"
+          - waitForAnimationToEnd
+          - takeScreenshot: ios-04-language-sheet
+          - tapOn:
+              id: "housegains.onboarding.language.pt-BR"
+          - tapOn:
+              id: "theme-picker.language.done"
+          - waitForAnimationToEnd
+          - takeScreenshot: ios-05-soft-ptbr
+          - tapOn:
+              id: "theme-choose.soft"
+          - extendedWaitUntil:
+              visible: "Entrar no HouseGains"
+              timeout: 30000
+          - takeScreenshot: ios-06-after-choose
+          - stopApp
+          - launchApp
+          - extendedWaitUntil:
+              visible: "Entrar no HouseGains"
+              timeout: 60000
+          - takeScreenshot: ios-07-relaunch-remembers
+          YAML
+          cd "$RUNNER_TEMP/shots"
+          maestro --device "$UDID" test "$RUNNER_TEMP/flow.yaml" || { xcrun simctl io "$UDID" screenshot "$RUNNER_TEMP/shots/ios-failure-state.png"; exit 1; }
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-proof-screenshots
+          path: ${{ runner.temp }}/shots
+      - name: Upload build log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: ${{ runner.temp }}/xcodebuild.log
