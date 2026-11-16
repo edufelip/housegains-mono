@@ -34,7 +34,7 @@ const layout = { gutter: 16, maxContentWidth: 720 } as const;
 const scrim = 'rgba(0, 0, 0, 0.4)';
 
 /** Sizes and line heights are shared; only the heading family varies by theme (Soft is serif). */
-function buildType(heading: string): Record<TypeRole, TypeStyle> {
+export function buildType(heading: string): Record<TypeRole, TypeStyle> {
   return {
     display: { fontFamily: heading, fontSize: 32, lineHeight: 38, fontWeight: '700' },
     title: { fontFamily: heading, fontSize: 26, lineHeight: 32, fontWeight: '700' },

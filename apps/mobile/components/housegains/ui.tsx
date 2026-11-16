@@ -271,7 +271,7 @@ export function StatePanel({
           size={tokens.iconSize.lg}
         />
       )}
-      <Label style={{ textAlign: 'center' }} variant="heading">
+      <Label accessibilityRole="header" style={{ textAlign: 'center' }} variant="heading">
         {title}
       </Label>
       {description ? <Label style={{ textAlign: 'center' }}>{description}</Label> : null}

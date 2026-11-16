@@ -1,4 +1,5 @@
 import { render, screen, userEvent } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { StatePanel, type StatePanelKind } from '@/components/housegains/ui';
 import { ThemeProvider } from '@/features/appearance';
 
@@ -32,6 +33,50 @@ describe('StatePanel', () => {
       </ThemeProvider>,
     );
     expect(screen.getByTestId('panel').props.accessibilityRole).toBe('alert');
+  });
+
+  test('only the error kind is an alert, and only loading is a live region', async () => {
+    await render(
+      <ThemeProvider>
+        <StatePanel kind="empty" testID="empty" title="Nothing here" />
+        <StatePanel kind="loading" testID="loading" title="Loading" />
+      </ThemeProvider>,
+    );
+    expect(screen.getByTestId('empty').props.accessibilityRole).toBeUndefined();
+    expect(screen.getByTestId('loading').props.accessibilityLiveRegion).toBe('polite');
+    expect(screen.getByTestId('empty').props.accessibilityLiveRegion).toBeUndefined();
+  });
+
+  test('the title is a heading for screen readers', async () => {
+    await render(
+      <ThemeProvider>
+        <StatePanel kind="empty" title="Nothing here" />
+      </ThemeProvider>,
+    );
+    expect(screen.getByRole('header', { name: 'Nothing here' })).toBeTruthy();
+  });
+
+  test('the action is primary for an error and secondary otherwise', async () => {
+    await render(
+      <ThemeProvider>
+        <StatePanel
+          kind="error"
+          testID="e"
+          title="Offline"
+          actionTitle="Retry"
+          onAction={() => undefined}
+        />
+        <StatePanel
+          kind="empty"
+          testID="m"
+          title="Empty"
+          actionTitle="Create"
+          onAction={() => undefined}
+        />
+      </ThemeProvider>,
+    );
+    const flat = (id: string) => StyleSheet.flatten(screen.getByTestId(id).props.style);
+    expect(flat('e.action').backgroundColor).not.toBe(flat('m.action').backgroundColor);
   });
 
   test('renders the action only when both a title and a handler are provided', async () => {

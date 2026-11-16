@@ -1,5 +1,6 @@
 import { BUNDLED_PICKER_CONFIG } from '@/features/appearance/picker-config';
 import { findStyleForSelection, resolvePickerStyles } from '@/features/appearance/picker-styles';
+import { FontFamily } from '@/features/appearance/tokens';
 
 function remoteWith(order: string[], disabled: string[] = []) {
   const config = structuredClone(BUNDLED_PICKER_CONFIG);
@@ -38,5 +39,19 @@ describe('findStyleForSelection (rule R6)', () => {
   test('no selection uses the first visible page of the active config', () => {
     const resolved = remoteWith(['soft', 'sticker']);
     expect(findStyleForSelection(null, undefined, resolved).id).toBe('soft');
+  });
+});
+
+describe('role type scale follows the configured heading font', () => {
+  test('a soft style configured with a sans heading gets sans Label headings', () => {
+    const config = structuredClone(BUNDLED_PICKER_CONFIG);
+    const soft = config.styles.find((style) => style.composition === 'soft');
+    if (!soft) throw new Error('bundled config has no soft style');
+    soft.headingFont = 'sans';
+    const style = resolvePickerStyles(config).all.find((item) => item.id === soft.id);
+
+    expect(style?.tokens.typography.heading).toBe(FontFamily.bold);
+    expect(style?.tokens.type.heading.fontFamily).toBe(FontFamily.bold);
+    expect(style?.tokens.type.title.fontFamily).toBe(FontFamily.bold);
   });
 });

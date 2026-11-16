@@ -8,7 +8,7 @@ In `features/**/*.tsx` and `components/**/*.tsx`, ESLint reports:
 
 | Pattern | Reported as |
 |---|---|
-| Hex colors (`'#fff'`, `'#14110F'`, 4 to 8 digit forms) | error |
+| Hex colors (`'#fff'`, `'#14110F'`, 3, 4, 6 and 8 digit forms) | error |
 | `rgb(`, `rgba(`, `hsl(`, `hsla(` strings | error |
 | `fontFamily: '<literal>'` | error |
 | `fontSize: <number literal>` | error |
@@ -21,7 +21,7 @@ To intentionally use a literal that is data, not theme (for example a member col
 
 ### The legacy allowlist
 
-Twelve files predate the system and still contain raw values. They are listed in `LEGACY_FILES` in `eslint.design-system.cjs` and report **warnings** (visible in `bun run lint`, hidden by `--quiet`) so CI stays green.
+Thirteen files predate the system and still contain raw values. They are listed in `LEGACY_FILES` in `eslint.design-system.cjs` and report **warnings** (visible in `bun run lint`, hidden by `--quiet`) so CI stays green.
 
 - **The list may only shrink.** When you migrate a file, delete it from the list in the same change.
 - **Never add a file.** A new file with raw values fails CI; fix the file instead.

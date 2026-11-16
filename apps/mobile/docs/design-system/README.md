@@ -47,7 +47,7 @@ Copy into the PR description and tick each line, or note why a line does not app
 | Tokens, type scale, touch targets, scrim | Implemented in `tokens.ts`, tested in `tests/component/design-tokens.test.ts` |
 | Shared components (`Screen`, `Card`, `Button`, `Label`, `StatePanel`) | Implemented in `components/housegains/ui.tsx` |
 | Form, chip, member badge, screen title, glyph | Implemented, but live in `features/housegains-screens/screen-elements.tsx`; promoting them to `components/housegains/` is deferred |
-| Lint rule | Implemented. 12 pre-existing files are on a shrinking allowlist ([enforcement.md](enforcement.md)) |
+| Lint rule | Implemented. 13 pre-existing files are on a shrinking allowlist ([enforcement.md](enforcement.md)) |
 | Existing screens migrated to tokens | **Not done.** Legacy values remain in the allowlisted files |
 | Known contrast gaps | Recorded, not fixed ([accessibility.md](accessibility.md)) |
 | Motion primitives, haptics | None exist yet ([motion-and-haptics.md](motion-and-haptics.md)) |
