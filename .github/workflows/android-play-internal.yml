@@ -1,6 +1,6 @@
 name: Android Play internal
 
-# Manual only: builds the signed prod app bundle (com.housegains.app).
+# Manual only: builds the signed dev-variant app bundle (com.housegains.app.dev).
 # Play takes an app's first bundle only through its website, so the first run leaves
 # "upload" off and the bundle is downloaded from the run's artifacts.
 on:
@@ -31,7 +31,7 @@ jobs:
       run:
         working-directory: apps/mobile
     env:
-      APP_VARIANT: prod
+      APP_VARIANT: dev
       EXPO_PUBLIC_GOOGLE_OAUTH_ANDROID_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_ANDROID_CLIENT_ID }}
       EXPO_PUBLIC_GOOGLE_OAUTH_WEB_CLIENT_ID: ${{ vars.GOOGLE_OAUTH_WEB_CLIENT_ID }}
     steps:
@@ -67,12 +67,12 @@ jobs:
 
       - name: Build bundle
         working-directory: apps/mobile/android
-        run: ./gradlew bundleProductionRelease -PCI_VERSION_CODE=${{ github.run_number }} --no-daemon
+        run: ./gradlew bundleDevRelease -PCI_VERSION_CODE=${{ github.run_number }} --no-daemon
 
       - uses: actions/upload-artifact@v4
         with:
           name: housegains-${{ github.run_number }}.aab
-          path: apps/mobile/android/app/build/outputs/bundle/productionRelease/*.aab
+          path: apps/mobile/android/app/build/outputs/bundle/devRelease/*.aab
 
       # The app is still a draft in Play, so releases must be drafts too.
       - name: Upload to Play (internal track)
@@ -80,8 +80,8 @@ jobs:
         uses: r0adkll/upload-google-play@e738b9dd8f2476ea806d921b64aacd24f34515a5 # v1.1.5
         with:
           serviceAccountJsonPlainText: ${{ secrets.PLAY_SERVICE_ACCOUNT_JSON }}
-          packageName: com.housegains.app
-          releaseFiles: apps/mobile/android/app/build/outputs/bundle/productionRelease/*.aab
+          packageName: com.housegains.app.dev
+          releaseFiles: apps/mobile/android/app/build/outputs/bundle/devRelease/*.aab
           track: internal
           status: draft
 
