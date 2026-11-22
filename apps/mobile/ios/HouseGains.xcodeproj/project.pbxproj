@@ -427,7 +427,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\ncase \"$CONFIGURATION\" in\n  Debug) env=dev ;;\n  Release) env=prod ;;\n  *) echo \"error: no Firebase config for configuration $CONFIGURATION\" >&2; exit 1 ;;\nesac\ncp \"$SRCROOT/HouseGains/Firebase/GoogleService-Info.$env.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/GoogleService-Info.plist\"\n";
+			shellScript = "set -euo pipefail\ncase \"$CONFIGURATION\" in\n  Debug) env=dev ;;\n  Release) env=prod ;;\n  *) echo \"error: no Firebase config for configuration $CONFIGURATION\" >&2; exit 1 ;;\nesac\nenv=\"${FIREBASE_ENV:-$env}\"\ncp \"$SRCROOT/HouseGains/Firebase/GoogleService-Info.$env.plist\" \"$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/GoogleService-Info.plist\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
