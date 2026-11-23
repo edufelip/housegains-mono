@@ -491,6 +491,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
+				APP_DISPLAY_NAME = "HouseGains Dev";
 				PRODUCT_BUNDLE_IDENTIFIER = com.housegains.app.dev;
 				PRODUCT_NAME = HouseGains;
 				SWIFT_OBJC_BRIDGING_HEADER = "HouseGains/HouseGains-Bridging-Header.h";
@@ -527,6 +528,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
+				APP_DISPLAY_NAME = HouseGains;
 				PRODUCT_BUNDLE_IDENTIFIER = com.housegains.app;
 				PRODUCT_NAME = HouseGains;
 				SWIFT_OBJC_BRIDGING_HEADER = "HouseGains/HouseGains-Bridging-Header.h";
