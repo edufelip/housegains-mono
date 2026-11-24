@@ -147,6 +147,7 @@ export function HouseholdRanksScreen({
   weeklyTotals,
   currentMember,
   lastWeek,
+  organizerCard,
   onNavigate,
 }: {
   household: Household;
@@ -155,6 +156,8 @@ export function HouseholdRanksScreen({
   currentMember: Member;
   /** Latest closed week snapshot (contract Part B), or null before any week has closed. */
   lastWeek: WeekStandings | null;
+  /** The household organizer card; only passed while gamification is visible. */
+  organizerCard?: ReactNode;
   onNavigate(tab: AppTab): void;
 }) {
   const { tokens } = useAppearance();
@@ -178,6 +181,7 @@ export function HouseholdRanksScreen({
           description={t('housegains.screens.ranks.description')}
         />
       </View>
+      {organizerCard}
       {!hasPoints ? (
         <Card style={{ gap: 7 }}>
           <Label variant="heading">{t('housegains.screens.ranks.emptyTitle')}</Label>

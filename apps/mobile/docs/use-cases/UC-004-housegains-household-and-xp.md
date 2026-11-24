@@ -76,10 +76,42 @@
 - **Alternate flows:** A role change or standings load fails; the failure is shown with retry and no success is implied.
 - **Postconditions:** Roles and week snapshots stay server-owned; the client only renders what the backend recorded.
 
+## UC-004.7 Earn Ganhos and celebrate
+
+- **Primary actors:** Household member (also the creator, for Care)
+- **Preconditions:** The program is visible (flag on and live cohort, BR-413 rule 22).
+- **Trigger:** The member completes a step, finishes a chore, shares a completion, or opens the app after a week closed.
+- **Main flow:**
+  1. The callable response (or the inbox) delivers celebrations; the app dedupes them by id.
+  2. A toast shows the amount counting up; a level-up or streak milestone shows its moment; a silver or gold badge shows the full-screen unlock (once per session).
+  3. When the same action finished the chore, a badge shows inside the S3 screen instead.
+  4. Inbox rows are acknowledged once shown.
+- **Alternate flows:** Reduced motion shows the final numbers without particles or spin. Later full-screen badges and bronze badges are toasts. Control/shadow households and the flag-off app see nothing.
+- **Postconditions:** Balances, levels, streaks and badges are server-owned; the client only renders them.
+
+## UC-004.8 Review the wallet and the weekly streak, and set Away mode
+
+- **Primary actor:** Household member
+- **Trigger:** The member taps the Ganhos chip on Today.
+- **Main flow:**
+  1. The wallet shows the private balance (counting up from the last seen value), pending balance and the date it becomes available, lifetime total, level ring, achievements and recent activity.
+  2. The member opens the weekly streak: week cells, counter, rest passes and milestones.
+  3. The member picks Mondays for Away mode and saves; the app confirms.
+- **Alternate flows:** Loading, an error with retry, and an empty state before the first earn. A broken streak shows the calm message with the record. A pick that is not a future Monday or exceeds three weeks in the calendar year is refused with a localized message, before or after the call.
+- **Postconditions:** Away weeks are stored on the wallet by the backend; the streak waits and reminders stay quiet.
+
+## UC-004.9 See the household organizer
+
+- **Primary actor:** Any household member
+- **Trigger:** The member opens Ranks.
+- **Main flow:** The organizer card shows the creator's Care, organizer title, "Casa em dia" streak, the recent on-time rate and organizer achievements.
+- **Alternate flows:** Loading, an error with retry, and the not-yet-earned state (zero Care and a start message).
+- **Postconditions:** Read-only; the creator's Zelo is never a spendable balance.
+
 ## References
 
 - [Screen specification](../screens/housegains-v1.md)
 - [FR-275](../functional-requirements/FR-275-housegains-v1.md)
 - [BR-413](../business-rules/BR-413-housegains-domain.md)
-- [AC-618–AC-636](../acceptance-criteria/AC-007-housegains-v1.md)
-- [TC-535–TC-556](../test-cases/TC-535-housegains-v1.md)
+- [AC-618–AC-646](../acceptance-criteria/AC-007-housegains-v1.md)
+- [TC-535–TC-568](../test-cases/TC-535-housegains-v1.md)

@@ -28,11 +28,11 @@ export function StickerDock({
     icon: ComponentProps<typeof Ionicons>['name'];
     key: string;
   }[] = [
-    { id: 'today', icon: 'home-outline', key: 'todayTab' },
-    { id: 'feed', icon: 'images-outline', key: 'feedTab' },
-    { id: 'add', icon: 'add', key: 'addTab' },
-    { id: 'ranks', icon: 'trophy-outline', key: 'ranksTab' },
-    { id: 'me', icon: 'person-outline', key: 'meTab' },
+    { id: 'today', icon: 'home-outline', key: 'today' },
+    { id: 'feed', icon: 'images-outline', key: 'feed' },
+    { id: 'add', icon: 'add', key: 'add' },
+    { id: 'ranks', icon: 'trophy-outline', key: 'ranks' },
+    { id: 'me', icon: 'person-outline', key: 'me' },
   ];
   return (
     <View
@@ -165,6 +165,8 @@ export function StickerDashboard(props: DashboardProps) {
             </Label>
           </View>
         </View>
+
+        {props.ganhosChip}
 
         <View style={{ marginRight: 4 }}>
           <Card

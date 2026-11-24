@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
+import { CompletionBadges } from '@/features/gamification/completion-badges';
 import {
   canReportCompletion,
   hasAdminRights,
@@ -23,6 +24,7 @@ import {
 } from './moderation-screens';
 import { MemberBadge } from './screen-elements';
 import { choreDisplayName, subtaskDisplayName } from './screen-model';
+import type { Celebration } from '@/features/gamification/types';
 import type { Dispute, Instance, Member } from '@/features/household';
 import type { Chore, Completion } from '@/features/household/types';
 
@@ -59,6 +61,8 @@ type CelebrationScreenProps = {
   onBack: () => void;
   onPostToFeed: (instanceId: string) => Promise<void>;
   hasError: boolean;
+  /** Achievements earned by the action that completed the instance (gamification only). */
+  badges?: Celebration[];
 };
 
 function getUndoDeadline(completion: Completion): number {
@@ -247,7 +251,13 @@ export function ChoreDetailScreen({
           }}
           testID="housegains.choreDetail.back"
         >
-          <Label style={{ fontSize: 29, fontWeight: '700', lineHeight: 32 }}>‹</Label>
+          <Ionicons
+            accessibilityElementsHidden
+            color={tokens.text}
+            importantForAccessibility="no"
+            name="chevron-back"
+            size={tokens.iconSize.lg}
+          />
         </Pressable>
         <View style={{ flex: 1, gap: 2 }}>
           <Label variant="caption">
@@ -325,8 +335,12 @@ export function ChoreDetailScreen({
       </Card>
 
       {shouldShowError ? (
-        <Card style={{ backgroundColor: tokens.danger }} testID="housegains.choreDetail.error">
-          <Label style={{ color: '#FFFFFF', fontWeight: '700' }}>
+        <Card
+          style={{ alignItems: 'center', borderColor: tokens.danger, flexDirection: 'row', gap: 8 }}
+          testID="housegains.choreDetail.error"
+        >
+          <Ionicons color={tokens.danger} name="alert-circle-outline" size={tokens.iconSize.md} />
+          <Label style={{ flex: 1, fontWeight: '700' }}>
             {t('housegains.screens.choreDetail.error')}
           </Label>
         </Card>
@@ -710,9 +724,10 @@ function deriveContributorBreakdown(
 }
 
 function DecorativeConfetti({ sticker }: { sticker: boolean }) {
+  const { tokens } = useAppearance();
   const colors = sticker
-    ? ['#FBBF24', '#F87171', '#10B981', '#FFFFFF']
-    : ['#FF8A4C', '#76FF03', '#FFFFFF', '#6366F1'];
+    ? [tokens.accent, tokens.danger, tokens.success, tokens.onPrimary]
+    : [tokens.accent, tokens.primary, tokens.text, tokens.success];
   return (
     <View
       accessibilityElementsHidden
@@ -724,7 +739,7 @@ function DecorativeConfetti({ sticker }: { sticker: boolean }) {
           key={`${color}-${index}`}
           style={{
             backgroundColor: color,
-            borderColor: '#111111',
+            borderColor: tokens.border,
             borderRadius: index % 2 === 0 ? 2 : 99,
             borderWidth: index % 2 === 0 ? 1 : 0,
             height: index % 2 === 0 ? 14 : 11,
@@ -748,6 +763,7 @@ export function CelebrationScreen({
   onBack,
   onPostToFeed,
   hasError,
+  badges = [],
 }: CelebrationScreenProps) {
   const { themeId, tokens } = useAppearance();
   const { t } = useHouseGainsTranslation();
@@ -788,7 +804,11 @@ export function CelebrationScreen({
     >
       <DecorativeConfetti sticker={sticker} />
       <View style={{ alignItems: 'center', gap: 10 }}>
+        {/* The disc grows with its text (minWidth/minHeight, no fixed size) so "100%" and its word
+            fit at the largest text size in every language; the bonus sentence sits below it. */}
         <View
+          accessible
+          accessibilityLabel={t('housegains.screens.celebration.percent', { percent: 100 })}
           style={{
             alignItems: 'center',
             alignSelf: 'center',
@@ -796,42 +816,60 @@ export function CelebrationScreen({
             borderColor: tokens.border,
             borderRadius: 999,
             borderWidth: sticker ? tokens.borderWidth : Math.max(1, tokens.borderWidth),
-            height: sticker ? 148 : 132,
+            gap: tokens.spacing.xxs,
             justifyContent: 'center',
-            width: sticker ? 148 : 132,
+            maxWidth: '100%',
+            minHeight: sticker ? 148 : 132,
+            minWidth: sticker ? 148 : 132,
+            paddingHorizontal: tokens.spacing.lg,
+            paddingVertical: tokens.spacing.md,
             shadowColor: tokens.shadow.color,
             shadowOffset: tokens.shadow.offset,
             shadowOpacity: tokens.shadow.opacity,
             shadowRadius: tokens.shadow.radius,
             elevation: tokens.shadow.elevation,
           }}
+          testID="housegains.celebration.disc"
         >
           <Label
+            adjustsFontSizeToFit
+            numberOfLines={1}
             style={{
               color: sticker ? tokens.text : tokens.onPrimary,
-              fontFamily: soft ? tokens.typography.heading : tokens.typography.bold,
-              fontSize: 39,
-              fontWeight: '900',
-              lineHeight: 45,
+              textAlign: 'center',
               transform: sticker ? [{ rotate: '-8deg' }] : undefined,
             }}
+            testID="housegains.celebration.percentValue"
+            variant="display"
           >
-            {t('housegains.screens.celebration.percent', { percent: 100 })}
+            {t('housegains.screens.celebration.percentValue', { percent: 100 })}
           </Label>
           <Label
+            adjustsFontSizeToFit
+            numberOfLines={1}
             style={{
               color: sticker ? tokens.text : tokens.onPrimary,
-              fontWeight: '800',
               textAlign: 'center',
             }}
+            testID="housegains.celebration.percentWord"
           >
-            {t('housegains.screens.celebration.bonusEarned', { bonus: allocatedBonus })}
+            {t('housegains.screens.celebration.percentWord')}
           </Label>
         </View>
         <Label
+          style={{
+            color: sticker ? tokens.onPrimary : tokens.text,
+            fontWeight: '800',
+            textAlign: 'center',
+          }}
+          testID="housegains.celebration.bonus"
+        >
+          {t('housegains.screens.celebration.bonusEarned', { bonus: allocatedBonus })}
+        </Label>
+        <Label
           variant="title"
           style={{
-            color: sticker ? '#FFFFFF' : tokens.text,
+            color: sticker ? tokens.onPrimary : tokens.text,
             fontFamily: soft ? tokens.typography.heading : tokens.typography.bold,
             textAlign: 'center',
           }}
@@ -843,7 +881,7 @@ export function CelebrationScreen({
         <Label
           variant="body"
           style={{
-            color: sticker ? '#FFFFFF' : tokens.muted,
+            color: sticker ? tokens.onPrimary : tokens.muted,
             fontWeight: '600',
             textAlign: 'center',
           }}
@@ -851,6 +889,8 @@ export function CelebrationScreen({
           {t('housegains.screens.celebration.contributors', { count: breakdown.length })}
         </Label>
       </View>
+
+      <CompletionBadges badges={badges} />
 
       <Card
         style={{ gap: 0, paddingHorizontal: 16, paddingVertical: 8 }}
@@ -933,8 +973,12 @@ export function CelebrationScreen({
       </Card>
 
       {shouldShowError ? (
-        <Card style={{ backgroundColor: tokens.danger }} testID="housegains.celebration.postError">
-          <Label style={{ color: '#FFFFFF', fontWeight: '700' }}>
+        <Card
+          style={{ alignItems: 'center', borderColor: tokens.danger, flexDirection: 'row', gap: 8 }}
+          testID="housegains.celebration.postError"
+        >
+          <Ionicons color={tokens.danger} name="alert-circle-outline" size={tokens.iconSize.md} />
+          <Label style={{ flex: 1, fontWeight: '700' }}>
             {t(
               postState === 'error'
                 ? 'housegains.screens.celebration.postError'
@@ -949,7 +993,7 @@ export function CelebrationScreen({
           <View accessibilityLiveRegion="polite" testID="housegains.celebration.posted">
             <Label
               style={{
-                color: sticker ? '#FFFFFF' : tokens.success,
+                color: sticker ? tokens.onPrimary : tokens.success,
                 fontWeight: '800',
                 textAlign: 'center',
               }}
@@ -1011,7 +1055,7 @@ export function CelebrationScreen({
         >
           <Label
             style={{
-              color: sticker ? '#FFFFFF' : tokens.primary,
+              color: sticker ? tokens.onPrimary : tokens.primary,
               fontWeight: '800',
               textAlign: 'center',
             }}

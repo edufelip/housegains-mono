@@ -390,6 +390,12 @@ const houseGainsScreensEsES: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.locale.es-ES': 'Español',
   'housegains.screens.dashboard.title.rookie': 'Principiante',
   'housegains.screens.dashboard.title.tidyTitan': 'Titán del orden',
+  'housegains.screens.dashboard.title.helper': 'Ayudante',
+  'housegains.screens.dashboard.title.cleanMaster': 'Maestro de la limpieza',
+  'housegains.screens.dashboard.title.homeLegend': 'Leyenda del hogar',
+  'housegains.screens.dashboard.title.houseGuardian': 'Guardián del hogar',
+  'housegains.screens.celebration.percentValue': '{percent} %',
+  'housegains.screens.celebration.percentWord': 'completado',
   'housegains.screens.invite.done': 'Listo',
 
   'housegains.screens.chores.returnToChores': 'Volver a las tareas',

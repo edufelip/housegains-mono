@@ -381,6 +381,12 @@ const houseGainsScreensEnUS = {
   'housegains.screens.settings.locale.es-ES': 'Spanish',
   'housegains.screens.dashboard.title.rookie': 'Rookie',
   'housegains.screens.dashboard.title.tidyTitan': 'Tidy Titan',
+  'housegains.screens.dashboard.title.helper': 'Helper',
+  'housegains.screens.dashboard.title.cleanMaster': 'Clean Master',
+  'housegains.screens.dashboard.title.homeLegend': 'Home Legend',
+  'housegains.screens.dashboard.title.houseGuardian': 'House Guardian',
+  'housegains.screens.celebration.percentValue': '{percent}%',
+  'housegains.screens.celebration.percentWord': 'complete',
   'housegains.screens.invite.done': 'Done',
 
   'housegains.screens.chores.returnToChores': 'Back to chores',

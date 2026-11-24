@@ -204,9 +204,10 @@ test('derives level and title from all-time net XP, not weekly points', () => {
   );
 
   assert.equal(totalXp, 390);
+  // Members without levelFloor/xpPeak keep the old-curve level (floor(xp/100)+1): nobody drops.
   assert.deepEqual(deriveProgression(totalXp), {
     level: 4,
-    titleKey: 'rookie',
+    titleKey: 'helper',
     xpIntoLevel: 90,
   });
   assert.deepEqual(deriveProgression(400), {
@@ -214,6 +215,20 @@ test('derives level and title from all-time net XP, not weekly points', () => {
     titleKey: 'tidyTitan',
     xpIntoLevel: 0,
   });
+});
+
+test('shows the new level curve once levelFloor exists, and never drops below xpPeak', () => {
+  // 1840 XP without levelFloor: old level 19 stays. With levelFloor 1 the new curve gives level 6.
+  assert.equal(deriveProgression(1840).level, 19);
+  assert.equal(deriveProgression(1840).titleKey, 'houseGuardian');
+  assert.deepEqual(deriveProgression(1840, { levelFloor: 1 }), {
+    level: 6,
+    titleKey: 'tidyTitan',
+    xpIntoLevel: 340,
+  });
+  // xpPeak keeps the level after an undo lowered the current XP.
+  assert.equal(deriveProgression(1200, { levelFloor: 1, xpPeak: 1840 }).level, 6);
+  assert.equal(deriveProgression(0, { levelFloor: 1, xpPeak: 0 }).level, 1);
 });
 
 test('uses persisted lifetime XP and falls back to the bounded ledger for legacy members', () => {

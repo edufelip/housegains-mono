@@ -1,3 +1,10 @@
+import {
+  displayedLevel,
+  levelForXp,
+  levelProgress,
+  memberTitleKey,
+  type MemberTitleKey,
+} from '@/features/gamification/levels';
 import { CATALOG } from '@/features/household/catalog';
 import type { Chore, Instance } from '@/features/household/types';
 
@@ -157,17 +164,32 @@ export function totalXpForMember(
   return typeof member.xp === 'number' ? Math.max(0, member.xp) : deriveTotalXp(entries, memberId);
 }
 
-export function deriveProgression(totalXp: number): {
+/**
+ * Displayed member level and title (contract C6): max(levelFloor ?? floor(xp/100)+1, levelForXp(xpPeak ?? xp)).
+ * Applies whether or not gamification is visible. A document without `levelFloor` keeps its
+ * old-curve level so nobody drops before the backfill has run.
+ */
+export function deriveProgression(
+  totalXp: number,
+  member: { xpPeak?: number; levelFloor?: number } = {},
+): {
   level: number;
-  titleKey: 'rookie' | 'tidyTitan';
+  titleKey: MemberTitleKey;
   xpIntoLevel: number;
 } {
   const earnedXp = Math.max(0, Math.floor(totalXp));
-  const level = Math.floor(earnedXp / 100) + 1;
+  const level = displayedLevel({
+    xp: earnedXp,
+    xpPeak: member.xpPeak,
+    levelFloor: member.levelFloor,
+  });
+  const peak = typeof member.xpPeak === 'number' ? member.xpPeak : earnedXp;
+  const onCurve = level <= levelForXp(peak);
   return {
     level,
-    titleKey: level >= 5 ? 'tidyTitan' : 'rookie',
-    xpIntoLevel: earnedXp % 100,
+    titleKey: memberTitleKey(level),
+    // A level carried over from the old curve (floor(xp/100)+1) progresses in hundreds.
+    xpIntoLevel: onCurve ? levelProgress(level, peak).xpIntoLevel : earnedXp % 100,
   };
 }
 

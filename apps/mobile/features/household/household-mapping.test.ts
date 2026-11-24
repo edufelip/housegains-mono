@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   callableErrorKey,
   isoOf,
+  mapHousehold,
   mapDispute,
   mapInstance,
   mapInvite,
@@ -327,4 +328,32 @@ test('moderation failures map to their own messages', () => {
     ),
     'housegains.auth.sync.conflictOfInterest',
   );
+});
+
+test('maps xpPeak, levelFloor and the gamification cohort when present, and omits them when missing', () => {
+  const withLevel = mapMember('uid', { name: 'A', xp: 1840, xpPeak: 1900, levelFloor: 1 });
+  assert.equal(withLevel.xpPeak, 1900);
+  assert.equal(withLevel.levelFloor, 1);
+  const legacy = mapMember('uid', { name: 'A', xp: 1840 });
+  assert.equal('xpPeak' in legacy, false);
+  assert.equal('levelFloor' in legacy, false);
+
+  const live = mapHousehold(
+    'h',
+    { name: 'H', gamificationCohort: 'live' },
+    [],
+    [],
+    mapInvite(undefined),
+  );
+  assert.equal(live.gamificationCohort, 'live');
+  const unknown = mapHousehold(
+    'h',
+    { name: 'H', gamificationCohort: 'weird' },
+    [],
+    [],
+    mapInvite(undefined),
+  );
+  assert.equal(unknown.gamificationCohort, undefined);
+  const missing = mapHousehold('h', { name: 'H' }, [], [], mapInvite(undefined));
+  assert.equal('gamificationCohort' in missing, false);
 });

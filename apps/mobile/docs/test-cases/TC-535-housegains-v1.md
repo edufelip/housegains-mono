@@ -28,11 +28,23 @@
 | TC-554 | Single-step dispute | Open dispute with one disputed step | Review the report | The Partially done option is hidden; only Done and Not done are offered. |
 | TC-555 | Conflict of interest | Admin completed one of the disputed steps; a second admin exists | The conflicted admin opens the dispute and the chore detail | Verdict actions are replaced by a conflict note; the backend also rejects a direct attempt; the sole-admin case may still review. |
 | TC-556 | Revocations and weekly standings | Instance with a resolved revocation; a household with a closed week (top member set, wall of shame null and vice versa; no week closed) | Open the chore detail and Ranks in each state | Revocations list the acting admin, verdict, step, and XP; the last-week card shows each part only when recorded, names "Top member of the week" / "Wall of shame", and shows "No week has closed yet" before the first close. |
+| TC-557 | Program gate | Remote Config flag false; flag true with cohort `control`, `shadow` or missing; flag true with cohort `live` | Open Today, Ranks and complete a step in each configuration | Only the live configuration shows the chip, organizer card and toasts; the others are unchanged and start no listener. |
+| TC-558 | Level curve | Members with 1840 XP: no `levelFloor`; `levelFloor` 1; XP lowered below `xpPeak` | Open the Arcade dashboard | Level 19, level 6, and the `xpPeak` level respectively, with the Clean Master / House Guardian titles from the table. |
+| TC-559 | Earned toast | Live household, a completion that earns 25 Ganhos | Complete a step; repeat with reduced motion on | Toast with the amount counting up to 25, particles, announced copy, dismissed after 2.4 s; reduced motion: final number, no particles, 3 s. |
+| TC-560 | Unlock once per session | Two silver/gold badges and one bronze badge in one session | Earn them in order | First is full screen with the button active after 400 ms; the others and the bronze one are toasts. |
+| TC-561 | Badge inside S3 | A completion that finishes the chore and earns a badge | Complete the last step | S3 shows the badge section; no second full screen; the session full-screen slot remains free. |
+| TC-562 | S3 disc fit | Each theme, each of the six languages, largest text size | Open S3 | "100%" and its word stay inside the disc, which grows; the bonus sentence is below it. |
+| TC-563 | Wallet states | Loading, listener error, no wallet, wallet with pending balance and ledger, in all three themes | Open the wallet from the chip | Loading panel; error with working retry; empty state; data with private balance, pending date, lifetime, level ring, tiers, pills and readable rows. |
+| TC-564 | Weekly streak | Wallet with an active streak; wallet with `current` 0 and a record; no wallet | Open the streak from the wallet; repeat with reduced motion | Counter, words, record, week cells, rest passes and milestones; calm broken message; start invitation; static with "Week secured". |
+| TC-565 | Away mode | Wallet with past away weeks | Pick Mondays, exceed the yearly limit, then save a valid selection; simulate a server error | Limit shown before any call; valid selection calls `setAwayWeeks` and confirms; server errors shown as localized text with an icon. |
+| TC-566 | Organizer card | Organizer with Care, a streak, order weeks and badges; no organizer yet; loading and error | Open Ranks as a member | Care, title, "Casa em dia" streak, on-time ring and bars, badges; start message; loading panel; error with retry. |
+| TC-567 | Dock labels | Each theme and each language | Open any tab screen | Every tab has its real localized visible name or accessibility label; no "Screens tabs" text. |
+| TC-568 | Celebration queue and inbox | Callable celebrations, inbox rows (fresh and older than three days), repeated ids | Receive them | Deduped by id; one at a time; inbox ids acknowledged only after being shown; stale rows acknowledged unseen. |
 
 ## Traceability
 
 - Requirements: [FR-275](../functional-requirements/FR-275-housegains-v1.md)
 - Rules: [BR-413](../business-rules/BR-413-housegains-domain.md)
 - Use cases: [UC-004](../use-cases/UC-004-housegains-household-and-xp.md)
-- Acceptance: [AC-618–AC-636](../acceptance-criteria/AC-007-housegains-v1.md)
+- Acceptance: [AC-618–AC-646](../acceptance-criteria/AC-007-housegains-v1.md)
 - Screens: [HouseGains v1 screen specification](../screens/housegains-v1.md)

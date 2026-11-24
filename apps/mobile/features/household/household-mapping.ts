@@ -1,3 +1,4 @@
+import { parseCohort } from '@/features/gamification/gating';
 import type {
   Chore,
   Completion,
@@ -36,6 +37,8 @@ export function mapMember(id: string, data: DocData): Member {
     color: data.color ?? '#7c5cff',
     role: data.role === 'creator' || data.role === 'admin' ? data.role : 'member',
     ...(typeof data.xp === 'number' ? { xp: data.xp } : {}),
+    ...(typeof data.xpPeak === 'number' ? { xpPeak: data.xpPeak } : {}),
+    ...(typeof data.levelFloor === 'number' ? { levelFloor: data.levelFloor } : {}),
   };
 }
 
@@ -227,12 +230,14 @@ export function mapHousehold(
   formerMembers: Member[],
   invite: Invite,
 ): Household {
+  const cohort = parseCohort(data.gamificationCohort);
   return {
     id,
     name: data.name,
     icon: data.icon,
     color: data.color,
     timeZone: data.timeZone,
+    ...(cohort ? { gamificationCohort: cohort } : {}),
     weeklyGoalXp: data.weeklyGoalXp ?? null,
     members,
     formerMembers,

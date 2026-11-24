@@ -1,3 +1,5 @@
+import type { ActionCelebrations } from '@/features/gamification/types';
+
 export type HouseholdRole = 'creator' | 'admin' | 'member';
 
 export interface Member {
@@ -7,6 +9,10 @@ export interface Member {
   color: string;
   role: HouseholdRole;
   xp?: number;
+  /** Highest XP ever; missing on member documents written before the level migration. */
+  xpPeak?: number;
+  /** Old-curve level written once by the migration; missing on old member documents. */
+  levelFloor?: number;
 }
 
 export interface Subtask {
@@ -127,6 +133,8 @@ export interface Household {
   color: string;
   /** Captured at creation and used for recurrence and due-time calendar rules. */
   timeZone?: string;
+  /** Rollout cohort written by the backend; the program shows only for 'live' (contract C1). */
+  gamificationCohort?: 'live' | 'control' | 'shadow';
   members: Member[];
   /** Tombstoned members: left out of the roster, still named in history. */
   formerMembers?: Member[];
@@ -167,13 +175,14 @@ export interface HouseholdViewModel {
   setAssignments(choreId: string, ids: string[]): Promise<void>;
   pauseChore(id: string): Promise<void>;
   deleteChore(id: string): Promise<void>;
-  completeSubtask(instanceId: string, subtaskId: string): Promise<void>;
+  /** Resolves with the caller's own celebrations (empty unless gamification is live for the household). */
+  completeSubtask(instanceId: string, subtaskId: string): Promise<ActionCelebrations>;
   undoSubtask(instanceId: string, subtaskId: string): Promise<void>;
   regenerateInvite(): Promise<void>;
   finishSetup(): Promise<void>;
   setupComplete: boolean;
   feed: FeedPost[];
-  postCompletion(instanceId: string): Promise<void>;
+  postCompletion(instanceId: string): Promise<ActionCelebrations>;
   /** Net XP earned by each member since the local Monday week boundary. */
   weeklyTotals: Record<string, number>;
   /** Consecutive local calendar days with net positive XP for currentMember. */

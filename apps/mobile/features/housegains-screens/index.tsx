@@ -4,6 +4,14 @@ import { ActivityIndicator, View } from 'react-native';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { ArcadeDashboard, SoftDashboard, StickerDashboard } from '@/components/housegains/variants';
 import { useAppearance } from '@/features/appearance';
+import {
+  CelebrationHost,
+  GanhosChip,
+  OrganizerCard,
+  WalletScreen,
+  WeeklyStreakScreen,
+  useGamification,
+} from '@/features/gamification';
 import { CATALOG, useHousehold } from '@/features/household';
 import { ReminderOffer } from '@/features/notifications/reminder-offer';
 import { useReminderTokenSync } from '@/features/notifications/reminders';
@@ -97,6 +105,7 @@ export function HouseGainsApp() {
   return (
     <>
       <HouseGainsScreens onHouseholdReady={() => setOfferRequested(true)} />
+      <CelebrationHost />
       <ReminderOffer onHandled={handleOfferDone} requested={offerRequested} />
     </>
   );
@@ -110,6 +119,7 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
     typeof routeCodeValue === 'string' ? routeCodeValue.toUpperCase() : undefined;
   const appearance = useAppearance();
   const householdData = useHousehold();
+  const gamification = useGamification();
   const { t } = useHouseGainsTranslation();
   const data = useMemo(() => {
     // Translate generated local placeholders while keeping real names and storage intact.
@@ -144,10 +154,10 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
     setScreen(next);
   };
 
-  const perform = async (operation: () => Promise<void>) => {
+  const perform = async <T,>(operation: () => Promise<T>): Promise<T> => {
     setActionError(false);
     try {
-      await operation();
+      return await operation();
     } catch (error) {
       setActionError(true);
       throw error;
@@ -413,6 +423,12 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
       streak: data.streak,
       onOpenInstance: (instanceId: string) => go({ name: 'chore-detail', instanceId }),
       onNavigate: navigateTab,
+      ganhosChip: gamification.visible ? (
+        <GanhosChip
+          balance={gamification.wallet?.balance ?? 0}
+          onPress={() => go({ name: 'wallet' })}
+        />
+      ) : undefined,
     };
     if (appearance.themeId === 'arcade') return <ArcadeDashboard {...props} />;
     if (appearance.themeId === 'sticker') return <StickerDashboard {...props} />;
@@ -458,7 +474,49 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
         weeklyTotals={data.weeklyTotals}
         currentMember={data.currentMember}
         lastWeek={data.lastWeek}
+        organizerCard={
+          gamification.visible ? (
+            <OrganizerCard
+              creatorName={
+                data.household.members.find((member) => member.role === 'creator')?.name ?? ''
+              }
+              onRetry={gamification.retry}
+              organizer={gamification.organizer}
+              status={gamification.organizerStatus}
+            />
+          ) : undefined
+        }
         onNavigate={navigateTab}
+      />
+    );
+  }
+
+  if (screen.name === 'wallet') {
+    if (!gamification.visible) return <FallbackScreen onBack={() => go({ name: 'today' })} />;
+    return (
+      <WalletScreen
+        ledger={gamification.ledger}
+        lastSeenBalance={gamification.lastSeenBalance}
+        member={data.currentMember}
+        onBack={() => go({ name: 'today' })}
+        onBalanceSeen={gamification.markBalanceSeen}
+        onOpenStreak={() => go({ name: 'streak' })}
+        onRetry={gamification.retry}
+        status={gamification.walletStatus}
+        totalXp={totalXpForMember(data.currentMember, data.xpLedger, data.currentMember.id)}
+        wallet={gamification.wallet}
+      />
+    );
+  }
+
+  if (screen.name === 'streak') {
+    if (!gamification.visible) return <FallbackScreen onBack={() => go({ name: 'today' })} />;
+    return (
+      <WeeklyStreakScreen
+        onBack={() => go({ name: 'wallet' })}
+        onSaveAwayWeeks={gamification.setAwayWeeks}
+        timeZone={data.household?.timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone}
+        wallet={gamification.wallet}
       />
     );
   }
@@ -673,7 +731,12 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
             latest.subtasks.every(({ id }) => id === subtaskId || completedIds.has(id)) &&
             Date.parse(latest.dueAt) > Date.now();
           return perform(async () => {
-            await data.completeSubtask(instanceId, subtaskId);
+            const result = await data.completeSubtask(instanceId, subtaskId);
+            // A badge earned by the action that finishes the chore shows inside the S3 screen.
+            gamification.receiveActionCelebrations(result.celebrations, {
+              instanceId,
+              completesInstance: willFinish,
+            });
             if (willFinish) go({ name: 'celebration', instanceId });
           });
         }}
@@ -700,10 +763,16 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
         members={[...data.household.members, ...(data.household.formerMembers ?? [])]}
         currentMember={data.currentMember}
         hasError={actionError}
-        onBack={() => go({ name: 'today' })}
+        badges={gamification.completionBadges(instance.id)}
+        onBack={() => {
+          gamification.consumeCompletionBadges(instance.id);
+          go({ name: 'today' });
+        }}
         onPostToFeed={(instanceId) =>
           perform(async () => {
-            await data.postCompletion(instanceId);
+            const result = await data.postCompletion(instanceId);
+            gamification.receiveActionCelebrations(result.celebrations);
+            gamification.consumeCompletionBadges(instanceId);
             go({ name: 'feed' });
           })
         }

@@ -156,9 +156,9 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
     [],
   );
 
-  const perform = async (operation: () => Promise<void>): Promise<void> => {
+  const perform = async <T,>(operation: () => Promise<T>): Promise<T> => {
     try {
-      await operation();
+      return await operation();
     } catch (cause) {
       const message =
         cause instanceof CallableError
@@ -240,13 +240,13 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
         await householdCalls.deleteChore({ householdId: requireHouseholdId(), choreId: id });
       }),
     completeSubtask: (instanceId, subtaskId) =>
-      perform(async () => {
-        await householdCalls.completeSubtask({
+      perform(() =>
+        householdCalls.completeSubtask({
           householdId: requireHouseholdId(),
           instanceId,
           subtaskId,
-        });
-      }),
+        }),
+      ),
     undoSubtask: (instanceId, subtaskId) =>
       perform(async () => {
         await householdCalls.undoSubtask({
@@ -266,12 +266,12 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
     setupComplete: slices.householdDoc?.data.setupComplete === true,
     feed: slices.feed ?? [],
     postCompletion: (instanceId) =>
-      perform(async () => {
-        await householdCalls.postCompletion({
+      perform(() =>
+        householdCalls.postCompletion({
           householdId: requireHouseholdId(),
           instanceId,
-        });
-      }),
+        }),
+      ),
     setMemberRole: (memberId, role) =>
       perform(async () => {
         await householdCalls.setMemberRole({

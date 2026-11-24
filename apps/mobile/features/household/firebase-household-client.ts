@@ -1,5 +1,6 @@
 import firestore from '@react-native-firebase/firestore';
 import { callFunction } from '@/features/firebase';
+import { parseCelebrations } from '@/features/gamification/gamification-mapping';
 import {
   mapChore,
   mapDispute,
@@ -21,6 +22,7 @@ import type {
   WeekStandings,
   XpLedgerEntry,
 } from './types';
+import type { ActionCelebrations } from '@/features/gamification/types';
 
 // Firestore reads (live listeners) and callable writes. The shapes follow
 // docs/implementation/firebase-contract.md, its moderation addendum
@@ -168,13 +170,26 @@ export const householdCalls = {
     callFunction<unknown>('setChoreActive', input),
   deleteChore: (input: { householdId: string; choreId: string }) =>
     callFunction<unknown>('deleteChore', input),
-  completeSubtask: (input: { householdId: string; instanceId: string; subtaskId: string }) =>
-    callFunction<unknown>('completeSubtask', input),
+  completeSubtask: async (input: {
+    householdId: string;
+    instanceId: string;
+    subtaskId: string;
+  }): Promise<ActionCelebrations> =>
+    // Response: { instanceId, subtaskId, status, completionId, celebrations } (contract C8).
+    ({
+      celebrations: parseCelebrations(await callFunction<unknown>('completeSubtask', input)),
+    }),
   undoSubtask: (input: { householdId: string; instanceId: string; subtaskId: string }) =>
     callFunction<unknown>('undoSubtask', input),
   finishSetup: (input: { householdId: string }) => callFunction<unknown>('finishSetup', input),
-  postCompletion: (input: { householdId: string; instanceId: string }) =>
-    callFunction<unknown>('postCompletion', input),
+  postCompletion: async (input: {
+    householdId: string;
+    instanceId: string;
+  }): Promise<ActionCelebrations> =>
+    // Response: { postId, created, celebrations } (contract C8).
+    ({
+      celebrations: parseCelebrations(await callFunction<unknown>('postCompletion', input)),
+    }),
   // Moderation callables (gamification-moderation-contract.md Part A).
   setMemberRole: (input: { householdId: string; memberId: string; role: 'admin' | 'member' }) =>
     callFunction<{ memberId: string; role: 'admin' | 'member' }>('setMemberRole', input),

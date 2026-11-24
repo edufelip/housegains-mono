@@ -10,6 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { statusBarStyleFor, ThemeProvider, useAppearance } from '@/features/appearance';
 import { AuthProvider } from '@/features/auth';
+import { GamificationProvider } from '@/features/gamification';
 import { HouseholdProvider } from '@/features/household';
 import { HouseGainsCrashBoundary } from '@/features/observability/crashlytics';
 import { LocaleProvider } from '@/localization/locale-context';
@@ -34,7 +35,9 @@ export default function RootLayout() {
           <HouseGainsCrashBoundary>
             <AuthProvider>
               <HouseholdProvider>
-                <HouseGainsStack />
+                <GamificationProvider>
+                  <HouseGainsStack />
+                </GamificationProvider>
               </HouseholdProvider>
             </AuthProvider>
           </HouseGainsCrashBoundary>

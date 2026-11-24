@@ -4,23 +4,26 @@ import type * as ReactNativeModule from 'react-native';
 jest.mock('@expo/vector-icons', () => {
   const React = jest.requireActual<typeof ReactModule>('react');
   const { Text } = jest.requireActual<typeof ReactNativeModule>('react-native');
-  return {
-    MaterialIcons: (props: {
+  const icon = (prefix: string) => {
+    function MockIcon(props: {
       name: string;
       color: string;
       style?: ReactNativeModule.StyleProp<ReactNativeModule.TextStyle>;
       'aria-hidden'?: boolean;
-    }) =>
-      React.createElement(
+    }) {
+      return React.createElement(
         Text,
         {
-          testID: `material-icon.${props.name}`,
+          testID: `${prefix}.${props.name}`,
           style: [props.style, { color: props.color }],
           'aria-hidden': props['aria-hidden'],
         },
         props.name,
-      ),
+      );
+    }
+    return MockIcon;
   };
+  return { MaterialIcons: icon('material-icon'), Ionicons: icon('ionicon') };
 });
 // Native Firebase, Google and Apple modules: components under test never call them, they only need to import.
 // Native Firebase modules are faked below (mockFirebase); Google and Apple only need to import.
@@ -69,6 +72,10 @@ const mockFirebase = {
   hangUpdates: false,
   failProfileRead: false,
   remoteConfigValue: '' as string,
+  /** Remote Config `gamification_enabled`; the bundled default is false. */
+  gamificationEnabled: false as boolean,
+  /** Makes Remote Config unavailable: ensureInitialized rejects. */
+  remoteConfigFails: false as boolean,
   remoteConfigFetches: 0,
   remoteConfigFetchedValue: null as string | null,
   authStateListener: undefined as
@@ -189,14 +196,22 @@ jest.mock('@react-native-firebase/remote-config', () => {
   const remoteConfig = () => ({
     // Loading activated values from disk takes a tick, like the native SDK.
     ensureInitialized: () =>
-      new Promise<void>((resolve) =>
+      new Promise<void>((resolve, reject) =>
         setTimeout(() => {
+          if (mockFirebase.remoteConfigFails) {
+            reject(new Error('remote config unavailable'));
+            return;
+          }
           mockRemoteConfigInitialized = true;
           resolve();
         }, 0),
       ),
-    getValue: () => ({
+    getValue: (key: string) => ({
       asString: () => (mockRemoteConfigInitialized ? mockFirebase.remoteConfigValue : ''),
+      asBoolean: () =>
+        key === 'gamification_enabled' &&
+        mockRemoteConfigInitialized &&
+        mockFirebase.gamificationEnabled,
     }),
     setConfigSettings: async () => undefined,
     fetchAndActivate: async () => {
