@@ -383,7 +383,8 @@ export function processOnTimeEvent(
   if (parts.length > 0) {
     const amount = parts.reduce((sum, part) => sum + part.amount, 0);
     res.celebrations.push({
-      id: `cel:toast:${event.instanceId}:${wallet.memberId}`,
+      // Keyed by the completion generation, like the ledger row: a re-completion earns a new toast.
+      id: `cel:toast:${event.instanceId}|${event.finalRowId}:${wallet.memberId}`,
       moment: 'toast',
       track: 'ganhos',
       amount,

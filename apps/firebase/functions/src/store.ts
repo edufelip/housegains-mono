@@ -3,6 +3,7 @@ import { getAuth } from 'firebase-admin/auth';
 import {
   FieldValue,
   Timestamp,
+  type DocumentReference,
   type DocumentSnapshot,
   type Transaction,
 } from 'firebase-admin/firestore';
@@ -34,7 +35,7 @@ import {
 } from './domain/instances';
 import { colorFor, completionReviewedBody, initialsFor, reportReviewBody } from './domain/people';
 import { recurrenceKey } from './domain/recurrence';
-import { addDaysToDateKey, dateKeyInTimeZone } from './domain/time';
+import { addDaysToDateKey, dateKeyInTimeZone, isDateKey, weekdayForDateKey } from './domain/time';
 import {
   assertNoConflict,
   assertWithinDisputeWindow,
@@ -47,6 +48,11 @@ import {
   resolveTargets,
 } from './domain/moderation';
 import { pushToMembers } from './notify';
+import { cohortOf, loadGamiConfig } from './gamification/config';
+import { recentSubtaskTimes } from './gamification/facts';
+import { runGamification, type GamiHouseholdInfo } from './gamification/runner';
+import { walletFromDoc, walletToDoc } from './gamification/serialize';
+import { createWallet, type GamiEvent } from './domain/gamification';
 import {
   asObject,
   parseAssigneeIds,
@@ -76,9 +82,33 @@ const instanceRef = (hid: string, instanceId: string) => householdRef(hid).colle
 const disputeRef = (hid: string, instanceId: string) => householdRef(hid).collection('disputes').doc(instanceId);
 const ledgerCol = (hid: string) => householdRef(hid).collection('ledger');
 
+/** What the gamification runner needs to know about the household (Part C). */
+export function householdInfo(hh: Record<string, any>): GamiHouseholdInfo {
+  return {
+    timeZone: typeof hh.timeZone === 'string' ? hh.timeZone : 'UTC',
+    creatorUid: hh.creatorUid as string,
+    memberCount: (hh.memberUids as string[]).length,
+    cohort: typeof hh.gamificationCohort === 'string' ? hh.gamificationCohort : null,
+  };
+}
+
+/**
+ * The household's rollout cohort at create time (C1); the runner keeps it fresh afterwards.
+ * Null when the config cannot be read: the household is created without it and the first
+ * engine run writes it.
+ */
+async function initialCohort(householdId: string): Promise<string | null> {
+  try {
+    return cohortOf(householdId, await loadGamiConfig());
+  } catch (error) {
+    console.error('initialCohort failed', { householdId }, error);
+    return null;
+  }
+}
+
 // ---- Read helpers -------------------------------------------------------------
 
-function readChore(snap: DocumentSnapshot): ChoreRecord {
+export function readChore(snap: DocumentSnapshot): ChoreRecord {
   const d = snap.data()!;
   return {
     id: snap.id,
@@ -94,6 +124,10 @@ function readChore(snap: DocumentSnapshot): ChoreRecord {
     isActive: d.isActive !== false,
     recurrenceAnchor: d.recurrenceAnchor,
     generatedThrough: d.generatedThrough,
+    createdAt: d.createdAt instanceof Timestamp ? d.createdAt.toDate() : null,
+    updatedAt: d.updatedAt instanceof Timestamp ? d.updatedAt.toDate() : null,
+    createdBy: typeof d.createdBy === 'string' ? d.createdBy : null,
+    xpRaisedAt: d.xpRaisedAt instanceof Timestamp ? d.xpRaisedAt.toDate() : null,
   };
 }
 
@@ -102,7 +136,7 @@ function fieldsOf(chore: ChoreRecord): ChoreFields {
   return fields;
 }
 
-function readInstance(snap: DocumentSnapshot): InstanceRecord {
+export function readInstance(snap: DocumentSnapshot): InstanceRecord {
   const d = snap.data()!;
   return {
     id: snap.id,
@@ -163,6 +197,10 @@ function choreDoc(chore: ChoreRecord) {
     isActive: chore.isActive,
     recurrenceAnchor: chore.recurrenceAnchor,
     generatedThrough: chore.generatedThrough,
+    ...(chore.createdAt ? { createdAt: ts(chore.createdAt) } : {}),
+    ...(chore.updatedAt ? { updatedAt: ts(chore.updatedAt) } : {}),
+    ...(chore.createdBy ? { createdBy: chore.createdBy } : {}),
+    xpRaisedAt: chore.xpRaisedAt ? ts(chore.xpRaisedAt) : null,
   };
 }
 
@@ -187,6 +225,8 @@ function memberDoc(profile: Record<string, any>, role: MemberRole, now: Date) {
     color: profile.color,
     role,
     xp: 0,
+    xpPeak: 0,
+    levelFloor: 1,
     joinedAt: ts(now),
   };
 }
@@ -251,6 +291,7 @@ export async function createHousehold(uid: string, raw: unknown) {
     maxUses: INVITE_MAX_USES,
     revoked: false,
   };
+  const gamificationCohort = await initialCohort(hid);
 
   await db().runTransaction(async (tx) => {
     const user = await tx.get(userRef(uid));
@@ -266,6 +307,7 @@ export async function createHousehold(uid: string, raw: unknown) {
       creatorUid: uid,
       memberUids: [uid],
       setupComplete: false,
+      ...(gamificationCohort !== null ? { gamificationCohort } : {}),
       createdAt: ts(now),
       updatedAt: ts(now),
     });
@@ -355,9 +397,13 @@ export async function joinHousehold(uid: string, raw: unknown) {
       tx.update(inviteMetaRef(hid), { uses: FieldValue.increment(1) });
     }
     tx.set(userRef(uid), { householdId: hid }, { merge: true });
-    return { householdId: hid } as const;
+    return { householdId: hid, household: { ...householdInfo(hh), memberCount: (hh.memberUids as string[]).length + 1 } } as const;
   });
   if ('error' in result) fail(result.error.code, result.error.message);
+  await runGamification(
+    [{ kind: 'member.joined', householdId: result.householdId, memberId: uid, joinedAt: now }],
+    { householdId: result.householdId, household: result.household, callerUid: uid, now, sync: false },
+  );
   return result;
 }
 
@@ -383,10 +429,19 @@ export async function rotateInvite(uid: string, raw: unknown) {
 
 export async function finishSetup(uid: string, raw: unknown) {
   const hid = requireId(asObject(raw).householdId, 'householdId');
+  const now = new Date();
   const hRef = householdRef(hid);
-  await db().runTransaction(async (tx) => {
-    assertCreator(await tx.get(hRef), uid);
-    tx.update(hRef, { setupComplete: true, updatedAt: ts(new Date()) });
+  const household = await db().runTransaction(async (tx) => {
+    const hh = assertCreator(await tx.get(hRef), uid);
+    tx.update(hRef, { setupComplete: true, updatedAt: ts(now) });
+    return householdInfo(hh);
+  });
+  await runGamification([{ kind: 'household.setup_finished', householdId: hid, finishedAt: now }], {
+    householdId: hid,
+    household,
+    callerUid: uid,
+    now,
+    sync: false,
   });
   return { ok: true };
 }
@@ -531,7 +586,16 @@ export async function removeMember(uid: string, raw: unknown) {
   const hid = requireId(input.householdId, 'householdId');
   const target = requireId(input.uid, 'uid');
   if (target === uid) fail('invalid-argument', 'Use leaveHousehold to leave the household.');
+  const now = new Date();
+  // joinedAt is read before the departure tombstones the member doc.
+  const memberSnap = await householdRef(hid).collection('members').doc(target).get();
+  const joinedAt = memberSnap.get('joinedAt') instanceof Timestamp ? memberSnap.get('joinedAt').toDate() : now;
   await departMember(hid, target, { requireCreatorBy: uid, rotateInvite: true });
+  const household = householdInfo((await householdRef(hid).get()).data() ?? { timeZone: 'UTC', creatorUid: uid, memberUids: [] });
+  await runGamification(
+    [{ kind: 'member.removed', householdId: hid, memberId: target, joinedAt, removedAt: now }],
+    { householdId: hid, household, callerUid: uid, now, sync: false },
+  );
   return { ok: true };
 }
 
@@ -551,6 +615,10 @@ export async function deleteAccount(uid: string) {
       throw error;
     }
   }
+  // Part C cleanup: the wallet (with its ledger) and the inbox go with the
+  // account; organizer Zelo rows stay (contract C9).
+  await db().recursiveDelete(db().doc(`wallets/${uid}`));
+  await db().recursiveDelete(db().collection(`users/${uid}/inbox`));
   await userRef(uid).delete();
   try {
     await getAuth().deleteUser(uid);
@@ -578,6 +646,7 @@ async function writeChore(
   choreId: string,
   prev: ChoreRecord | null,
   next: ChoreFields,
+  actorUid: string,
 ) {
   const tz = household.timeZone as string;
   const today = dateKeyInTimeZone(now, tz);
@@ -618,6 +687,19 @@ async function writeChore(
     record.generatedThrough = result.generatedThrough;
   }
 
+  // C9 alert input: an XP raise marks the chore; any other edit clears the mark.
+  const xpRaised =
+    prev !== null &&
+    (next.bonusXp > prev.bonusXp ||
+      next.subtasks.some((subtask) => {
+        const before = prev.subtasks.find((candidate) => candidate.id === subtask.id);
+        return before !== undefined && subtask.xp > before.xp;
+      }));
+  record.createdAt = prev?.createdAt ?? now;
+  record.updatedAt = now;
+  record.createdBy = prev?.createdBy ?? actorUid;
+  record.xpRaisedAt = xpRaised ? now : null;
+
   const refs = generated.map((i) => instanceRef(hid, i.id));
   const existing = refs.length > 0 ? await tx.getAll(...refs) : [];
 
@@ -647,7 +729,7 @@ export async function saveChore(uid: string, raw: unknown) {
   const now = new Date();
   const hRef = householdRef(hid);
 
-  return db().runTransaction(async (tx) => {
+  const outcome = await db().runTransaction(async (tx) => {
     const household = await tx.get(hRef);
     const hh = assertCreator(household, uid);
     const fields = parseChoreFields(input.chore, hh.memberUids as string[]);
@@ -663,9 +745,31 @@ export async function saveChore(uid: string, raw: unknown) {
     } else {
       choreId = hRef.collection('chores').doc().id;
     }
-    await writeChore(tx, hid, hh, now, choreId, prev, next);
-    return { choreId };
+    await writeChore(tx, hid, hh, now, choreId, prev, next, uid);
+    return {
+      choreId,
+      created: prev === null,
+      isCustom: next.catalogId === undefined,
+      household: householdInfo(hh),
+    };
   });
+
+  if (outcome.created) {
+    await runGamification(
+      [
+        {
+          kind: 'chore.created',
+          householdId: hid,
+          choreId: outcome.choreId,
+          createdBy: uid,
+          isCustom: outcome.isCustom,
+          createdAt: now,
+        },
+      ],
+      { householdId: hid, household: outcome.household, callerUid: uid, now, sync: false },
+    );
+  }
+  return { choreId: outcome.choreId };
 }
 
 export async function setAssignments(uid: string, raw: unknown) {
@@ -706,7 +810,7 @@ export async function setChoreActive(uid: string, raw: unknown) {
     const chore = await tx.get(choreRef(hid, choreId));
     if (!chore.exists) fail('not-found', 'Chore not found.');
     const prev = readChore(chore);
-    await writeChore(tx, hid, hh, now, choreId, prev, { ...fieldsOf(prev), isActive });
+    await writeChore(tx, hid, hh, now, choreId, prev, { ...fieldsOf(prev), isActive }, uid);
     return { choreId, isActive };
   });
 }
@@ -718,15 +822,32 @@ export async function deleteChore(uid: string, raw: unknown) {
   const now = new Date();
   const hRef = householdRef(hid);
 
-  await db().runTransaction(async (tx) => {
-    assertCreator(await tx.get(hRef), uid);
+  const outcome = await db().runTransaction(async (tx) => {
+    const hh = assertCreator(await tx.get(hRef), uid);
     const chore = await tx.get(choreRef(hid, choreId));
     if (!chore.exists) fail('not-found', 'Chore not found.');
+    const record = readChore(chore);
     const openSnap = await tx.get(hRef.collection('instances').where('choreId', '==', choreId).where('status', '==', 'open'));
     const editable = openSnap.docs.map(readInstance).filter((i) => isEditableFuture(i, now));
     for (const instance of editable) tx.delete(instanceRef(hid, instance.id));
     tx.delete(choreRef(hid, choreId));
+    return { record, household: householdInfo(hh) };
   });
+
+  await runGamification(
+    [
+      {
+        kind: 'chore.deleted',
+        householdId: hid,
+        choreId,
+        createdBy: outcome.record.createdBy ?? uid,
+        isCustom: outcome.record.catalogId === undefined,
+        createdAt: outcome.record.createdAt ?? now,
+        deletedAt: now,
+      },
+    ],
+    { householdId: hid, household: outcome.household, callerUid: uid, now, sync: false },
+  );
   return { ok: true };
 }
 
@@ -780,25 +901,52 @@ function ledgerRow(input: {
   };
 }
 
-/** Reads each member's lifetime XP and returns it plus the new rows. Call before any transaction write. */
+interface MemberXpTotals {
+  xp: number;
+  xpPeak: number;
+  joinedAt: Date | null;
+}
+
+/**
+ * Reads each member's lifetime XP and peak and returns the new totals. Reads only: call it
+ * before any transaction write, then persist the result with writeMemberXp.
+ */
 async function nextMemberXp(
   tx: Transaction,
   hid: string,
   rows: { memberId: string; amount: number }[],
-): Promise<Map<string, number>> {
+): Promise<Map<string, MemberXpTotals>> {
   const deltas = new Map<string, number>();
   for (const row of rows) deltas.set(row.memberId, (deltas.get(row.memberId) ?? 0) + row.amount);
-  const totals = new Map<string, number>();
+  const totals = new Map<string, MemberXpTotals>();
   for (const [memberId, delta] of deltas) {
-    let base = (await tx.get(householdRef(hid).collection('members').doc(memberId))).get('xp');
+    const memberRef = householdRef(hid).collection('members').doc(memberId);
+    const snap = await tx.get(memberRef);
+    let base = snap.get('xp');
     if (typeof base !== 'number') {
       // Members from before the xp counter: seed it once from their ledger rows.
       const ledger = await tx.get(ledgerCol(hid).where('memberId', '==', memberId));
       base = ledger.docs.reduce((sum, doc) => sum + (Number(doc.get('amount')) || 0), 0);
     }
-    totals.set(memberId, base + delta);
+    const newXp = base + delta;
+    // xpPeak = max(previous xpPeak ?? previous xp, newXp): a peak never decreases (C3).
+    const previousPeak = typeof snap.get('xpPeak') === 'number' ? (snap.get('xpPeak') as number) : base;
+    const newXpPeak = Math.max(previousPeak, newXp);
+    const joinedAt = snap.get('joinedAt');
+    totals.set(memberId, {
+      xp: newXp,
+      xpPeak: newXpPeak,
+      joinedAt: joinedAt instanceof Timestamp ? joinedAt.toDate() : null,
+    });
   }
   return totals;
+}
+
+/** Persists nextMemberXp totals: xp and its never-decreasing peak, in the same transaction (C3). */
+function writeMemberXp(tx: Transaction, hid: string, totals: Map<string, MemberXpTotals>): void {
+  for (const [memberId, total] of totals) {
+    tx.set(householdRef(hid).collection('members').doc(memberId), { xp: total.xp, xpPeak: total.xpPeak }, { merge: true });
+  }
 }
 
 export async function completeSubtask(uid: string, raw: unknown) {
@@ -809,8 +957,8 @@ export async function completeSubtask(uid: string, raw: unknown) {
   const now = new Date();
   const iRef = instanceRef(hid, instanceId);
 
-  return db().runTransaction(async (tx) => {
-    assertMember(await tx.get(householdRef(hid)), uid);
+  const outcome = await db().runTransaction(async (tx) => {
+    const hh = assertMember(await tx.get(householdRef(hid)), uid);
     const snap = await tx.get(iRef);
     if (!snap.exists) fail('not-found', 'Chore instance not found.');
     const instance = readInstance(snap);
@@ -833,8 +981,12 @@ export async function completeSubtask(uid: string, raw: unknown) {
       isAssist: instance.assigneeIds.length > 0 && !instance.assigneeIds.includes(uid),
     };
     const completions = [...instance.completions, completion];
-    const rows = [
-      ledgerRow({ instanceId, subtaskId, memberId: uid, amount: subtask.xp, source: 'subtask', createdAt: now }),
+    const subtaskRowRef = ledgerCol(hid).doc();
+    const rows: Array<{ ref: DocumentReference; row: ReturnType<typeof ledgerRow> }> = [
+      {
+        ref: subtaskRowRef,
+        row: ledgerRow({ instanceId, subtaskId, memberId: uid, amount: subtask.xp, source: 'subtask', createdAt: now }),
+      },
     ];
 
     let status: 'partial' | 'done' = 'partial';
@@ -844,22 +996,137 @@ export async function completeSubtask(uid: string, raw: unknown) {
       const contributors = [...new Set(completions.map((c) => c.memberId))];
       bonusAwards = calculateBonusAwards(instance.bonusXp, contributors, uid);
       for (const [memberId, amount] of Object.entries(bonusAwards)) {
-        if (amount > 0) rows.push(ledgerRow({ instanceId, memberId, amount, source: 'bonus', createdAt: now }));
+        if (amount > 0) {
+          const bonusRef = ledgerCol(hid).doc();
+          rows.push({ ref: bonusRef, row: ledgerRow({ instanceId, memberId, amount, source: 'bonus', createdAt: now }) });
+        }
       }
     }
 
-    const xpTotals = await nextMemberXp(tx, hid, rows);
+    // Engine inputs read inside the same transaction: the chore metadata (cooldown,
+    // zelo facts, C9 xp-raise marker).
+    const choreSnap = await tx.get(choreRef(hid, instance.choreId));
+    const chore = choreSnap.exists ? readChore(choreSnap) : null;
+
+    const xpTotals = await nextMemberXp(tx, hid, rows.map(({ row }) => row));
     tx.update(iRef, {
       completions: completions.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
       status,
       bonusAwards,
     });
-    for (const row of rows) tx.set(ledgerCol(hid).doc(), row);
-    for (const [memberId, xp] of xpTotals) {
-      tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
-    }
-    return { instanceId, subtaskId, status, completionId: completion.id };
+    for (const { ref, row } of rows) tx.set(ref, row);
+    writeMemberXp(tx, hid, xpTotals);
+
+    const completer = xpTotals.get(uid) ?? { xp: 0, xpPeak: 0, joinedAt: null };
+    return {
+      response: { instanceId, subtaskId, status, completionId: completion.id },
+      gami: {
+        household: householdInfo(hh),
+        instance,
+        completion,
+        isFinalCompleter: status === 'done',
+        subtaskRowId: subtaskRowRef.id,
+        ledgerRowIds: rows.map(({ ref }) => ref.id),
+        bonusRowIds: rows.slice(1).map(({ ref, row }) => ({ memberId: row.memberId, rowId: ref.id, amount: row.amount })),
+        bonusXpPeaks: Object.fromEntries(
+          rows.slice(1).map(({ row }) => [row.memberId as string, xpTotals.get(row.memberId as string)?.xpPeak ?? null]),
+        ),
+        xpPeakAfter: completer.xpPeak,
+        memberJoinedAt: completer.joinedAt,
+        chore,
+      },
+    };
   });
+
+  // C9 velocity input, read after the commit so the XP transaction stays lean.
+  const recentSubtaskTimestamps = await recentSubtaskTimes(hid, uid, now);
+  const celebrations = await runGamification(completeSubtaskEvents(hid, uid, now, { ...outcome.gami, recentSubtaskTimestamps }), {
+    householdId: hid,
+    household: outcome.gami.household,
+    callerUid: uid,
+    now,
+    sync: true,
+    ledgerRowIds: outcome.gami.ledgerRowIds,
+  });
+  return { ...outcome.response, celebrations };
+}
+
+/** The GamiEvents for one completion: the credit, its bonus rows and the on_time close. */
+function completeSubtaskEvents(
+  hid: string,
+  uid: string,
+  now: Date,
+  gami: {
+    instance: InstanceRecord;
+    completion: Completion;
+    isFinalCompleter: boolean;
+    subtaskRowId: string;
+    bonusRowIds: Array<{ memberId: string; rowId: string; amount: number }>;
+    bonusXpPeaks: Record<string, number | null>;
+    xpPeakAfter: number;
+    memberJoinedAt: Date | null;
+    recentSubtaskTimestamps: Date[];
+    chore: ChoreRecord | null;
+  },
+): GamiEvent[] {
+  const instance = gami.instance;
+  const chore = gami.chore;
+  const events: GamiEvent[] = [
+    {
+      kind: 'ledger.subtask',
+      householdId: hid,
+      ledgerRowId: gami.subtaskRowId,
+      instanceId: instance.id,
+      subtaskId: gami.completion.subtaskId,
+      memberId: uid,
+      amount: gami.completion.xp,
+      isAssist: gami.completion.isAssist,
+      isFinalCompleter: gami.isFinalCompleter,
+      assigneeIds: instance.assigneeIds,
+      category: instance.choreSnapshot.category,
+      choreId: instance.choreId,
+      // Chores saved before createdBy existed earn no Zelo (the engine compares it to the creator).
+      choreCreatedBy: chore?.createdBy ?? '',
+      choreIsCustom: chore !== null && chore.catalogId === undefined,
+      choreUpdatedAt: chore?.updatedAt ?? null,
+      completedAt: now,
+      memberJoinedAt: gami.memberJoinedAt,
+      xpPeakAfter: gami.xpPeakAfter,
+      choreXpRaised: chore?.xpRaisedAt != null,
+      recentSubtaskTimestamps: gami.recentSubtaskTimestamps,
+    },
+  ];
+  for (const bonus of gami.bonusRowIds) {
+    events.push({
+      kind: 'ledger.bonus',
+      householdId: hid,
+      ledgerRowId: bonus.rowId,
+      instanceId: instance.id,
+      memberId: bonus.memberId,
+      amount: bonus.amount,
+      choreId: instance.choreId,
+      choreUpdatedAt: chore?.updatedAt ?? null,
+      completedAt: now,
+      xpPeakAfter: gami.bonusXpPeaks[bonus.memberId] ?? null,
+    });
+  }
+  // On-time close: one event, evaluated per finishing assignee by the runner.
+  if (gami.isFinalCompleter && now.getTime() <= instance.dueAt.getTime()) {
+    events.push({
+      kind: 'instance.completed_on_time',
+      householdId: hid,
+      instanceId: instance.id,
+      dueAt: instance.dueAt,
+      completedAt: now,
+      assigneeIds: instance.assigneeIds,
+      contributorIds: [...instance.completions.map((c) => c.memberId), uid],
+      finalCompleterId: uid,
+      finalRowId: gami.subtaskRowId,
+      choreId: instance.choreId,
+      choreUpdatedAt: chore?.updatedAt ?? null,
+    });
+  }
+  return events;
 }
 
 export async function undoSubtask(uid: string, raw: unknown) {
@@ -870,8 +1137,8 @@ export async function undoSubtask(uid: string, raw: unknown) {
   const now = new Date();
   const iRef = instanceRef(hid, instanceId);
 
-  await db().runTransaction(async (tx) => {
-    assertMember(await tx.get(householdRef(hid)), uid);
+  const gami = await db().runTransaction(async (tx) => {
+    const hh = assertMember(await tx.get(householdRef(hid)), uid);
     const snap = await tx.get(iRef);
     if (!snap.exists) fail('not-found', 'Chore instance not found.');
     const instance = readInstance(snap);
@@ -935,17 +1202,73 @@ export async function undoSubtask(uid: string, raw: unknown) {
       );
     }
     const xpTotals = await nextMemberXp(tx, hid, undoRows);
-    for (const row of undoRows) tx.set(ledgerCol(hid).doc(), row);
-    for (const [memberId, xp] of xpTotals) {
-      tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
-    }
+    const undoRowIds = undoRows.map((row) => {
+      const ref = ledgerCol(hid).doc();
+      tx.set(ref, row);
+      return ref.id;
+    });
+    writeMemberXp(tx, hid, xpTotals);
 
     const remaining = instance.completions.filter((c) => c.subtaskId !== subtaskId);
+    const statusAfter = undoInstanceStatus({ dueAt: instance.dueAt, now, remainingCompletions: remaining.length });
     tx.update(iRef, {
       completions: remaining.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
       bonusAwards: {},
-      status: undoInstanceStatus({ dueAt: instance.dueAt, now, remainingCompletions: remaining.length }),
+      status: statusAfter,
     });
+    return {
+      household: householdInfo(hh),
+      undoRowIds,
+      subtaskRow: subtaskRow as { id: string; amount: number },
+      bonusRows: bonusRows.map((row) => ({ id: row.id as string, memberId: row.memberId as string, amount: row.amount as number })),
+      completion,
+      // The finishing completion is the latest one on a done instance.
+      isFinalCompleter:
+        instance.status === 'done' &&
+        instance.completions.every((c) => c.completedAt.getTime() <= completion.completedAt.getTime()),
+      assigneeIds: instance.assigneeIds,
+      category: instance.choreSnapshot.category,
+      statusAfter,
+    };
+  });
+
+  const events: GamiEvent[] = [
+    {
+      kind: 'ledger.undo-subtask',
+      householdId: hid,
+      instanceId,
+      subtaskId,
+      memberId: uid,
+      reversedRowId: gami.subtaskRow.id,
+      reversedAmount: gami.subtaskRow.amount,
+      isAssist: gami.completion.isAssist,
+      category: gami.category,
+      isFinalCompleter: gami.isFinalCompleter,
+      instanceStatusAfter: gami.statusAfter,
+      assigneeIds: gami.assigneeIds,
+      completedAt: now,
+      reversedAward: { subtask: null, assist: null },
+    },
+    ...gami.bonusRows.map(
+      (bonus): GamiEvent => ({
+        kind: 'ledger.undo-bonus',
+        householdId: hid,
+        instanceId,
+        memberId: bonus.memberId,
+        reversedRowId: bonus.id,
+        reversedAmount: bonus.amount,
+        completedAt: now,
+        reversedAward: { bonus: null },
+      }),
+    ),
+  ];
+  await runGamification(events, {
+    householdId: hid,
+    household: gami.household,
+    callerUid: uid,
+    now,
+    sync: false,
+    ledgerRowIds: gami.undoRowIds,
   });
   return { ok: true };
 }
@@ -957,8 +1280,8 @@ export async function postCompletion(uid: string, raw: unknown) {
   const now = new Date();
   const postRef = householdRef(hid).collection('feed').doc(`${instanceId}_${uid}`);
 
-  return db().runTransaction(async (tx) => {
-    assertMember(await tx.get(householdRef(hid)), uid);
+  const outcome = await db().runTransaction(async (tx) => {
+    const hh = assertMember(await tx.get(householdRef(hid)), uid);
     const snap = await tx.get(instanceRef(hid, instanceId));
     if (!snap.exists) fail('not-found', 'Chore instance not found.');
     const instance = readInstance(snap);
@@ -967,10 +1290,19 @@ export async function postCompletion(uid: string, raw: unknown) {
       fail('permission-denied', 'Only a contributing member can share this completion.');
     }
     const existing = await tx.get(postRef);
-    if (existing.exists) return { postId: postRef.id, created: false };
+    if (existing.exists) return { postId: postRef.id, created: false, household: householdInfo(hh) };
     tx.set(postRef, { instanceId, memberId: uid, createdAt: ts(now) });
-    return { postId: postRef.id, created: true };
+    return { postId: postRef.id, created: true, household: householdInfo(hh) };
   });
+
+  let celebrations: Awaited<ReturnType<typeof runGamification>> = [];
+  if (outcome.created) {
+    celebrations = await runGamification(
+      [{ kind: 'feed.post', householdId: hid, postId: postRef.id, memberId: uid, postedAt: now }],
+      { householdId: hid, household: outcome.household, callerUid: uid, now, sync: true },
+    );
+  }
+  return { postId: outcome.postId, created: outcome.created, celebrations };
 }
 
 // ---- Moderation (contract Part A) ----------------------------------------------
@@ -1101,12 +1433,32 @@ interface RevocationLedgerRow {
   reversesEntryId?: string;
 }
 
+/** What the gamification revoke events need from one revocation (Part C). */
+interface RevocationDetail {
+  revokedIds: string[];
+  /** The revoke-* ledger rows written, for the engine's processed markers. */
+  ledgerRowIds: string[];
+  statusAfter: 'open' | 'partial';
+  revoked: Array<{
+    subtaskId: string;
+    memberId: string;
+    reversedRowId: string;
+    reversedAmount: number;
+    isAssist: boolean;
+    isFinalCompleter: boolean;
+  }>;
+  bonus: Array<{ memberId: string; reversedRowId: string; reversedAmount: number }>;
+  assigneeIds: string[];
+  category: string;
+}
+
 /**
  * Shared A3 revocation: reverses each revoked subtask's active ledger row (and, when
  * the instance was done, every active bonus row) with 'revoke-*' rows carrying
  * `reversesEntryId` and a `moderation` marker, moves the completions to
  * `revocations[]`, reopens the instance per the undo status rule, and updates member
- * XP. `disputeStatus` mirrors the dispute lifecycle when given.
+ * XP. `disputeStatus` mirrors the dispute lifecycle when given. The returned detail
+ * feeds the Part C revoke events; null when nothing was revoked.
  */
 async function applyRevocation(
   tx: Transaction,
@@ -1116,13 +1468,13 @@ async function applyRevocation(
   moderation: { actorUid: string; disputeId: string | null; verdict: 'partial' | 'not_done' },
   now: Date,
   extra: { disputeStatus?: 'open' | 'resolved' | 'expired' } = {},
-): Promise<string[]> {
+): Promise<RevocationDetail | null> {
   const revoked = revokedIds
     .map((subtaskId) => ({ subtaskId, completion: instance.completions.find((c) => c.subtaskId === subtaskId) }))
     .filter((entry): entry is { subtaskId: string; completion: Completion } => Boolean(entry.completion));
   if (revoked.length === 0) {
     if (extra.disputeStatus) tx.update(instanceRef(hid, instance.id), { disputeStatus: extra.disputeStatus });
-    return [];
+    return null;
   }
 
   const ledger = await tx.get(ledgerCol(hid).where('instanceId', '==', instance.id));
@@ -1130,6 +1482,20 @@ async function applyRevocation(
   const reversed = new Set(rows.map((row) => row.reversesEntryId).filter((id): id is string => Boolean(id)));
 
   const revokeRows: ReturnType<typeof ledgerRow>[] = [];
+  const detail: RevocationDetail = {
+    revokedIds: [],
+    ledgerRowIds: [],
+    statusAfter: 'open',
+    revoked: [],
+    bonus: [],
+    assigneeIds: instance.assigneeIds,
+    category: instance.choreSnapshot.category,
+  };
+  const lastCompletedAt = instance.completions.reduce(
+    (max, completion) => Math.max(max, completion.completedAt.getTime()),
+    0,
+  );
+  const wasDone = instance.status === 'done';
   for (const { subtaskId, completion } of revoked) {
     const subtaskRow = rows.find(
       (row) => row.source === 'subtask' && row.subtaskId === subtaskId && !reversed.has(row.id),
@@ -1147,9 +1513,17 @@ async function applyRevocation(
         moderation,
       }),
     );
+    detail.revokedIds.push(subtaskId);
+    detail.revoked.push({
+      subtaskId,
+      memberId: completion.memberId,
+      reversedRowId: subtaskRow.id,
+      reversedAmount: subtaskRow.amount,
+      isAssist: completion.isAssist,
+      isFinalCompleter: wasDone && completion.completedAt.getTime() === lastCompletedAt,
+    });
   }
 
-  const wasDone = instance.status === 'done';
   if (wasDone) {
     for (const bonus of rows.filter((row) => row.source === 'bonus' && !reversed.has(row.id))) {
       revokeRows.push(
@@ -1163,16 +1537,20 @@ async function applyRevocation(
           moderation,
         }),
       );
+      detail.bonus.push({ memberId: bonus.memberId, reversedRowId: bonus.id, reversedAmount: bonus.amount });
     }
   }
 
   const xpTotals = await nextMemberXp(tx, hid, revokeRows);
-  for (const row of revokeRows) tx.set(ledgerCol(hid).doc(), row);
-  for (const [memberId, xp] of xpTotals) {
-    tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
-  }
+  detail.ledgerRowIds = revokeRows.map((row) => {
+    const ref = ledgerCol(hid).doc();
+    tx.set(ref, row);
+    return ref.id;
+  });
+  writeMemberXp(tx, hid, xpTotals);
 
   const remaining = instance.completions.filter((c) => !revokedIds.includes(c.subtaskId));
+  detail.statusAfter = undoInstanceStatus({ dueAt: instance.dueAt, now, remainingCompletions: remaining.length });
   tx.update(instanceRef(hid, instance.id), {
     completions: remaining.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
     revocations: [
@@ -1186,11 +1564,58 @@ async function applyRevocation(
         at: ts(now),
       })),
     ],
-    status: undoInstanceStatus({ dueAt: instance.dueAt, now, remainingCompletions: remaining.length }),
+    status: detail.statusAfter,
     ...(wasDone ? { bonusAwards: {} } : {}),
     ...(extra.disputeStatus ? { disputeStatus: extra.disputeStatus } : {}),
   });
-  return revoked.map(({ subtaskId }) => subtaskId);
+  return detail;
+}
+
+/** Revoke GamiEvents for each affected member: every revoked subtask and bonus row (Part C). */
+function revocationEvents(
+  hid: string,
+  instanceId: string,
+  now: Date,
+  moderation: { actorUid: string; disputeId: string | null; verdict: 'partial' | 'not_done' },
+  detail: RevocationDetail,
+): GamiEvent[] {
+  const events: GamiEvent[] = detail.revoked.map(
+    (entry): GamiEvent => ({
+      kind: 'ledger.revoke-subtask',
+      householdId: hid,
+      instanceId,
+      subtaskId: entry.subtaskId,
+      memberId: entry.memberId,
+      reversedRowId: entry.reversedRowId,
+      reversedAmount: entry.reversedAmount,
+      isAssist: entry.isAssist,
+      category: detail.category,
+      isFinalCompleter: entry.isFinalCompleter,
+      instanceStatusAfter: detail.statusAfter,
+      assigneeIds: detail.assigneeIds,
+      completedAt: now,
+      reversedAward: { subtask: null, assist: null },
+      actorUid: moderation.actorUid,
+      verdict: moderation.verdict,
+      disputeId: moderation.disputeId,
+    }),
+  );
+  for (const bonus of detail.bonus) {
+    events.push({
+      kind: 'ledger.revoke-bonus',
+      householdId: hid,
+      instanceId,
+      memberId: bonus.memberId,
+      reversedRowId: bonus.reversedRowId,
+      reversedAmount: bonus.reversedAmount,
+      completedAt: now,
+      actorUid: moderation.actorUid,
+      verdict: moderation.verdict,
+      disputeId: moderation.disputeId,
+      reversedAward: { bonus: null },
+    });
+  }
+  return events;
 }
 
 export async function resolveDispute(uid: string, raw: unknown) {
@@ -1202,7 +1627,7 @@ export async function resolveDispute(uid: string, raw: unknown) {
   const hRef = householdRef(hid);
 
   const outcome = await db().runTransaction(async (tx) => {
-    assertMember(await tx.get(hRef), uid);
+    const hh = assertMember(await tx.get(hRef), uid);
     const members = await memberContext(tx, hid, uid);
     if (!hasAdminRights(members.callerRole)) {
       fail('permission-denied', 'Only members with admin rights can review reports.');
@@ -1222,11 +1647,11 @@ export async function resolveDispute(uid: string, raw: unknown) {
     const instance = readInstance(instanceSnap);
     assertNoConflict(instance.completions, dispute.subtaskIds, uid, members.soleAdmin);
 
-    let revokedIds: string[] = [];
+    let detail: RevocationDetail | null = null;
     if (verdict === 'done') {
       tx.update(instanceRef(hid, disputeId), { disputeStatus: 'resolved' });
     } else {
-      revokedIds = await applyRevocation(
+      detail = await applyRevocation(
         tx,
         hid,
         instance,
@@ -1236,6 +1661,7 @@ export async function resolveDispute(uid: string, raw: unknown) {
         { disputeStatus: 'resolved' },
       );
     }
+    const revokedIds = detail?.revokedIds ?? [];
     tx.update(disputeRef(hid, disputeId), {
       status: 'resolved',
       verdict,
@@ -1245,6 +1671,8 @@ export async function resolveDispute(uid: string, raw: unknown) {
     });
     return {
       revokedIds,
+      detail,
+      household: householdInfo(hh),
       recipients: [...new Set([...dispute.completerIds, ...dispute.reports.map((report) => report.uid)])].filter(
         (memberId) => memberId !== uid,
       ),
@@ -1252,6 +1680,12 @@ export async function resolveDispute(uid: string, raw: unknown) {
     };
   });
 
+  if (verdict !== 'done' && outcome.detail !== null) {
+    await runGamification(
+      revocationEvents(hid, disputeId, now, { actorUid: uid, disputeId, verdict }, outcome.detail),
+      { householdId: hid, household: outcome.household, callerUid: uid, now, sync: false, ledgerRowIds: outcome.detail.ledgerRowIds },
+    );
+  }
   await pushToMembers({
     uids: outcome.recipients,
     title: outcome.choreName,
@@ -1269,7 +1703,7 @@ export async function moderateInstance(uid: string, raw: unknown) {
   const hRef = householdRef(hid);
 
   const outcome = await db().runTransaction(async (tx) => {
-    assertMember(await tx.get(hRef), uid);
+    const hh = assertMember(await tx.get(hRef), uid);
     const members = await memberContext(tx, hid, uid);
     if (!hasAdminRights(members.callerRole)) {
       fail('permission-denied', 'Only members with admin rights can review completions.');
@@ -1283,7 +1717,7 @@ export async function moderateInstance(uid: string, raw: unknown) {
 
     const disputeSnap = await tx.get(disputeRef(hid, instanceId));
     const openDispute = disputeSnap.exists && readDispute(disputeSnap).status === 'open';
-    const revokedIds = await applyRevocation(
+    const detail = await applyRevocation(
       tx,
       hid,
       instance,
@@ -1292,6 +1726,7 @@ export async function moderateInstance(uid: string, raw: unknown) {
       now,
       openDispute ? { disputeStatus: 'resolved' } : {},
     );
+    const revokedIds = detail?.revokedIds ?? [];
     if (openDispute) {
       tx.update(disputeRef(hid, instanceId), {
         status: 'resolved',
@@ -1308,6 +1743,8 @@ export async function moderateInstance(uid: string, raw: unknown) {
       .map((c) => c.memberId);
     return {
       revokedIds,
+      detail,
+      household: householdInfo(hh),
       recipients: [
         ...new Set([...(dispute?.completerIds ?? []), ...(dispute?.reports.map((report) => report.uid) ?? []), ...revokedCompleters]),
       ].filter((memberId) => memberId !== uid),
@@ -1315,10 +1752,107 @@ export async function moderateInstance(uid: string, raw: unknown) {
     };
   });
 
+  if (outcome.detail !== null) {
+    await runGamification(
+      revocationEvents(hid, instanceId, now, { actorUid: uid, disputeId: null, verdict }, outcome.detail),
+      { householdId: hid, household: outcome.household, callerUid: uid, now, sync: false, ledgerRowIds: outcome.detail.ledgerRowIds },
+    );
+  }
   await pushToMembers({
     uids: outcome.recipients,
     title: outcome.choreName,
     bodyFor: (locale) => completionReviewedBody(locale),
   });
   return { instanceId, verdict, revokedSubtaskIds: outcome.revokedIds };
+}
+
+// ---- Gamification callables (contract Part C) -----------------------------------
+
+/** Marks up to 50 of the caller's inbox celebration rows as seen. */
+export async function ackCelebrations(uid: string, raw: unknown) {
+  const input = asObject(raw);
+  const ids = input.ids;
+  if (!Array.isArray(ids) || ids.length === 0) fail('invalid-argument', 'ids must be a non-empty list.');
+  if (ids.length > 50) fail('invalid-argument', 'At most 50 ids at a time.');
+  const unique = [
+    ...new Set(
+      ids.map((id: unknown) => {
+        if (typeof id !== 'string' || !id || id.length > 256) {
+          fail('invalid-argument', 'Every id must be a non-empty string.');
+        }
+        return id;
+      }),
+    ),
+  ];
+  const inbox = db().collection(`users/${uid}/inbox`);
+  const snaps = await db().getAll(...unique.map((id) => inbox.doc(id)));
+  const batch = db().batch();
+  let marked = 0;
+  for (const snap of snaps) {
+    if (!snap.exists) continue;
+    batch.update(snap.ref, { seen: true });
+    marked += 1;
+  }
+  if (marked > 0) await batch.commit();
+  return { ok: true, acknowledged: marked };
+}
+
+/** Away mode (C7): future Mondays only, at most 3 per calendar year; past away weeks are kept. */
+const MAX_AWAY_WEEKS_PER_YEAR = 3;
+
+export async function setAwayWeeks(uid: string, raw: unknown) {
+  const input = asObject(raw);
+  const list = input.weekStarts;
+  if (!Array.isArray(list)) fail('invalid-argument', 'weekStarts must be a list.');
+  if (list.length > 12) fail('invalid-argument', 'Too many away weeks.');
+  const now = new Date();
+
+  // The household supplies the time zone; without a householdId the caller's current one is used.
+  let hid: string;
+  if (input.householdId === undefined || input.householdId === null) {
+    const profile = (await userRef(uid).get()).data();
+    if (typeof profile?.householdId !== 'string' || profile.householdId === '') {
+      fail('failed-precondition', 'Join a household first.');
+    }
+    hid = profile.householdId;
+  } else {
+    hid = requireId(input.householdId, 'householdId');
+  }
+  const hh = assertMember(await householdRef(hid).get(), uid);
+  const timeZone = typeof hh.timeZone === 'string' ? hh.timeZone : 'UTC';
+
+  const requested = [
+    ...new Set(
+      list.map((value: unknown) => {
+        if (!isDateKey(value)) fail('invalid-argument', 'weekStarts must be YYYY-MM-DD dates.');
+        if (weekdayForDateKey(value) !== 1) fail('invalid-argument', 'weekStarts must be Mondays.');
+        return value;
+      }),
+    ),
+  ];
+  const today = dateKeyInTimeZone(now, timeZone);
+  for (const week of requested) {
+    if (week <= today) fail('failed-precondition', 'Away weeks must start in the future.');
+  }
+
+  const walletRef = db().doc(`wallets/${uid}`);
+  const weekStarts = await db().runTransaction(async (tx) => {
+    const snap = await tx.get(walletRef);
+    const wallet = snap.exists ? walletFromDoc(snap.data()!, hid, uid) : createWallet(hid, uid, now);
+    // Weeks already behind us stay on record (they count toward the yearly limit); the future list is replaced.
+    const kept = (wallet.streak.awayWeeks ?? []).filter((week) => week <= today);
+    const all = [...new Set([...kept, ...requested])].sort();
+    const perYear = new Map<string, number>();
+    for (const week of all) perYear.set(week.slice(0, 4), (perYear.get(week.slice(0, 4)) ?? 0) + 1);
+    for (const [year, count] of perYear) {
+      if (count > MAX_AWAY_WEEKS_PER_YEAR) {
+        fail('failed-precondition', `At most ${MAX_AWAY_WEEKS_PER_YEAR} away weeks per calendar year (${year}).`);
+      }
+    }
+    wallet.streak.awayWeeks = all;
+    if (snap.exists) tx.update(walletRef, { streak: walletToDoc(wallet).streak });
+    else tx.set(walletRef, walletToDoc(wallet));
+    return all;
+  });
+  return { weekStarts };
 }

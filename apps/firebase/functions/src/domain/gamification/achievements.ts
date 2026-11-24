@@ -102,7 +102,9 @@ function badgeCelebration(input: {
   copyKey: string;
 }): Celebration {
   return {
-    id: `cel:badge:${input.achievementId}:${input.memberId}`,
+    // The tier is part of the id: a silver upgrade is a different celebration from the bronze unlock
+    // (the inbox is keyed by id).
+    id: `cel:badge:${input.achievementId}:${input.tier}:${input.memberId}`,
     moment: 'badge',
     track: input.track,
     achievementId: input.achievementId,

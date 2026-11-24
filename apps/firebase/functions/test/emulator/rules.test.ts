@@ -147,3 +147,75 @@ describe('client writes outside the profile are denied', () => {
     await assertFails(setDoc(doc(alice, 'reports/r2'), { reporterUid: 'alice' }));
   });
 });
+
+describe('gamification access (contract C3, C1)', () => {
+  beforeEach(async () => {
+    await env.withSecurityRulesDisabled(async (ctx) => {
+      const db = ctx.firestore();
+      await setDoc(doc(db, 'wallets/alice'), { memberId: 'alice', balance: 40 });
+      await setDoc(doc(db, 'wallets/alice/ledger/earn.subtask:r1:alice'), { amount: 10 });
+      await setDoc(doc(db, 'wallets/bob'), { memberId: 'bob', balance: 5 });
+      await setDoc(doc(db, 'users/alice/inbox/cel:toast:r1:alice'), { id: 'cel:toast:r1:alice', seen: false });
+      await setDoc(doc(db, 'households/h1/organizer/alice'), { zelo: 50 });
+      await setDoc(doc(db, 'households/h1/organizerLedger/zelo.setup:setup:alice'), { amount: 50 });
+      await setDoc(doc(db, 'households/h1/events/evt1'), { name: 'gami_earned' });
+      await setDoc(doc(db, 'gamification/config'), { mode: 'live' });
+      await setDoc(doc(db, 'gamification/ruleSets/items/1'), { status: 'published' });
+      await setDoc(doc(db, 'gamification/alerts/items/a1'), { kind: 'velocity' });
+    });
+  });
+
+  it('the owner reads their wallet and its ledger; nobody else does', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    const anon = env.unauthenticatedContext().firestore();
+    await assertSucceeds(getDoc(doc(alice, 'wallets/alice')));
+    await assertSucceeds(getDoc(doc(alice, 'wallets/alice/ledger/earn.subtask:r1:alice')));
+    await assertSucceeds(getDocs(collection(alice, 'wallets/alice/ledger')));
+    await assertFails(getDoc(doc(bob, 'wallets/alice')));
+    await assertFails(getDoc(doc(bob, 'wallets/alice/ledger/earn.subtask:r1:alice')));
+    await assertFails(getDocs(collection(bob, 'wallets/alice/ledger')));
+    await assertFails(getDoc(doc(anon, 'wallets/alice')));
+  });
+
+  it('clients never write wallets or their ledger, not even their own', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertFails(updateDoc(doc(alice, 'wallets/alice'), { balance: 9999 }));
+    await assertFails(setDoc(doc(alice, 'wallets/alice'), { balance: 9999 }));
+    await assertFails(deleteDoc(doc(alice, 'wallets/alice')));
+    await assertFails(setDoc(doc(alice, 'wallets/alice/ledger/fake'), { amount: 9999 }));
+    await assertFails(deleteDoc(doc(alice, 'wallets/alice/ledger/earn.subtask:r1:alice')));
+  });
+
+  it('the owner reads their inbox; nobody else does; nobody writes it from the client', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    const bob = env.authenticatedContext('bob').firestore();
+    await assertSucceeds(getDoc(doc(alice, 'users/alice/inbox/cel:toast:r1:alice')));
+    await assertSucceeds(getDocs(collection(alice, 'users/alice/inbox')));
+    await assertFails(getDoc(doc(bob, 'users/alice/inbox/cel:toast:r1:alice')));
+    await assertFails(getDocs(collection(bob, 'users/alice/inbox')));
+    // Acknowledging goes through the ackCelebrations callable.
+    await assertFails(updateDoc(doc(alice, 'users/alice/inbox/cel:toast:r1:alice'), { seen: true }));
+    await assertFails(setDoc(doc(alice, 'users/alice/inbox/new'), { id: 'new', seen: false }));
+    await assertFails(deleteDoc(doc(alice, 'users/alice/inbox/cel:toast:r1:alice')));
+  });
+
+  it('members read Zelo, the organizer projection and server events; nobody writes them', async () => {
+    const bob = env.authenticatedContext('bob').firestore();
+    const eve = env.authenticatedContext('eve').firestore();
+    for (const path of ['households/h1/organizer/alice', 'households/h1/organizerLedger/zelo.setup:setup:alice', 'households/h1/events/evt1']) {
+      await assertSucceeds(getDoc(doc(bob, path)));
+      await assertFails(getDoc(doc(eve, path)));
+      await assertFails(setDoc(doc(bob, path), { zelo: 9999 }));
+    }
+  });
+
+  it('gamification config, rule sets and alerts have no client access at all', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    for (const path of ['gamification/config', 'gamification/ruleSets/items/1', 'gamification/alerts/items/a1']) {
+      await assertFails(getDoc(doc(alice, path)));
+      await assertFails(setDoc(doc(alice, path), { mode: 'live' }));
+    }
+    await assertFails(getDocs(collection(alice, 'gamification/alerts/items')));
+  });
+});

@@ -110,6 +110,8 @@ describe('member achievements at week close', () => {
     ]);
     expect(silver.wallet?.achievements['helper']?.tier).toBe('silver');
     expect(silver.celebrations.some((c) => c.moment === 'badge' && c.fullScreen === true)).toBe(true);
+    // A tier upgrade is a new celebration: its id (the inbox key) differs from the bronze unlock's.
+    expect(silver.celebrations.find((c) => c.moment === 'badge')?.id).toBe('cel:badge:helper:silver:uidA');
 
     const gold = evaluate(
       weekEvent({ weekStart: '2026-11-30', weekEnd: '2026-12-06' }),

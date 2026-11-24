@@ -129,6 +129,8 @@ describe('earn.on_time', () => {
       input({ wallet: first.wallet as WalletProjection, existingKeys: new Set(first.walletRows.map((r) => r.key)) }),
     );
     expect(recompleted.walletRows[0].key).toBe('earn.on_time:inst-1|row-final-2:uidA');
+    // The re-completion's toast must not collide with the first one in the inbox.
+    expect(recompleted.celebrations[0].id).not.toBe(first.celebrations[0].id);
   });
 
   it('does nothing for a member without a wallet (never contributed)', () => {

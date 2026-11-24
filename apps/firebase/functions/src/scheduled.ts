@@ -6,6 +6,7 @@ import { addDaysToDateKey, dateKeyInTimeZone, formatLocalTime, localDateTimeToIn
 import { reminderBody, resolveLocale, weekShameBody, weekShameTitle, weekTopBody, weekTopTitle } from './domain/people';
 import {
   afterWeekClosed,
+  afterWeekClosedHooks,
   memberWeekStats,
   pickTopMember,
   pickWallOfShame,
@@ -15,6 +16,7 @@ import {
   type WeekClosedContext,
 } from './domain/standings';
 import { pushToMembers } from './notify';
+import { gamiWeekClosedHook } from './gamification/week-close';
 import { generateChoreInstancesFor } from './store';
 
 // Scheduled work: instance generation, overdue closing, "your turn" reminders,
@@ -26,6 +28,9 @@ const DEAD_TOKEN_CODES = new Set([
 ]);
 
 const MAX_CONCURRENCY = 10;
+
+// Part C (gamification) plugs into the weekly close here (contract C8).
+afterWeekClosedHooks.push(gamiWeekClosedHook);
 
 async function mapWithConcurrency<T>(
   items: T[],
@@ -307,7 +312,7 @@ async function closeHouseholdWeek(household: QueryDocumentSnapshot, now: Date): 
 
   if (closed) {
     await notifyWeekClosed(closed, memberUids);
-    // Part C (gamification) hooks in here once the engine lands (contract C8).
+    // Part C hooks (gamiWeekClosedHook) run here; each logs its own failures.
     await afterWeekClosed(closed.context);
   }
 }

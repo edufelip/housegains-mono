@@ -32,6 +32,12 @@ export interface ChoreRecord extends ChoreFields {
   id: string;
   recurrenceAnchor: string;
   generatedThrough: string;
+  /** Server-set metadata (gamification contract Part C): engine inputs, not client input. */
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+  createdBy?: string | null;
+  /** Set when a save raised XP; cleared by the next non-raising save (C9 alert input). */
+  xpRaisedAt?: Date | null;
 }
 
 export interface ChoreSnapshot {

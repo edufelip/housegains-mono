@@ -136,3 +136,110 @@ export function weekShameBody(locale: unknown, name: string, missed: number): st
     .replace('{name}', name)
     .replace('{missed}', String(missed));
 }
+
+// Gamification pushes (gamification-moderation-contract.md Part C). Brand names
+// (Ganhos, Zelo) stay untranslated; the pt-BR reminder copy is fixed by the contract.
+
+const GAMI_WEEK_CLOSE_TITLE: Record<SupportedLocale, string> = {
+  'en-US': 'Your week in Ganhos',
+  'pt-BR': 'Seus Ganhos da semana',
+  'es-ES': 'Tus Ganhos de la semana',
+  'fr-FR': 'Tes Ganhos de la semaine',
+  'de-DE': 'Deine Ganhos dieser Woche',
+  'it-IT': 'I tuoi Ganhos della settimana',
+};
+
+const GAMI_WEEK_CLOSE_BODY: Record<SupportedLocale, string> = {
+  'en-US': 'You earned {amount} Ganhos this week.',
+  'pt-BR': 'Você ganhou {amount} Ganhos esta semana.',
+  'es-ES': 'Conseguiste {amount} Ganhos esta semana.',
+  'fr-FR': 'Tu as gagné {amount} Ganhos cette semaine.',
+  'de-DE': 'Du hast diese Woche {amount} Ganhos verdient.',
+  'it-IT': 'Hai guadagnato {amount} Ganhos questa settimana.',
+};
+
+const GAMI_ZELO_WEEK_CLOSE_BODY: Record<SupportedLocale, string> = {
+  'en-US': 'You earned {amount} Zelo this week.',
+  'pt-BR': 'Você ganhou {amount} Zelo esta semana.',
+  'es-ES': 'Conseguiste {amount} Zelo esta semana.',
+  'fr-FR': 'Tu as gagné {amount} Zelo cette semaine.',
+  'de-DE': 'Du hast diese Woche {amount} Zelo verdient.',
+  'it-IT': 'Hai guadagnato {amount} Zelo questa settimana.',
+};
+
+const GAMI_ZELO_WEEK_CLOSE_TITLE: Record<SupportedLocale, string> = {
+  'en-US': 'Your week in Zelo',
+  'pt-BR': 'Seu Zelo da semana',
+  'es-ES': 'Tu Zelo de la semana',
+  'fr-FR': 'Ton Zelo de la semaine',
+  'de-DE': 'Dein Zelo dieser Woche',
+  'it-IT': 'Il tuo Zelo della settimana',
+};
+
+export function gamiWeekCloseTitle(locale: unknown, track: 'ganhos' | 'zelo'): string {
+  return (track === 'zelo' ? GAMI_ZELO_WEEK_CLOSE_TITLE : GAMI_WEEK_CLOSE_TITLE)[resolveLocale(locale)];
+}
+
+export function gamiWeekCloseBody(locale: unknown, track: 'ganhos' | 'zelo', amount: number): string {
+  return (track === 'zelo' ? GAMI_ZELO_WEEK_CLOSE_BODY : GAMI_WEEK_CLOSE_BODY)[resolveLocale(locale)].replace(
+    '{amount}',
+    String(amount),
+  );
+}
+
+// Gamification reminders (C7): Sunday 18:00 to members at risk of losing their
+// streak, Saturday 10:00 to the creator when the house runs late.
+
+const GAMI_STREAK_REMINDER_TITLE: Record<SupportedLocale, string> = {
+  'en-US': 'Your streak',
+  'pt-BR': 'Sua sequência',
+  'es-ES': 'Tu racha',
+  'fr-FR': 'Ta série',
+  'de-DE': 'Deine Serie',
+  'it-IT': 'La tua serie',
+};
+
+const GAMI_STREAK_REMINDER_BODY: Record<SupportedLocale, string> = {
+  'en-US': '{steps} steps left to keep your {weeks}-week streak.',
+  'pt-BR': 'Faltam {steps} etapas para manter suas {weeks} semanas.',
+  'es-ES': 'Te faltan {steps} tareas para mantener tu racha de {weeks} semanas.',
+  'fr-FR': 'Il te reste {steps} tâches pour garder ta série de {weeks} semaines.',
+  'de-DE': 'Dir fehlen {steps} Schritte, um deine {weeks}-Wochen-Serie zu halten.',
+  'it-IT': 'Ti mancano {steps} attività per mantenere le tue {weeks} settimane.',
+};
+
+const GAMI_HOUSE_RATE_TITLE: Record<SupportedLocale, string> = {
+  'en-US': 'The house this week',
+  'pt-BR': 'A casa esta semana',
+  'es-ES': 'La casa esta semana',
+  'fr-FR': 'La maison cette semaine',
+  'de-DE': 'Das Haus diese Woche',
+  'it-IT': 'La casa questa settimana',
+};
+
+const GAMI_HOUSE_RATE_BODY: Record<SupportedLocale, string> = {
+  'en-US': 'The house is at {percent}% this week.',
+  'pt-BR': 'A casa está em {percent}% esta semana.',
+  'es-ES': 'La casa está al {percent}% esta semana.',
+  'fr-FR': 'La maison est à {percent}% cette semaine.',
+  'de-DE': 'Das Haus liegt diese Woche bei {percent}%.',
+  'it-IT': 'La casa è al {percent}% questa settimana.',
+};
+
+export function gamiStreakReminderTitle(locale: unknown): string {
+  return GAMI_STREAK_REMINDER_TITLE[resolveLocale(locale)];
+}
+
+export function gamiStreakReminderBody(locale: unknown, steps: number, weeks: number): string {
+  return GAMI_STREAK_REMINDER_BODY[resolveLocale(locale)]
+    .replace('{steps}', String(steps))
+    .replace('{weeks}', String(weeks));
+}
+
+export function gamiHouseRateTitle(locale: unknown): string {
+  return GAMI_HOUSE_RATE_TITLE[resolveLocale(locale)];
+}
+
+export function gamiHouseRateBody(locale: unknown, percent: number): string {
+  return GAMI_HOUSE_RATE_BODY[resolveLocale(locale)].replace('{percent}', String(percent));
+}

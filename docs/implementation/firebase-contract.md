@@ -46,17 +46,29 @@ householdId: string | null    locale: 'en-US'|'pt-BR'|'es-ES'|'fr-FR'|'de-DE'|'i
 themeId: 'arcade'|'sticker'|'soft'   fcmTokens: string[]   remindersEnabled: bool
 createdAt
 ```
+`users/{uid}/inbox/{id}` — owner can read, nobody writes from the client (`ackCelebrations` marks rows seen).
+Gamification celebrations queued while the app was away (`Celebration & { seen, createdAt }`, id = celebration id;
+gamification contract C3).
+
+`wallets/{uid}` — owner can read, client writes: none. The Ganhos wallet projection (gamification contract C3), and its
+append-only `wallets/{uid}/ledger/{key}` rows (owner reads). Deleted with the account.
+
+`gamification/**` — no client access: `gamification/config` (rollout mode, cohort, published rule set version),
+`gamification/ruleSets/items/{version}`, `gamification/alerts/items/{id}`, `gamification/audit/items/{id}`,
+`gamification/adjustments/items/{id}`. See gamification contract C1/C2/C9.
 
 `households/{hid}` — readable by members (`request.auth.uid in resource.data.memberUids`).
 Client writes: none.
 ```
 name (1..40)  icon  color  timeZone (IANA)  weeklyGoalXp: number|null
 creatorUid  memberUids: string[] (max 12)  setupComplete: bool  createdAt  updatedAt
+gamificationCohort: 'live'|'control'|'shadow'   // server-written (createHousehold and every engine run)
 ```
 
 Subcollections of `households/{hid}` (all readable by members, client writes: none):
 
-- `members/{uid}` — `name, initials, color, role: 'creator'|'admin'|'member', xp, joinedAt`.
+- `members/{uid}` — `name, initials, color, role: 'creator'|'admin'|'member', xp, xpPeak, levelFloor, joinedAt`
+  (`xpPeak` = max XP ever, written in the same transaction as `xp`; new members start at `xpPeak: 0, levelFloor: 1`).
   Exactly one `creator` (always an admin); "admin rights" means `role` is `creator` or
   `admin`. Existing creator-only callables stay creator-only; admin rights only add the
   moderation powers below. Creator succession (leave / remove / delete account) picks the
@@ -64,7 +76,8 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   A deleted account leaves a tombstone: `name: 'Former member'`, `initials: '?'`,
   `deleted: true`, and the uid is removed from `memberUids`.
 - `chores/{choreId}` — the `Chore` shape in `apps/mobile/features/household/types.ts`
-  plus `recurrenceAnchor` (YYYY-MM-DD) and `generatedThrough` (YYYY-MM-DD).
+  plus `recurrenceAnchor` (YYYY-MM-DD), `generatedThrough` (YYYY-MM-DD) and the server-set
+  `createdAt`, `updatedAt`, `createdBy` and `xpRaisedAt` (gamification engine inputs).
 - `instances/{instanceId}` — the `Instance` shape (with `choreSnapshot`, embedded
   `completions[]` and `bonusAwards` map). `dueAt` is a Timestamp. Id is
   `${choreId}_${YYYY-MM-DD}` so generation is idempotent. Moderation adds
@@ -90,10 +103,15 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   `weekStart, weekEnd, timeZone, closedAt,
   members: { [uid]: { xp, subtasks, assignedDue, missed } },
   topMember: { memberId, xp, subtasks } | null,
-  wallOfShame: { memberId, missed, assignedDue } | null`.
+  wallOfShame: { memberId, missed, assignedDue } | null,
+  gamification?: { onTimeRate, dueInstances, doneOnTime, goalReached }` (the Part C aggregates, written by the
+  same close whenever the gamification engine is not `off`).
 - `feed/{postId}` — `instanceId, memberId, createdAt`. Id `${instanceId}_${uid}`
   (one post per member per instance).
 - `meta/invite` — `code, expiresAt, uses, maxUses, revoked` (the current invite).
+- Gamification (gamification contract C3, server-written, members read): `organizer/{creatorUid}` (Zelo projection),
+  `organizerLedger/{key}` (Zelo ledger), `events/{id}` (server events), `gamiProcessed/{ledgerRowId}` (XP rows an engine
+  run covered) and `gamiReminders/{weekStart}:{member|creator}` (reminder claims).
 
 `inviteCodes/{code}` — no client access. `householdId, expiresAt, uses, maxUses, revoked`.
 Codes: 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, TTL 7 days, max 8 uses.
@@ -102,7 +120,12 @@ Codes: 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, TTL 7 days, max 8 uses.
 targetId, reason (0..500), createdAt`.
 
 Composite indexes: `instances` by `dueAt` asc; `ledger` by `createdAt` desc;
-`feed` by `createdAt` desc. Collection-group `instances` by `status, dueAt` for reminders.
+`feed` by `createdAt` desc. Collection-group `instances` by `status, dueAt` for reminders;
+`disputes` by `status, expiresAt`; `ledger` by `memberId, source, createdAt` (the gamification velocity window).
+
+Security rules (`firestore.rules`): members read the household subcollections; the owner reads `users/{uid}`,
+`users/{uid}/inbox/*`, `wallets/{uid}` and `wallets/{uid}/ledger/*`; nothing but the whitelisted profile fields is
+writable from the client; `inviteCodes`, `reports`, `gamification/**` and anything unlisted are closed.
 
 ## Callable functions (`onCall`, 2nd gen)
 
@@ -114,24 +137,26 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
 | `ensureProfile` | `{displayName, locale, themeId}` | Create `users/{uid}` if missing (initials + color derived). Idempotent. Returns the profile. |
 | `createHousehold` | `{name, icon, color, timeZone}` | `failed-precondition` if user already has a household. Creates household, creator member, invite (`meta/invite` + `inviteCodes`). Sets `users.householdId`. Returns `{householdId}`. |
 | `updateHousehold` | `{householdId, name, icon, color, weeklyGoalXp?}` | Creator only. |
-| `joinHousehold` | `{code}` | Uppercase/trim. `not-found` bad code; `failed-precondition` expired/revoked/full/already in a household; `resource-exhausted` if 12 members. Transaction increments `uses`. Returns `{householdId}`. |
+| `joinHousehold` | `{code}` | Uppercase/trim. `not-found` bad code; `failed-precondition` expired/revoked/full/already in a household; `resource-exhausted` if 12 members. Transaction increments `uses`. Returns `{householdId}`. New member docs start at `xpPeak: 0, levelFloor: 1`. |
 | `rotateInvite` | `{householdId}` | Creator only. Revokes old code, issues new one. |
 | `saveChore` | `{householdId, chore}` | Creator only (v1). Create or update; validates subtasks (1..12, xp 1..100), bonusXp 0..200, assigneeIds ⊆ members. Regenerates future open instances (keeps instances with completions). Returns `{choreId}`. |
 | `setAssignments` | `{householdId, choreId, assigneeIds}` | Creator only. Updates chore + future open instances. |
 | `setChoreActive` | `{householdId, choreId, isActive}` | Creator only. Pausing deletes future untouched instances. |
 | `deleteChore` | `{householdId, choreId}` | Creator only. Deletes chore and future untouched instances; keeps history. |
-| `completeSubtask` | `{householdId, instanceId, subtaskId}` | Any member. Transaction: `already-exists` if that subtask is done; append completion (`isAssist` = caller not in assignees), ledger `subtask` credit. When all subtasks are done: status `done`, compute `bonusAwards` with the existing `calculateBonusAwards` rule and write `bonus` ledger rows. Else status `partial`. |
-| `undoSubtask` | `{householdId, instanceId, subtaskId}` | Only the completer, within 5 minutes. Reverses subtask credit and, if the instance was `done`, every still-active bonus row (`undo-*` rows with negative amounts and `reversesEntryId`). A revoked (already reversed) row is never reversed again. |
+| `completeSubtask` | `{householdId, instanceId, subtaskId}` | Any member. Transaction: `already-exists` if that subtask is done; append completion (`isAssist` = caller not in assignees), ledger `subtask` credit. When all subtasks are done: status `done`, compute `bonusAwards` with the existing `calculateBonusAwards` rule and write `bonus` ledger rows. Else status `partial`. Writes `xp` and `xpPeak` (never decreasing) in the same transaction, then runs the gamification engine (mode `off`: no-op). Returns `{instanceId, subtaskId, status, completionId, celebrations}`: `celebrations` is the caller's `Celebration[]` under mode `live` + cohort `live`, else `[]`. |
+| `undoSubtask` | `{householdId, instanceId, subtaskId}` | Only the completer, within 5 minutes. Reverses subtask credit and, if the instance was `done`, every still-active bonus row (`undo-*` rows with negative amounts and `reversesEntryId`). A revoked (already reversed) row is never reversed again. The engine claws back exactly what the rows paid. `xpPeak` is not lowered. |
 | `setMemberRole` | `{householdId, memberId, role: 'admin'\|'member'}` | Creator only (`permission-denied`). `invalid-argument` if `memberId` is the caller; `not-found` if not in `memberUids`. Idempotent. Returns `{memberId, role}`. |
 | `reportCompletion` | `{householdId, instanceId, subtaskIds?, reason?}` | Any member **without** admin rights; admins get `permission-denied`. `subtaskIds` defaults to every completed subtask the caller did not complete; each id must be completed (`failed-precondition`) and not the caller's own (`invalid-argument`). `failed-precondition` for an instance without completions, an empty target list, completions older than 72 h, or a resolved/expired dispute. Creates or appends to `households/{hid}/disputes/{instanceId}` (`already-exists` if the caller already reported), sets `instances.disputeStatus = 'open'`, pushes FCM to every admin-rights member. Returns `{disputeId}`. |
 | `resolveDispute` | `{householdId, disputeId, verdict: 'done'\|'partial'\|'not_done', subtaskIds?}` | Admin rights required. `not-found` / `failed-precondition` for a missing / not-open (or past-window) dispute. Conflict of interest: `permission-denied` if any disputed subtask was completed by the caller, unless they are the only admin. `done` keeps everything; `not_done` revokes every disputed subtask; `partial` needs a strict subset of the disputed subtasks (`invalid-argument`, also when only one subtask is disputed). Revocation per contract A3; notifies completers and reporters via FCM. Returns `{disputeId, verdict, revokedSubtaskIds}`. |
 | `moderateInstance` | `{householdId, instanceId, verdict: 'partial'\|'not_done', subtaskIds?}` | Admins mark a logged completion directly. `not_done` targets every completed subtask (or `subtaskIds`); `partial` needs a strict subset of the completed subtasks. Same 72 h window and conflict-of-interest rule as `resolveDispute`. Resolves an open dispute for the instance with this verdict. Returns `{instanceId, verdict, revokedSubtaskIds}`. |
-| `finishSetup` | `{householdId}` | Creator only. `setupComplete = true`. |
-| `postCompletion` | `{householdId, instanceId}` | Member who completed at least one subtask of a `done` instance. Idempotent by id. |
+| `finishSetup` | `{householdId}` | Creator only. `setupComplete = true`. Pays the one-off Zelo setup award (engine, once per household). |
+| `postCompletion` | `{householdId, instanceId}` | Member who completed at least one subtask of a `done` instance. Idempotent by id. Returns `{postId, created, celebrations}` (the 2-Ganhos share earn, once per day, under live + live cohort). |
+| `ackCelebrations` | `{ids: string[]}` | Marks the caller's `users/{uid}/inbox/{id}` rows seen. 1..50 ids (`invalid-argument`); unknown ids and other users' rows are ignored. Returns `{ok, acknowledged}`. |
+| `setAwayWeeks` | `{householdId?, weekStarts: string[]}` | Away mode (gamification C7): future Mondays in the household time zone, at most 3 per calendar year (past away weeks count). Replaces the future list; stores `wallets/{uid}.streak.awayWeeks`. `invalid-argument` (format, not a Monday), `failed-precondition` (not in the future, yearly limit, no household), `permission-denied` (not a member). Returns `{weekStarts}`. |
 | `leaveHousehold` | `{householdId}` | Removes caller from `memberUids`, tombstones member doc, removes caller from chore and open-instance assignees, clears `users.householdId`. If the caller is the creator, ownership moves to the longest-standing remaining member. If nobody remains, the household and all subcollections and its invite codes are deleted. |
 | `removeMember` | `{householdId, uid}` | Creator only, not self. Same cleanup as leave for that uid. |
 | `reportContent` | `{householdId, kind, targetId, reason}` | Any member. Writes `reports/{id}`. |
-| `deleteAccount` | `{}` | Runs `leaveHousehold` logic if in a household, deletes `users/{uid}`, then deletes the Auth user. Ledger and completion rows keep the uid; the tombstone gives them the name "Former member". |
+| `deleteAccount` | `{}` | Runs `leaveHousehold` logic if in a household, deletes `wallets/{uid}` with its ledger and `users/{uid}/inbox` (Zelo rows stay), deletes `users/{uid}`, then deletes the Auth user. Ledger and completion rows keep the uid; the tombstone gives them the name "Former member". |
 
 ## Scheduled functions
 
@@ -152,7 +177,20 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
   completions stand) whether or not a week closed that hour. Per-household errors are
   logged and never stop the other households. Pure logic lives in
   `functions/src/domain/standings.ts`; the gamification engine (contract Part C) hooks
-  into the exported `afterWeekClosed(context)` after a fresh close.
+  into the exported `afterWeekClosed(context)` after a fresh close: `scheduled.ts` registers the
+  `gamiWeekClosedHook`, which runs `household.week_closed` through the engine (goal, streak, Zelo, achievements,
+  localized FCM for the week's earnings under live) and writes `weeks/{weekStart}.gamification`.
+- `gamificationReminders` — every 60 minutes: streak-at-risk push on Sunday 18:00 local and house-running-late push on
+  Saturday 10:00 local, `live` households only, once per household per week and kind (the claim doc
+  `gamiReminders/{weekStart}:{kind}` is created first), localized in 6 languages, `remindersEnabled` respected, then a
+  `gami_reminder_sent` server event (gamification contract C7).
+
+## Firestore triggers
+
+- `replayGamiLedgerRowTrigger` — `onDocumentCreated('households/{hid}/ledger/{entryId}')`, the gamification safety net
+  (contract C8). Skips rows the callable already marked in `gamiProcessed/{rowId}`; otherwise waits 3 s, re-checks, and
+  re-runs the engine for the row. Ledger keys are deterministic and created with `create()` in the engine's
+  transaction, so the callable and the trigger never double-pay. A no-op under mode `off`.
 
 ## Hosting
 

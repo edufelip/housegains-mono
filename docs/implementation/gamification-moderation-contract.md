@@ -162,7 +162,7 @@ Product decisions (taken from the plan's recommendations):
 
 ### C1. Configuration and rollout
 
-`gamification/config` (no client access):
+`gamification/config` (no client access; all of `gamification/**` is Cloud Functions / admin callables only):
 ```
 mode: 'off' | 'shadow' | 'live'
 activeVersion: number | null      // published rule set; null → built-in DEFAULT_RULE_SET
@@ -171,11 +171,25 @@ cohortSalt: string
 livePercent: number (0..100)      // households shown the program
 controlPercent: number (0..100)   // explicit control group, sees nothing
 ```
-Missing doc ⇒ `mode: 'off'`.
+Missing doc ⇒ `mode: 'off'`. A `mode` that is not `shadow` or `live` reads as `off`; percentages are
+clamped to 0..100. The runner reads the config and the published rule set per call with a cache of at most
+60 s (no cache under the emulator, so tests can flip it between calls).
+
+**Firestore paths.** `gamification/ruleSets/{version}` and the other `gamification/{name}/{id}` locations written
+below are not valid *document* paths (a document path has an even number of segments). The real locations, used
+by the wiring and by the admin callables, are `gamification/{ruleSets|alerts|audit|adjustments}/items/{id}`
+(constants in `functions/src/gamification/paths.ts`): `gamification/ruleSets/items/{version}`,
+`gamification/alerts/items/{id}`, `gamification/audit/items/{id}`, `gamification/adjustments/items/{id}`.
+`gamification/config` is a plain document and is unchanged. Everywhere below, "`gamification/alerts`" means
+`gamification/alerts/items`.
 
 Cohort of a household: `h = fnv1a32(householdId + cohortSalt) % 100`;
 `h < livePercent` → `'live'`; `h < livePercent + controlPercent` → `'control'`; else `'shadow'`.
-Written to `households/{hid}.gamificationCohort` whenever the engine runs, and on `createHousehold`.
+Written to `households/{hid}.gamificationCohort` on `createHousehold` (whatever the mode: under `off` it is
+computed from the config's percentages, so a missing config yields `'shadow'`) and whenever an engine run finds
+that it changed. It is always recomputed from the current config, so ops can move a household by editing the
+config; a hand-written value is treated as a stale projection. Under `off` the engine does not run and the field
+is left as it is.
 
 - `off`: the engine does nothing.
 - `shadow` (or a `shadow`/`control` household under `live`): ledgers and projections are written;
@@ -188,13 +202,17 @@ defaults). The app shows gamification UI only when `gamification_enabled === tru
 
 ### C2. Rule sets
 
-`gamification/ruleSets/{version}` (version = positive integer as string):
+`gamification/ruleSets/items/{version}` (version = positive integer as string):
 ```
 status: 'draft' | 'published' | 'archived'
 notes: string   createdBy: uid   createdAt   publishedAt?
 rules: RuleSet  // one JSON object, validated by validateRuleSet()
 ```
-`RuleSet` (TypeScript type in `functions/src/domain/gamification/types.ts`):
+`activeVersion` points at the published set. When the document is missing, or `rules` fails `validateRuleSet`,
+the runner logs a warning (`gamification rule set invalid; falling back to DEFAULT_RULE_SET`, with the version
+and the first errors) and uses `DEFAULT_RULE_SET` with `ruleSetVersion: null`.
+
+`RuleSet` (the real TypeScript types live in `functions/src/domain/gamification/types.ts`):
 ```
 schemaVersion: 1
 earnRules: EarnRule[]
@@ -203,12 +221,31 @@ streak: { member: MemberStreakRule, organizer: OrganizerStreakRule }
 levels: { member: { base: 50, titles: {fromLevel, key}[] }, organizer: { thresholds: {zelo, key}[] } }
 caps: { dailyGanhos: 400, perInstanceGanhos: 150, weeklyZelo: 200, newChoreCooldownHours: 24 }
 quests: QuestDef[]
-campaigns: CampaignDef[]   // Turbo multipliers: { id, multiplier: 1.5|2, ruleIds, activeFrom, activeTo, audience }
+campaigns: CampaignDef[]   // Turbo multipliers: { id, multiplier: 1.5|2, ruleIds, activeFrom, activeTo, audience? }
 ```
-`EarnRule`: `{ id, track: 'ganhos'|'zelo', status: 'active'|'paused', on: { kind: EventKind, where?: Record<string, unknown> },
-award: { amount }, caps: { scope: 'member'|'member+target'|'household'|'lifetime', window: 'day'|'week'|'life', max }[],
-clawback?: { on: EventKind, match: 'sourceRef' }, spendableAfterHours: number, celebrate?: { moment: 'toast'|'badge'|'streak'|'level', copyKey },
-audience?: { minHouseholdMembers?: number }, activeFrom?: string, activeTo?: string | null }`.
+`EarnRule` (as implemented; this replaces the earlier sketch):
+```
+{ id, track: 'ganhos'|'zelo', status: 'active'|'paused',
+  on: { kind: EventKind, where?: Record<string, unknown> },
+  award: { amount, perXp?: boolean, overrides?: { where, amount }[],
+           milestones?: { [milestone]: amount }, tiers?: { bronze?, silver?, gold? } },
+  caps: CapRule[],                       // { scope: 'member'|'member+target'|'household'|'lifetime',
+                                         //   window: 'day'|'week'|'life', max, pool?: 'dailyGanhos'|'perInstanceGanhos'|'weeklyZelo',
+                                         //   target?: 'instance'|'assignee'|'chore' }
+  clawback?: { on: EventKind, match: 'sourceRef' }[],   // an ARRAY: one entry per reversing event kind
+  spendableAfterHours: number,
+  celebrate?: { moment: 'toast'|'badge'|'streak'|'level', copyKey: string },
+  audience?: { minHouseholdMembers?: number }, activeFrom?: string, activeTo?: string | null,
+  ref?: 'action' | 'chore' | 'member' | 'instance' }   // what the ledger sourceRef is taken from; default 'action'
+```
+- `award.amount` is flat, or 1-per-XP when `perXp` is set. `overrides`: the first matching override replaces the
+  amount (`zelo.on_time`: ≥90% on time ⇒ 60). `milestones` is the streak ladder; `tiers` the per-tier achievement payout.
+- A cap with a `pool` shares one counter across rules and *trims* the award (`dailyGanhos`, `perInstanceGanhos`,
+  `weeklyZelo`); a cap without a pool is an occurrence count that blocks the award once `max` is reached.
+- `ref` decides the row's `sourceRef`: `'chore'` (`zelo.chore_done`: once per chore), `'member'`
+  (`zelo.member_activated`: once per member), `'instance'`, or the default action id (the XP ledger row id).
+- `AchievementDef`: `{ id, track: 'member'|'organizer', metric, active?, seasonal?, tiers: { bronze, silver?, gold? } }`.
+  Achievements with a single condition (`fit`, `pillar`, `spring`, `yearend`, `order`) are **bronze-only**.
 
 `EventKind`: `ledger.subtask`, `ledger.bonus`, `ledger.undo-subtask`, `ledger.undo-bonus`,
 `ledger.revoke-subtask`, `ledger.revoke-bonus`, `feed.post`, `instance.completed_on_time`,
@@ -219,27 +256,53 @@ audience?: { minHouseholdMembers?: number }, activeFrom?: string, activeTo?: str
 
 ### C3. Ledgers, projections, inbox
 
-- `wallets/{uid}` — owner reads. Projection:
-  `balance, lifetimeEarned, pendingBalance, nextSpendableAt, level, xpPeak, streak: { current, record, lastCountedWeek, folgas, folgaProgress, awayWeeks: string[] },
-  achievements: { [achievementId]: { tier: 'bronze'|'silver'|'gold', unlockedAt, active?: boolean } },
-  stats: { assists, finals, onTime, categories: { [category]: number }, weeksCounted, ... },
+- `wallets/{uid}` — owner reads (clients never write). Projection, as written by the runner:
+  ```
+  householdId, memberId                // the household of the last engine run
+  balance, lifetimeEarned, pendingBalance, nextSpendableAt: Timestamp | null
+  level, xpPeak
+  streak: { current, record, lastCountedWeek: 'YYYY-MM-DD' | null, lastActionWeek: 'YYYY-MM-DD' | null,
+            folgas, folgaProgress, awayWeeks: string[] }
+  achievements: { [achievementId]: { tier: 'bronze'|'silver'|'gold', unlockedAt: Timestamp, active?: boolean } }
+  stats: { assists, finals, onTime, credits, categories: { [category]: number }, weeksCounted, welcomePaid?: boolean,
+           recentWeeks: { weekStart, counted, xp }[], householdXpByWeek: { [weekStart]: number },
+           springSubtasks, springSeasonKey: string | null, decemberGoalWeeks, streakMilestonesPaid: number[] }
   caps: { [capKey]: number }   // e.g. "day:2026-11-24:ganhos", "day:2026-11-24:earn.assist:target:uidB"
-  projectionVersion, updatedAt`.
+  projectionVersion, updatedAt
+  ```
+  `level` is the level from `xpPeak` on the `levelForXp` curve (the mobile app shows `max(levelFloor, level)`).
+  `streak.lastActionWeek` is the last week the close already processed (idempotency); `active: false` marks an
+  active badge (`fit`, `pillar`, `order`) that lapsed.
 - `wallets/{uid}/ledger/{key}` — owner reads. Append-only rows:
-  `{ key, ruleId, ruleSetVersion, track: 'ganhos', amount (signed), sourceRef, householdId, memberId,
+  `{ key, ruleId, ruleSetVersion: number | null, track: 'ganhos', amount (signed), sourceRef, householdId, memberId,
   reversesEntryId?, reason?, createdAt, spendableAt }`.
-  Key = `{ruleId}:{sourceRef}:{memberId}` (sourceRef has `/` replaced by `|`). Writes use `create()`;
-  an existing key is a no-op. Reversal key = `rev:{originalKey}` with the negated amount.
-- `households/{hid}/organizerLedger/{key}` — members read. Same row shape, `track: 'zelo'`.
-- `households/{hid}/organizer/{uid}` — members read. `{ zelo, lifetimeZelo, level, streak, achievements, caps }`.
+  Key = `{ruleId}:{sourceRef}:{memberId}` (sourceRef has `/` replaced by `|`) and is the document id. Writes use
+  `create()` inside the runner's transaction; an existing key is never overwritten. Reversal key = `rev:{originalKey}`
+  with the negated amount; its `sourceRef` is the original's.
+- `households/{hid}/organizerLedger/{key}` — members read. Same row shape, `track: 'zelo'`, `memberId` = creator.
+- `households/{hid}/organizer/{uid}` (uid = the creator) — members read. `{ householdId, memberId, zelo, lifetimeZelo, level,
+  streak: { current, record, lastCountedWeek, lastActionWeek, folgas, folgaProgress },
+  achievements, stats: { membersActivated, maestroWeeks, evenSplitWeeks, customChoreCompletions: { [choreId]: number },
+  weeksCounted, orderWeeks: { weekStart, due, onTime }[], streakMilestonesPaid }, caps, updatedAt }`.
 - `households/{hid}/members/{uid}` gains `xpPeak` (max of xp ever) and `levelFloor` (old-curve level, set once).
-  New members get `xpPeak: 0, levelFloor: 1`. Admin callable `adminBackfillLevelFloors` sets
-  `levelFloor = floor(xp/100)+1` and `xpPeak = max(xp, 0)` for members missing them.
-  Displayed level = `max(levelFloor, levelForXp(xpPeak))`.
+  New members (`createHousehold`, `joinHousehold`) get `xpPeak: 0, levelFloor: 1`. **`xpPeak` is written in the same
+  transaction as `xp`**: `xpPeak = max(previous xpPeak ?? previous xp, new xp)`, so it never decreases on an undo or a
+  revoke. Admin callable `adminBackfillLevelFloors` sets `levelFloor = floor(xp/100)+1` and `xpPeak = max(xp, 0)` for
+  members missing them. Displayed level = `max(levelFloor, levelForXp(xpPeak))`.
 - `households/{hid}/events/{id}` — members read. Server events
-  `{ name: 'gami_earned'|'gami_clawback'|'gami_streak_week_counted'|'gami_streak_broken'|'gami_folga_used'|'gami_milestone'|'gami_achievement_unlocked'|'gami_achievement_lost'|'gami_level_up'|'gami_week_closed'|'gami_reminder_sent', memberId?, data, createdAt }`.
-- `users/{uid}/inbox/{id}` — owner reads. `Celebration & { seen: boolean, createdAt }`.
-- `gamification/alerts/{id}`, `gamification/audit/{id}`, `gamification/adjustments/{id}` — admin app only.
+  `{ name: 'gami_earned'|'gami_clawback'|'gami_streak_week_counted'|'gami_streak_broken'|'gami_folga_used'|'gami_milestone'|'gami_achievement_unlocked'|'gami_achievement_lost'|'gami_level_up'|'gami_week_closed'|'gami_reminder_sent', householdId, memberId?, data, createdAt }`.
+  Ids are deterministic, `evt:{name}:{memberId|household}:{sourceKey}` (`/` in the source key replaced by `|`, a `#n`
+  suffix for repeats inside one run), and written with `set()`; `gami_reminder_sent` ids are
+  `gami_reminder_sent:{member|creator}:{weekStart}` with `data: { kind, weekStart, recipients }`.
+- `users/{uid}/inbox/{id}` — owner reads (clients never write; `ackCelebrations` marks rows seen). Doc id = the
+  celebration id. `Celebration & { seen: boolean, createdAt }`.
+- `households/{hid}/gamiProcessed/{ledgerRowId}` — members read, server only. `{ at }`: the XP ledger rows an engine run
+  covered, written in the runner's transaction. The safety-net trigger skips marked rows.
+- `households/{hid}/gamiReminders/{weekStart}:{member|creator}` — members read, server only: the claim of a
+  reminder (C7). `{ sentAt }`.
+- `gamification/alerts/items/{id}`, `gamification/audit/items/{id}`, `gamification/adjustments/items/{id}` — admin
+  app only. Alert docs: `{ kind: 'velocity'|'chore-xp-raise'|'undo-rate', householdId, memberId?, data, createdAt }`,
+  ids `alert:{kind}:{memberId|householdId}:{sourceKey}`.
 
 `Celebration`:
 ```
@@ -248,6 +311,13 @@ audience?: { minHouseholdMembers?: number }, activeFrom?: string, activeTo?: str
   achievementId?: string, tier?: 'bronze'|'silver'|'gold', level?: number, fullScreen?: boolean,
   data?: Record<string, string | number> }
 ```
+Celebration ids (deterministic; the inbox is keyed by them): `cel:toast:{ledgerRowId}:{memberId}`,
+`cel:toast:zelo:{ledgerRowId}:{creatorUid}`, `cel:toast:{instanceId}|{finalRowId}:{memberId}` (on time),
+`cel:toast:{postId}:{memberId}` (share), `cel:level:{level}:{memberId|creatorUid}`,
+`cel:badge:{achievementId}:{tier}:{memberId}`, `cel:streak:{weekStart}:{milestone}:{memberId}`,
+`cel:toast:{weekStart}:{memberId}`, `cel:toast:zelo:{weekStart}:{creatorUid}`, `cel:toast:setup:{creatorUid}`.
+Copy keys in use: `gami.earn.{chore|bonus|assist|on_time|share|week_goal|welcome}`, `gami.zelo.earned`,
+`gami.streak.milestone`, `gami.achievement.unlocked`, `gami.level.up`.
 
 ### C4. Ganhos earn rules (DEFAULT_RULE_SET)
 
@@ -264,7 +334,15 @@ audience?: { minHouseholdMembers?: number }, activeFrom?: string, activeTo?: str
 | `earn.welcome` | `member.joined`, paid at the member's first subtask credit | 50 | once per user for life (`wallets/{uid}.stats.welcomePaid`) | none |
 
 Chores created or edited less than 24 h before the completion (`chores/{id}.updatedAt`) mint
-no Ganhos (XP is unchanged). `spendableAfterHours = 24` for every rule.
+no Ganhos (XP is unchanged); the welcome bonus is not gated by it. `spendableAfterHours = 24` for every Ganhos rule.
+`saveChore` writes `createdAt`, `updatedAt` and `createdBy` on every chore (a chore without `createdBy`, saved before
+Part C, earns no Zelo) and `xpRaisedAt` when the save raised any subtask XP or the bonus (cleared by the next save that
+does not): the C9 chore-xp-raise alert input.
+
+Reversals (the `clawback` arrays): every reversal event carries `reversedAward: { subtask, assist }` (or `{ bonus }`) =
+`{ amount, awardedAt } | null`, read by the runner from the original wallet rows, so a clawback returns exactly what a
+row paid after cap trimming and never more. `earn.on_time` is reversed with the rule's flat amount when a reversal
+reopens the instance (`instanceStatusAfter !== 'done'`), for every assignee whose on-time row stands.
 
 ### C5. Zelo rules (creator only)
 
@@ -291,15 +369,23 @@ Member weekly streak ("semanas seguidas"): a week counts with ≥3 net subtask c
 (subtask − undo-subtask − revoke-subtask). Missed week: an away week keeps the streak frozen;
 else a folga is consumed if held (`gami_folga_used`); else the streak breaks (record kept).
 Folgas: +1 every 4 counted weeks, hold max 1 (2 from level 8). Away mode: callable
-`setAwayWeeks({ weekStarts: string[] })`, future Mondays only, max 3 per calendar year
-(`invalid-argument` / `failed-precondition`). Milestones per C4.
+`setAwayWeeks({ householdId?, weekStarts: string[] })` → `{ weekStarts }` (the stored list). The household supplies the
+time zone (default: the caller's current household; `failed-precondition` without one, `permission-denied` for a
+non-member). Every entry must be a `YYYY-MM-DD` Monday (`invalid-argument`) strictly after today in that time zone
+(`failed-precondition`). The request replaces the *future* away weeks; past ones stay on record and count toward the
+limit of 3 per calendar year (`failed-precondition`). Stored on `wallets/{uid}.streak.awayWeeks`, creating the wallet
+when needed. An away week keeps the streak frozen and the reminders quiet. Milestones per C4.
 
 Organizer streak ("Casa em dia"): a week counts when on-time rate ≥60% with ≥5 instances due.
 Folga +1 every 6 counted weeks, hold 1. A week where every member is away pauses it.
 
-Reminders: Sunday 18:00 local, members with <3 credits this week and a current streak ≥1;
-Saturday 10:00 local to the creator if the on-time rate so far is <60%. Through the existing
-FCM send path, respecting `remindersEnabled`, localized. Only for `live` households.
+Reminders (`gamificationReminders`, every 60 minutes): Sunday 18:00 local, members with <3 net credits this week and a
+current streak ≥1 and no away week ("Faltam 2 etapas para manter suas 8 semanas."); Saturday 10:00 local, the creator
+if the on-time rate so far is <60% with ≥5 instances due ("A casa está em 52% esta semana."). Through the existing FCM
+send path, respecting `remindersEnabled`, localized in the 6 locales. Only for `live` households (mode `live` and cohort
+`live`). Idempotent per household per week and kind: the `households/{hid}/gamiReminders/{weekStart}:{kind}` marker is
+claimed with `create()` **before** anything is sent, so a repeated or concurrent run does nothing; the
+`gami_reminder_sent` event (with the recipient count) is written only when someone was reminded.
 
 Achievements (`id`, tiers bronze/silver/gold):
 member — `helper` assists 5/25/100; `closer` final completer 10/50/200; `ontime` on-time 10/50/200;
@@ -314,14 +400,42 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
 
 ### C8. Engine placement and the client protocol
 
-- The engine runs inside `completeSubtask`, `undoSubtask`, `resolveDispute`, `moderateInstance`,
-  `postCompletion`, `joinHousehold`, `finishSetup`, `saveChore`, `deleteChore`, `removeMember`,
-  right after the existing transaction (same callable), and in `closeWeeks`.
-- A Firestore `onDocumentCreated('households/{hid}/ledger/{id}')` trigger re-runs the engine
-  for that row as a safety net; idempotent keys make re-runs harmless.
-- Engine failures are logged and never fail the XP action.
-- `completeSubtask` and `postCompletion` responses gain `celebrations: Celebration[]` (additive).
-- Callable `ackCelebrations({ ids: string[] })` marks inbox rows seen (max 50).
+- The engine runs right after the existing transaction of each of these callables, in the same call, and in
+  `closeWeeks`. The wiring is `functions/src/gamification/runner.ts` (`runGamification(events, ctx)`):
+
+  | Callable | Events | Celebrations |
+  | --- | --- | --- |
+  | `completeSubtask` | one `ledger.subtask`; one `ledger.bonus` per bonus row; `instance.completed_on_time` when the instance finished before `dueAt` (evaluated per assignee who contributed) | returned |
+  | `undoSubtask` | `ledger.undo-subtask` + `ledger.undo-bonus` per reversed bonus row | none |
+  | `resolveDispute`, `moderateInstance` | `ledger.revoke-subtask` per revoked completion + `ledger.revoke-bonus` per reversed bonus row; when the instance reopens, every assignee's on-time row is reversed too | none |
+  | `postCompletion` | `feed.post` (only when the post was created) | returned |
+  | `joinHousehold`, `saveChore` (new chores) | `member.joined`, `chore.created`: informational (they refresh the cohort) | none |
+  | `finishSetup` | `household.setup_finished` | none (the Zelo toast goes to the creator's inbox) |
+  | `deleteChore`, `removeMember` | `chore.deleted`, `member.removed` (Zelo clawbacks) | none |
+  | `closeWeeks` | one `household.week_closed`, evaluated once per active member, chaining the organizer | inbox + FCM |
+
+- **One transaction per run.** Wallets, the organizer projection and the existing ledger keys (queried by `sourceRef`,
+  never whole ledgers) are read, the pure engine evaluates, and the ledger rows (`create()`), projections, server
+  events, alerts, inbox rows and the processed markers are written in the same Firestore transaction. Two runs on the
+  same wallet serialise instead of overwriting each other. FCM is sent after the commit.
+- **Never fails the action.** Any error is logged (`runGamification failed` with the household and event kinds) and the
+  XP action stands; `completeSubtask`/`postCompletion` then return `celebrations: []`.
+- **Mode off** is a no-op. **Shadow / control / shadow-under-live** write ledgers, projections, events and alerts only.
+- **Safety net.** `onDocumentCreated('households/{hid}/ledger/{entryId}')` (`replayGamiLedgerRowTrigger`) rebuilds the
+  event for a row the callable did not mark in `gamiProcessed/{rowId}`, after a 3 s grace so the callable normally wins
+  (and a client waiting on `celebrations` gets them in the response). Callable and trigger never double-pay: ledger keys
+  are deterministic and created with `create()` inside the transaction. The replay rebuilds from the documents as they
+  are now: it never pays a completion that has since been undone or revoked, and approximates `isAssist` /
+  `isFinalCompleter` for reversals. Celebrations the trigger earns go to the inbox.
+- **`completeSubtask` response**: `{ instanceId, subtaskId, status, completionId, celebrations: Celebration[] }`.
+  **`postCompletion` response**: `{ postId, created, celebrations: Celebration[] }`. `celebrations` holds only the
+  *caller's* celebrations and only under `live` + cohort `live` (`[]` otherwise). A celebration owned by someone else
+  (the creator's Zelo toast when a member completes a subtask) is written to that user's inbox instead.
+  A `live` run caller-side may return several toasts (the credit, the on-time earn) and level/badge celebrations.
+- **Inbox**: async earns (undo, week close, safety-net, other members') are written to `users/{uid}/inbox/{id}` as
+  `Celebration & { seen: false, createdAt }` under `live` + cohort `live` only. FCM goes out for week-close earns only.
+- Callable `ackCelebrations({ ids: string[] })` → `{ ok: true, acknowledged: number }` marks the caller's inbox rows
+  seen (1..50 ids, `invalid-argument` otherwise; unknown ids and other users' rows are ignored, never touched).
 - Callable `getWallet({})` is NOT needed: the owner reads `wallets/{uid}` directly.
 - Session rule (client): at most one full-screen celebration per app session; later ones become toasts.
   When the action also completes the instance, the badge shows inside the S3 celebration.
@@ -330,8 +444,10 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
 
 - Caps and clawbacks as above. Velocity alerts written to `gamification/alerts`:
   >12 subtasks in 10 minutes by one member; chore XP raised then completed by the creator within 48 h;
-  undo+revoke rate >30% in a week (evaluated in closeWeeks). Alerts never claw back automatically.
-- `deleteAccount` deletes `wallets/{uid}`, its ledger and `users/{uid}/inbox`. Zelo rows stay.
+  undo+revoke rate >30% in a week (evaluated in closeWeeks). Alerts never claw back automatically. The velocity window
+  is read after the XP transaction commits (`recentSubtaskTimes`, ledger composite index `memberId, source, createdAt`);
+  a failed read logs and skips the alert.
+- `deleteAccount` deletes `wallets/{uid}`, its ledger and `users/{uid}/inbox` (recursively, before the user doc). Zelo rows stay.
 - `rebuildWallet(uid)` (admin callable) replays the wallet ledger and rewrites the projection.
 
 ### C10. Admin (apps/admin + callables)
@@ -353,3 +469,32 @@ returns per-rule totals, members affected, cap hits, average per member for both
 Firebase Auth Google sign-in, all writes through the callables. Screens: rollout/config, rule sets
 (list, diff vs published, publish, roll back), earn-rule form with live toast preview, simulator,
 ledger lookup with signed adjustments, alerts.
+
+### C11. Implementation notes and deviations
+
+Decisions taken while wiring the engine (`functions/src/gamification/*`), where the earlier text was silent or wrong:
+
+- **Document paths** of `ruleSets`, `alerts`, `audit` and `adjustments` are `gamification/{name}/items/{id}` (C1).
+- **Engine/contract deviations** (engine author): `EarnRule.clawback` is an array; `award` has `amount`, `perXp`, `overrides`,
+  `milestones`, `tiers`; rules carry `ref`; reversal events carry `reversedAward` read from the original wallet rows;
+  achievements with a single condition are bronze-only (C2). Welcome is declared on `member.joined` and paid at the
+  first subtask credit of any user (the creator included).
+- **Engine fixes made while wiring** (with tests): the badge celebration id now includes the tier
+  (`cel:badge:{achievementId}:{tier}:{memberId}`) and the on-time toast id the completion generation
+  (`cel:toast:{instanceId}|{finalRowId}:{memberId}`), so a tier upgrade or a re-completion is a new inbox row instead of
+  colliding with the first; the wallet deserializer keeps `active: false` on lapsed active badges.
+- **Atomic runs.** See C8. Ledger rows are created, never merged; server events and alerts use `set()` so a repeat can never
+  abort the ledger writes.
+- **Multi-member events.** `instance.completed_on_time` and `household.week_closed` call the engine once per affected wallet,
+  chaining the organizer projection and unioning the emitted keys. Undo/revoke call it for the completer and, when the
+  instance reopens, for every assignee.
+- **Weekly close.** `afterWeekClosedHooks` runs the Part C hook only on the run that created the week doc. It builds
+  `household.week_closed` from the standings context plus the week's instances (on-time = done with the last completion
+  before `dueAt`), the weekly goal (net week XP of the active members ≥ `weeklyGoalXp`), per-member undo/revoke counts and
+  whether every member is away, and writes `weeks/{weekStart}.gamification = { onTimeRate (integer %), dueInstances,
+  doneOnTime, goalReached }` whenever the engine writes (any mode but `off`). FCM and inbox rows only under `live`.
+- **Cohort** is recomputed on every run and persisted when it differs (C1); the config is never cached in tests.
+- **Rules** (`firestore.rules`): the owner reads `wallets/{uid}`, `wallets/{uid}/ledger/*` and `users/{uid}/inbox/*`; members
+  read the household subcollections (organizer, organizerLedger, events, weeks, ...); nobody writes any of it from the
+  client; `gamification/**` has no client access.
+

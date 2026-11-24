@@ -30,19 +30,39 @@ service cloud.firestore {
         && request.resource.data.fcmTokens.size() <= 10
         && request.resource.data.remindersEnabled is bool;
       allow delete: if false;
+
+      // Gamification celebrations the server queued while the app was away (contract C3).
+      // Owner reads; only the ackCelebrations callable marks rows seen.
+      match /inbox/{id} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
+    }
+
+    // The Ganhos wallet projection and its append-only ledger (contract C3): private to the owner.
+    match /wallets/{uid} {
+      allow read: if signedIn() && request.auth.uid == uid;
+      allow write: if false;
+
+      match /ledger/{key} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow write: if false;
+      }
     }
 
     match /households/{hid} {
       allow read: if signedIn() && request.auth.uid in resource.data.memberUids;
       allow write: if false;
 
-      // members, chores, instances, ledger, feed, meta: members read, nobody writes.
+      // members, chores, instances, ledger, feed, meta, weeks, events, organizer and
+      // organizerLedger (Zelo): members read, nobody writes.
       match /{collection}/{docId} {
         allow read: if isMemberOf(hid);
         allow write: if false;
       }
     }
 
-    // inviteCodes, reports, and anything else: no client access.
+    // inviteCodes, reports, gamification/** (config, rule sets, alerts, audit, adjustments)
+    // and anything else: no client access.
   }
 }
