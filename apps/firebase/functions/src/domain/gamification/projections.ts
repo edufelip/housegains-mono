@@ -2,6 +2,7 @@
 // balance/level helpers every engine module shares. The engine never mutates
 // caller objects; it clones at the entry point (engine.ts).
 
+import { LEVEL_UP_COPY_KEY } from './award';
 import { organizerLevel } from './levels';
 import type {
   EarnRule,
@@ -156,16 +157,42 @@ export function ensureOrganizer(
   return slot.organizer;
 }
 
-/** Books a positive zelo award and recomputes the organizer level. */
-export function applyAwardToOrganizer(organizer: OrganizerProjection, awarded: number, rules: RuleSet): void {
+/**
+ * Books a positive zelo award and recomputes the organizer level. Every place Zelo is paid goes
+ * through here, so a level crossed by any award (a subtask credit, setup, the week close) is
+ * celebrated right where it happens: a level-up toast and the `gami_level_up` event.
+ */
+export function applyAwardToOrganizer(
+  organizer: OrganizerProjection,
+  awarded: number,
+  ctx: EvalContext,
+  res: ResultCollector,
+): void {
+  const levelBefore = organizer.level;
   organizer.zelo += awarded;
   organizer.lifetimeZelo += awarded;
-  organizer.level = organizerLevel(organizer.zelo, rules.levels.organizer.thresholds).level;
+  organizer.level = organizerLevel(organizer.zelo, ctx.rules.levels.organizer.thresholds).level;
+  res.organizerDirty = true;
+  if (organizer.level <= levelBefore) return;
+  res.celebrations.push({
+    id: `cel:level:organizer:${organizer.level}:${organizer.memberId}`,
+    moment: 'level',
+    track: 'zelo',
+    level: organizer.level,
+    copyKey: LEVEL_UP_COPY_KEY,
+  });
+  res.serverEvents.push({
+    name: 'gami_level_up',
+    householdId: res.householdId,
+    memberId: organizer.memberId,
+    data: { level: organizer.level },
+    createdAt: ctx.now,
+  });
 }
 
-/** Books a negative zelo reversal; lifetime and level follow down. */
+/** Books a negative zelo reversal; lifetime and level follow down. Zelo never goes below zero. */
 export function applyReversalToOrganizer(organizer: OrganizerProjection, amount: number, rules: RuleSet): void {
-  organizer.zelo += amount;
+  organizer.zelo = Math.max(0, organizer.zelo + amount);
   organizer.lifetimeZelo = Math.max(0, organizer.lifetimeZelo + amount);
   organizer.level = organizerLevel(organizer.zelo, rules.levels.organizer.thresholds).level;
 }

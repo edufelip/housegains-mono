@@ -72,6 +72,39 @@ export function reportTargets(
   return targets;
 }
 
+/** What a dispute records about the completions it covers. */
+export interface DisputeScope {
+  subtaskIds: string[];
+  /**
+   * Ids of the reported completions (`Completion.id`), a union over every report. Absent on
+   * disputes written before the field existed: those are matched by subtask id alone.
+   */
+  completionIds?: string[];
+}
+
+/** The ids of the current completions of `subtaskIds`: what a report records (A2). */
+export function completionIdsOf(completions: Completion[], subtaskIds: string[]): string[] {
+  return subtaskIds.flatMap((subtaskId) => {
+    const completion = completionFor(completions, subtaskId);
+    return completion ? [completion.id] : [];
+  });
+}
+
+/**
+ * The disputed subtasks whose standing completion is still one a report named (A2). A subtask
+ * the reported member undid and somebody else then completed is a different completion that
+ * nobody reported, so a verdict must not touch it. Legacy disputes without `completionIds`
+ * cover every disputed subtask.
+ */
+export function disputedSubtaskIds(dispute: DisputeScope, completions: Completion[]): string[] {
+  const reported = dispute.completionIds;
+  if (reported === undefined) return [...dispute.subtaskIds];
+  return dispute.subtaskIds.filter((subtaskId) => {
+    const completion = completionFor(completions, subtaskId);
+    return completion !== null && reported.includes(completion.id);
+  });
+}
+
 /**
  * The subtasks a verdict revokes for a reported dispute (A2): nothing for 'done', the
  * whole disputed set for 'not_done', and a strict subset of it for 'partial'.
@@ -138,6 +171,15 @@ export function assertNoConflict(
   if (subtaskIds.some((id) => completionFor(completions, id)?.memberId === callerId) && !soleAdmin) {
     fail('permission-denied', 'You completed part of this chore, so another admin must review it.');
   }
+}
+
+/**
+ * Who a moderation push goes to: each person once, never the actor, and only people who are
+ * still members (a completer or reporter who left or was removed gets nothing).
+ */
+export function notificationRecipients(memberUids: string[], uids: string[], actorUid: string): string[] {
+  const members = new Set(memberUids);
+  return [...new Set(uids)].filter((uid) => uid !== actorUid && members.has(uid));
 }
 
 /** Creator succession (A1): longest-standing remaining admin, else longest-standing member. */

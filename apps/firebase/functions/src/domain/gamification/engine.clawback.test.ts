@@ -130,19 +130,43 @@ describe('subtask clawbacks', () => {
     expect(result.wallet?.caps['day:2026-11-24:ganhos']).toBe(360);
   });
 
-  it('clamps day counters when the reversal happens on a later day', () => {
+  it('refunds the counters of the day the award was paid, not the reversal day (G3)', () => {
+    // Day 1 earned 150, day 2 earned 400 (the cap). Revoking day 1's award on day 2 must free day 1's
+    // counter and leave day 2's alone: lowering day 2's would let day 2 earn 550.
+    const result = evaluate(
+      undoEvent({
+        completedAt: new Date('2026-11-25T12:00:00.000Z'),
+        reversedAward: { subtask: { amount: 150, awardedAt: AWARDED_AT }, assist: null },
+      }),
+      input({
+        wallet: wallet({
+          caps: { 'day:2026-11-24:ganhos': 150, 'day:2026-11-25:ganhos': 400, 'instance:inst-1:ganhos': 150 },
+        }),
+      }),
+    );
+    expect(result.wallet?.caps['day:2026-11-24:ganhos']).toBe(0);
+    expect(result.wallet?.caps['day:2026-11-25:ganhos']).toBe(400);
+    expect(result.wallet?.caps['instance:inst-1:ganhos']).toBe(0);
+  });
+
+  it('refunds the award day for the assist occurrence caps too (G3)', () => {
     const result = evaluate(
       undoEvent({ completedAt: new Date('2026-11-25T12:00:00.000Z') }),
       input({
         wallet: wallet({
-          caps: { 'day:2026-11-25:ganhos': 0, 'day:2026-11-24:ganhos': 15, 'instance:inst-1:ganhos': 15 },
+          caps: {
+            'day:2026-11-24:earn.assist': 2,
+            'day:2026-11-24:earn.assist:target:uidB': 1,
+            'day:2026-11-25:earn.assist': 3,
+            'day:2026-11-25:earn.assist:target:uidB': 2,
+          },
         }),
       }),
     );
-    // The award day's counter stays (never read again); the instance pool is exact.
-    expect(result.wallet?.caps['day:2026-11-25:ganhos']).toBe(0);
-    expect(result.wallet?.caps['day:2026-11-24:ganhos']).toBe(15);
-    expect(result.wallet?.caps['instance:inst-1:ganhos']).toBe(0);
+    expect(result.wallet?.caps['day:2026-11-24:earn.assist']).toBe(1);
+    expect(result.wallet?.caps['day:2026-11-24:earn.assist:target:uidB']).toBe(0);
+    expect(result.wallet?.caps['day:2026-11-25:earn.assist']).toBe(3);
+    expect(result.wallet?.caps['day:2026-11-25:earn.assist:target:uidB']).toBe(2);
   });
 
   it('keeps pendingBalance when the reversed award was already spendable', () => {
@@ -235,6 +259,64 @@ describe('on_time clawbacks on reopened instances', () => {
     expect(result.walletRows).toEqual([]);
   });
 
+  const ON_TIME_KEY = 'earn.on_time:inst-1|row-final:uidA';
+  const onTimeInput = (paid: { amount: number; createdAt: Date }, extra?: Partial<EngineInput>) =>
+    input({
+      wallet: wallet({
+        pendingBalance: 20,
+        stats: { ...wallet().stats, onTime: 1, credits: 0, assists: 0, finals: 0 },
+        caps: { 'day:2026-11-24:earn.on_time': 1 },
+      }),
+      existingKeys: new Set([ON_TIME_KEY]),
+      existingRows: new Map([[ON_TIME_KEY, paid]]),
+      ...extra,
+    });
+  const reopen = (overrides?: Partial<LedgerUndoSubtaskEvent>) =>
+    undoEvent({ reversedAward: { subtask: null, assist: null }, isAssist: false, isFinalCompleter: false, ...overrides });
+
+  it('claws back what the on_time row actually paid, not the rule amount (G2)', () => {
+    // A Turbo campaign paid 20 where the rule says 10; a trimmed row paid 4.
+    const campaign = evaluate(reopen(), onTimeInput({ amount: 20, createdAt: AWARDED_AT }));
+    expect(campaign.walletRows[0].amount).toBe(-20);
+    expect(campaign.wallet?.pendingBalance).toBe(0);
+    const trimmed = evaluate(reopen(), onTimeInput({ amount: 4, createdAt: AWARDED_AT }));
+    expect(trimmed.walletRows[0].amount).toBe(-4);
+    expect(trimmed.wallet?.pendingBalance).toBe(16);
+  });
+
+  it('refunds the on_time counter of the day it was paid (G3)', () => {
+    const result = evaluate(
+      reopen({ completedAt: new Date('2026-11-25T12:00:00.000Z') }),
+      onTimeInput(
+        { amount: 10, createdAt: AWARDED_AT },
+        { wallet: wallet({ caps: { 'day:2026-11-24:earn.on_time': 1, 'day:2026-11-25:earn.on_time': 3 } }) },
+      ),
+    );
+    expect(result.wallet?.caps['day:2026-11-24:earn.on_time']).toBe(0);
+    expect(result.wallet?.caps['day:2026-11-25:earn.on_time']).toBe(3);
+  });
+
+  it('derives the on_time counter window from the rule caps instead of assuming a day (G6)', () => {
+    const weekly = {
+      ...DEFAULT_RULE_SET,
+      earnRules: DEFAULT_RULE_SET.earnRules.map((rule) =>
+        rule.id === 'earn.on_time' ? { ...rule, caps: [{ scope: 'member' as const, window: 'week' as const, max: 5 }] } : rule,
+      ),
+    };
+    const result = evaluate(
+      reopen(),
+      onTimeInput(
+        { amount: 10, createdAt: AWARDED_AT },
+        {
+          rules: weekly,
+          wallet: wallet({ caps: { 'week:2026-11-23:earn.on_time': 2, 'day:2026-11-24:earn.on_time': 2 } }),
+        },
+      ),
+    );
+    expect(result.wallet?.caps['week:2026-11-23:earn.on_time']).toBe(1);
+    expect(result.wallet?.caps['day:2026-11-24:earn.on_time']).toBe(2);
+  });
+
   it('skips rows that were already reversed (older completion generation)', () => {
     const result = evaluate(
       undoEvent({ reversedAward: { subtask: null, assist: null } }),
@@ -285,6 +367,23 @@ describe('bonus clawbacks', () => {
     expect(result.wallet?.balance).toBe(0);
     expect(result.wallet?.caps['day:2026-11-24:ganhos']).toBe(0);
     expect(result.wallet?.caps['instance:inst-1:ganhos']).toBe(0);
+  });
+
+  it('refunds the award day for a bonus reversed on a later day (G3)', () => {
+    const result = evaluate(
+      undoBonus({ completedAt: new Date('2026-11-25T12:00:00.000Z') }),
+      input({
+        wallet: wallet({
+          balance: 5,
+          lifetimeEarned: 5,
+          pendingBalance: 5,
+          caps: { 'day:2026-11-24:ganhos': 5, 'day:2026-11-25:ganhos': 400, 'instance:inst-1:ganhos': 5 },
+        }),
+        existingKeys: new Set(['earn.bonus:bonus-row-1:uidA']),
+      }),
+    );
+    expect(result.wallet?.caps['day:2026-11-24:ganhos']).toBe(0);
+    expect(result.wallet?.caps['day:2026-11-25:ganhos']).toBe(400);
   });
 
   it('is idempotent too', () => {

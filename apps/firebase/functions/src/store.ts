@@ -39,10 +39,13 @@ import { addDaysToDateKey, dateKeyInTimeZone, isDateKey, weekdayForDateKey } fro
 import {
   assertNoConflict,
   assertWithinDisputeWindow,
+  completionIdsOf,
   DISPUTE_WINDOW_MS,
+  disputedSubtaskIds,
   hasAdminRights,
   moderateTargets,
   type MemberRole,
+  notificationRecipients,
   pickAdminSuccessor,
   reportTargets,
   resolveTargets,
@@ -1312,6 +1315,8 @@ interface DisputeDoc {
   status: 'open' | 'resolved' | 'expired';
   subtaskIds: string[];
   completerIds: string[];
+  /** Reported completion ids (union over reports); absent on disputes from before the field. */
+  completionIds?: string[];
   reports: { uid: string; subtaskIds: string[]; reason: string; createdAt: Timestamp }[];
   expiresAt: Timestamp;
 }
@@ -1323,6 +1328,7 @@ function readDispute(snap: DocumentSnapshot): DisputeDoc {
     status: d.status,
     subtaskIds: (d.subtaskIds ?? []) as string[],
     completerIds: (d.completerIds ?? []) as string[],
+    ...(Array.isArray(d.completionIds) ? { completionIds: d.completionIds as string[] } : {}),
     reports: (d.reports ?? []) as DisputeDoc['reports'],
     expiresAt: d.expiresAt as Timestamp,
   };
@@ -1380,6 +1386,7 @@ export async function reportCompletion(uid: string, raw: unknown) {
 
     const choreName = instance.choreSnapshot.name;
     const completerIds = [...new Set(targets.map((id) => instance.completions.find((c) => c.subtaskId === id)!.memberId))];
+    const reportedCompletionIds = completionIdsOf(instance.completions, targets);
     const earliest = Math.min(
       ...targets.map((id) => instance.completions.find((c) => c.subtaskId === id)!.completedAt.getTime()),
     );
@@ -1393,6 +1400,7 @@ export async function reportCompletion(uid: string, raw: unknown) {
         status: 'open',
         subtaskIds: targets,
         completerIds,
+        completionIds: reportedCompletionIds,
         reports: [{ uid, subtaskIds: targets, reason, createdAt: ts(now) }],
         createdAt: ts(now),
         expiresAt: ts(new Date(earliest + DISPUTE_WINDOW_MS)),
@@ -1403,9 +1411,12 @@ export async function reportCompletion(uid: string, raw: unknown) {
       if (dispute.reports.some((report) => report.uid === uid)) {
         fail('already-exists', 'You already reported this chore.');
       }
+      // A dispute from before completion ids were recorded gets the ids of what it disputes now.
+      const knownCompletionIds = dispute.completionIds ?? completionIdsOf(instance.completions, dispute.subtaskIds);
       tx.update(dRef, {
         subtaskIds: [...new Set([...dispute.subtaskIds, ...targets])],
         completerIds: [...new Set([...dispute.completerIds, ...completerIds])],
+        completionIds: [...new Set([...knownCompletionIds, ...reportedCompletionIds])],
         reports: [...dispute.reports, { uid, subtaskIds: targets, reason, createdAt: ts(now) }],
         // expiresAt keeps tracking the earliest disputed completion.
         expiresAt: ts(new Date(Math.min(dispute.expiresAt.toMillis(), earliest + DISPUTE_WINDOW_MS))),
@@ -1618,6 +1629,11 @@ function revocationEvents(
   return events;
 }
 
+/** Moderation push recipients: the people involved who are still members, never the actor (B6). */
+function currentMembers(hh: Record<string, any>, uids: string[], actorUid: string): string[] {
+  return notificationRecipients((hh.memberUids as string[] | undefined) ?? [], uids, actorUid);
+}
+
 export async function resolveDispute(uid: string, raw: unknown) {
   const input = asObject(raw);
   const hid = requireId(input.householdId, 'householdId');
@@ -1643,23 +1659,35 @@ export async function resolveDispute(uid: string, raw: unknown) {
     const targets = resolveTargets(dispute, verdict, input.subtaskIds);
 
     const instanceSnap = await tx.get(instanceRef(hid, disputeId));
-    if (!instanceSnap.exists) fail('not-found', 'Chore instance not found.');
-    const instance = readInstance(instanceSnap);
-    assertNoConflict(instance.completions, dispute.subtaskIds, uid, members.soleAdmin);
-
     let detail: RevocationDetail | null = null;
-    if (verdict === 'done') {
-      tx.update(instanceRef(hid, disputeId), { disputeStatus: 'resolved' });
-    } else {
-      detail = await applyRevocation(
-        tx,
-        hid,
-        instance,
-        targets,
-        { actorUid: uid, disputeId, verdict },
-        now,
-        { disputeStatus: 'resolved' },
-      );
+    let completers = dispute.completerIds;
+    // A missing instance (a chore edit used to delete a disputed one) leaves no completion to
+    // revoke, and failing would keep the dispute open until it expires: the verdict is recorded
+    // and the dispute resolves without revocations.
+    if (instanceSnap.exists) {
+      const instance = readInstance(instanceSnap);
+      // Only the completions a report actually named are in scope: one that was undone and
+      // redone by somebody else is a different completion and stands (B4).
+      const covered = disputedSubtaskIds(dispute, instance.completions);
+      assertNoConflict(instance.completions, covered, uid, members.soleAdmin);
+      if (dispute.completionIds !== undefined) {
+        completers = [
+          ...new Set(instance.completions.filter((c) => covered.includes(c.subtaskId)).map((c) => c.memberId)),
+        ];
+      }
+      if (verdict === 'done') {
+        tx.update(instanceRef(hid, disputeId), { disputeStatus: 'resolved' });
+      } else {
+        detail = await applyRevocation(
+          tx,
+          hid,
+          instance,
+          targets.filter((id) => covered.includes(id)),
+          { actorUid: uid, disputeId, verdict },
+          now,
+          { disputeStatus: 'resolved' },
+        );
+      }
     }
     const revokedIds = detail?.revokedIds ?? [];
     tx.update(disputeRef(hid, disputeId), {
@@ -1673,9 +1701,7 @@ export async function resolveDispute(uid: string, raw: unknown) {
       revokedIds,
       detail,
       household: householdInfo(hh),
-      recipients: [...new Set([...dispute.completerIds, ...dispute.reports.map((report) => report.uid)])].filter(
-        (memberId) => memberId !== uid,
-      ),
+      recipients: currentMembers(hh, [...completers, ...dispute.reports.map((report) => report.uid)], uid),
       choreName: dispute.choreName,
     };
   });
@@ -1713,16 +1739,22 @@ export async function moderateInstance(uid: string, raw: unknown) {
     const instance = readInstance(instanceSnap);
     const targets = moderateTargets(instance.completions, verdict, input.subtaskIds);
     assertWithinDisputeWindow(instance.completions, targets, now);
-    assertNoConflict(instance.completions, targets, uid, members.soleAdmin);
 
     const disputeSnap = await tx.get(disputeRef(hid, instanceId));
-    const openDispute = disputeSnap.exists && readDispute(disputeSnap).status === 'open';
+    const existingDispute = disputeSnap.exists ? readDispute(disputeSnap) : null;
+    const openDispute = existingDispute !== null && existingDispute.status === 'open' ? existingDispute : null;
+    // An open dispute is resolved by this verdict, so the admin is also judging the completions it
+    // covers: the conflict-of-interest rule spans the targets and those, not the targets alone (B3).
+    const covered = openDispute ? disputedSubtaskIds(openDispute, instance.completions) : [];
+    assertNoConflict(instance.completions, [...new Set([...targets, ...covered])], uid, members.soleAdmin);
+
+    const moderation = { actorUid: uid, disputeId: openDispute ? instanceId : null, verdict };
     const detail = await applyRevocation(
       tx,
       hid,
       instance,
       targets,
-      { actorUid: uid, disputeId: null, verdict },
+      moderation,
       now,
       openDispute ? { disputeStatus: 'resolved' } : {},
     );
@@ -1737,24 +1769,25 @@ export async function moderateInstance(uid: string, raw: unknown) {
       });
     }
 
-    const dispute = openDispute ? readDispute(disputeSnap) : null;
-    const revokedCompleters = instance.completions
-      .filter((c) => revokedIds.includes(c.subtaskId))
-      .map((c) => c.memberId);
+    const completersOf = (subtaskIds: string[]) =>
+      instance.completions.filter((c) => subtaskIds.includes(c.subtaskId)).map((c) => c.memberId);
     return {
       revokedIds,
       detail,
+      moderation,
       household: householdInfo(hh),
-      recipients: [
-        ...new Set([...(dispute?.completerIds ?? []), ...(dispute?.reports.map((report) => report.uid) ?? []), ...revokedCompleters]),
-      ].filter((memberId) => memberId !== uid),
+      recipients: currentMembers(
+        hh,
+        [...completersOf(covered), ...(openDispute?.reports.map((report) => report.uid) ?? []), ...completersOf(revokedIds)],
+        uid,
+      ),
       choreName: instance.choreSnapshot.name,
     };
   });
 
   if (outcome.detail !== null) {
     await runGamification(
-      revocationEvents(hid, instanceId, now, { actorUid: uid, disputeId: null, verdict }, outcome.detail),
+      revocationEvents(hid, instanceId, now, outcome.moderation, outcome.detail),
       { householdId: hid, household: outcome.household, callerUid: uid, now, sync: false, ledgerRowIds: outcome.detail.ledgerRowIds },
     );
   }

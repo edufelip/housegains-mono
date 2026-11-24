@@ -50,6 +50,7 @@ export function evaluate(event: GamiEvent, input: EngineInput): EngineResult {
     creatorUid: input.creatorUid,
     householdMemberCount: input.householdMemberCount,
     existingKeys: input.existingKeys,
+    existingRows: input.existingRows ?? new Map(),
     emittedKeys: new Set<string>(),
   };
   const res: ResultCollector = {
@@ -170,7 +171,7 @@ function processSetupFinished(
     });
     if (!outcome) continue;
     res.zeloRows.push(outcome.row);
-    applyAwardToOrganizer(organizer, outcome.awarded, ctx.rules);
+    applyAwardToOrganizer(organizer, outcome.awarded, ctx, res);
     res.organizerDirty = true;
     res.celebrations.push({
       id: `cel:toast:setup:${ctx.creatorUid}`,

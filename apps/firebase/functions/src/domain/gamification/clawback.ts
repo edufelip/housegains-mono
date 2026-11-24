@@ -28,6 +28,7 @@ import type {
   LedgerRowDraft,
   MemberRemovedEvent,
   OrganizerProjection,
+  PaidRow,
   ReversedRow,
   ResultCollector,
   WalletProjection,
@@ -72,6 +73,20 @@ function ruleById(ctx: EvalContext, ruleId: string): EarnRule | undefined {
   return ctx.rules.earnRules.find((rule) => rule.id === ruleId);
 }
 
+/**
+ * What the row behind `key` actually paid and when. The runner supplies the loaded rows; without one
+ * (pure callers) the rule's flat amount and the reversal's own date stand in.
+ */
+function paidRow(ctx: EvalContext, key: string, fallbackAmount: number, fallbackAt: Date): PaidRow {
+  return ctx.existingRows.get(key) ?? { amount: fallbackAmount, createdAt: fallbackAt };
+}
+
+/** Local date key and Monday of the day an award was paid: the period its cap counters belong to. */
+function awardPeriod(awardedAt: Date, ctx: EvalContext): { dateKey: string; weekStart: string } {
+  const dateKey = localDateKey(awardedAt, ctx.timeZone);
+  return { dateKey, weekStart: weekStartKeyForDateKey(dateKey) };
+}
+
 export function processSubtaskReversal(
   event: LedgerUndoSubtaskEvent | LedgerRevokeSubtaskEvent,
   wallet: WalletProjection,
@@ -79,8 +94,6 @@ export function processSubtaskReversal(
   res: ResultCollector,
 ): void {
   const actionAt = event.completedAt;
-  const dateKey = localDateKey(actionAt, ctx.timeZone);
-  const weekStart = weekStartKeyForDateKey(dateKey);
   const reason = reversalReason(event);
   const reversedRuleIds: string[] = [];
 
@@ -121,9 +134,11 @@ export function processSubtaskReversal(
       ctx.emittedKeys.add(revKey);
       res.walletRows.push(row);
       applyReversalToWallet(wallet, row, originalPending);
+      // The counters to refund are the ones of the day/week the award was paid, not the reversal's.
+      const period = awardPeriod(entry.awarded.awardedAt, ctx);
       applyCapChanges(
         wallet.caps,
-        restoreChangesFor(rule, entry.awarded.amount, event, dateKey, weekStart),
+        restoreChangesFor(rule, entry.awarded.amount, event, period.dateKey, period.weekStart),
         -1,
       );
       if (entry.ruleId === 'earn.subtask') statsReversed = true;
@@ -165,12 +180,17 @@ export function processSubtaskReversal(
         const sourceRef = withoutRule.slice(0, withoutRule.lastIndexOf(':'));
         const memberId = key.slice(key.lastIndexOf(':') + 1);
         if (memberId !== wallet.memberId) continue; // this call owns this wallet only
+        // Reverse what the row paid (a campaign or a trimmed award differs from the flat amount),
+        // against the counters of the day it was paid.
+        const paid = paidRow(ctx, key, onTimeRule.award.amount, actionAt);
+        if (paid.amount <= 0) continue;
+        const period = awardPeriod(paid.createdAt, ctx);
         const row: LedgerRowDraft = {
           key: revKey,
           ruleId: onTimeRule.id,
           ruleSetVersion: ctx.ruleSetVersion,
           track: 'ganhos',
-          amount: -onTimeRule.award.amount,
+          amount: -paid.amount,
           sourceRef,
           householdId: res.householdId,
           memberId,
@@ -181,13 +201,15 @@ export function processSubtaskReversal(
         };
         ctx.emittedKeys.add(revKey);
         res.walletRows.push(row);
-        // shortcut: the original award time is unknown here, so pending is
-        // only clamped; rebuildWalletProjection fixes any drift.
-        applyReversalToWallet(wallet, row, null);
+        // Known only when the runner loaded the row; otherwise the pending balance is just clamped.
+        const originalPending = ctx.existingRows.has(key)
+          ? paid.createdAt.getTime() + onTimeRule.spendableAfterHours * HOUR_MS > ctx.now.getTime()
+          : null;
+        applyReversalToWallet(wallet, row, originalPending);
         wallet.stats.onTime = Math.max(0, wallet.stats.onTime - 1);
         applyCapChanges(
           wallet.caps,
-          [[ruleCapKey(onTimeRule.id, 'day', dateKey), 1]],
+          restoreChangesFor(onTimeRule, paid.amount, event, period.dateKey, period.weekStart),
           -1,
         );
         reversedRuleIds.push(onTimeRule.id);
@@ -219,8 +241,7 @@ export function processBonusReversal(
   const rule = ruleById(ctx, 'earn.bonus');
   if (!rule) return;
   const actionAt = event.completedAt;
-  const dateKey = localDateKey(actionAt, ctx.timeZone);
-  const weekStart = weekStartKeyForDateKey(dateKey);
+  const period = awardPeriod(awarded.awardedAt, ctx);
   const originalKey = walletKey('earn.bonus', event.reversedRowId, event.memberId);
   const revKey = reversalKey(originalKey);
   if (!ctx.existingKeys.has(originalKey)) return;
@@ -245,7 +266,7 @@ export function processBonusReversal(
   ctx.emittedKeys.add(revKey);
   res.walletRows.push(row);
   applyReversalToWallet(wallet, row, originalPending);
-  applyCapChanges(wallet.caps, restoreChangesFor(rule, awarded.amount, event, dateKey, weekStart), -1);
+  applyCapChanges(wallet.caps, restoreChangesFor(rule, awarded.amount, event, period.dateKey, period.weekStart), -1);
   res.walletDirty = true;
   res.serverEvents.push({
     name: 'gami_clawback',
@@ -272,14 +293,17 @@ export function processChoreDeleted(
   if (ctx.existingKeys.has(revKey) || ctx.emittedKeys.has(revKey)) return;
 
   const actionAt = event.deletedAt;
-  const dateKey = localDateKey(actionAt, ctx.timeZone);
-  const weekStart = weekStartKeyForDateKey(dateKey);
+  // Claw back exactly what the award paid (the weekly Zelo cap may have trimmed it, a campaign
+  // raised it) and refund the counters of the week it was paid in.
+  const paid = paidRow(ctx, originalKey, rule.award.amount, actionAt);
+  if (paid.amount <= 0) return;
+  const { weekStart } = awardPeriod(paid.createdAt, ctx);
   const row: LedgerRowDraft = {
     key: revKey,
     ruleId: rule.id,
     ruleSetVersion: ctx.ruleSetVersion,
     track: 'zelo',
-    amount: -rule.award.amount,
+    amount: -paid.amount,
     sourceRef: event.choreId,
     householdId: res.householdId,
     memberId: ctx.creatorUid,
@@ -296,7 +320,7 @@ export function processChoreDeleted(
     [
       [ruleCapKey(rule.id, 'week', weekStart), 1],
       [targetCapKey(rule.id, 'life', '', event.choreId), 1],
-      [zeloWeekCapKey(weekStart), rule.award.amount],
+      [zeloWeekCapKey(weekStart), paid.amount],
     ],
     -1,
   );
@@ -326,14 +350,15 @@ export function processMemberRemoved(
   if (ctx.existingKeys.has(revKey) || ctx.emittedKeys.has(revKey)) return;
 
   const actionAt = event.removedAt;
-  const dateKey = localDateKey(actionAt, ctx.timeZone);
-  const weekStart = weekStartKeyForDateKey(dateKey);
+  const paid = paidRow(ctx, originalKey, rule.award.amount, actionAt);
+  if (paid.amount <= 0) return;
+  const { weekStart } = awardPeriod(paid.createdAt, ctx);
   const row: LedgerRowDraft = {
     key: revKey,
     ruleId: rule.id,
     ruleSetVersion: ctx.ruleSetVersion,
     track: 'zelo',
-    amount: -rule.award.amount,
+    amount: -paid.amount,
     sourceRef: event.memberId,
     householdId: res.householdId,
     memberId: ctx.creatorUid,
@@ -350,7 +375,7 @@ export function processMemberRemoved(
     organizer.caps,
     [
       [householdCapKey(rule.id, 'life', ''), 1],
-      [zeloWeekCapKey(weekStart), rule.award.amount],
+      [zeloWeekCapKey(weekStart), paid.amount],
     ],
     -1,
   );

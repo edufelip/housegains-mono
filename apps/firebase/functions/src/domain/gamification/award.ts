@@ -192,7 +192,7 @@ export function bumpXpPeak(
   res.walletDirty = true;
   if (!walletExisted || wallet.level <= previousLevel) return;
   res.celebrations.push({
-    id: `cel:level:${wallet.level}:${wallet.memberId}`,
+    id: `cel:level:member:${wallet.level}:${wallet.memberId}`,
     moment: 'level',
     track: 'ganhos',
     level: wallet.level,

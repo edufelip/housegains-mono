@@ -6,7 +6,10 @@ import {
   assertWithinDisputeWindow,
   DISPUTE_WINDOW_MS,
   hasAdminRights,
+  completionIdsOf,
+  disputedSubtaskIds,
   moderateTargets,
+  notificationRecipients,
   pickAdminSuccessor,
   reportTargets,
   resolveTargets,
@@ -167,5 +170,36 @@ describe('moderation copy', () => {
     expect(reportReviewBody('ja-JP', 'Sam', 'Kitchen reset')).toBe("Sam says Kitchen reset wasn't done. Review it.");
     expect(reportReviewBody('en-US', 'Sam', 'Kitchen reset')).toContain("wasn't done");
     expect(completionReviewedBody('ja-JP')).toBe('An admin reviewed your chore.');
+  });
+});
+
+describe('disputes follow the reported completions (B4)', () => {
+  const wash = completion('wash', 'A', minutesAgo(10));
+  const wipe = completion('wipe', 'B', minutesAgo(9));
+
+  it('records the ids of the current completions of the reported subtasks', () => {
+    expect(completionIdsOf([wash, wipe], ['wash', 'wipe'])).toEqual([wash.id, wipe.id]);
+    expect(completionIdsOf([wash], ['wash', 'wipe'])).toEqual([wash.id]);
+  });
+
+  it('covers a disputed subtask only while its standing completion is the reported one', () => {
+    const dispute = { subtaskIds: ['wash', 'wipe'], completionIds: [wash.id, wipe.id] };
+    expect(disputedSubtaskIds(dispute, [wash, wipe])).toEqual(['wash', 'wipe']);
+    // A undid the wash and C redid it: a different completion that nobody reported.
+    const redo = { ...completion('wash', 'C', minutesAgo(1)), id: 'wash-redo' };
+    expect(disputedSubtaskIds(dispute, [redo, wipe])).toEqual(['wipe']);
+    // Nothing left standing for the subtask.
+    expect(disputedSubtaskIds(dispute, [wipe])).toEqual(['wipe']);
+  });
+
+  it('treats a dispute without completion ids as covering every disputed subtask', () => {
+    expect(disputedSubtaskIds({ subtaskIds: ['wash', 'wipe'] }, [wash])).toEqual(['wash', 'wipe']);
+  });
+});
+
+describe('notificationRecipients (B6)', () => {
+  it('keeps each current member once and drops the actor and anyone who left', () => {
+    expect(notificationRecipients(['a', 'b', 'c'], ['b', 'x', 'b', 'a', 'c'], 'a')).toEqual(['b', 'c']);
+    expect(notificationRecipients(['a'], ['gone'], 'a')).toEqual([]);
   });
 });

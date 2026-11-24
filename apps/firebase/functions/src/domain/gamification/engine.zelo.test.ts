@@ -382,3 +382,125 @@ describe('organizer level', () => {
     expect(reversal.organizer?.level).toBe(1);
   });
 });
+
+describe('zelo clawbacks reverse what was paid (G1)', () => {
+  const removed = (joinedAt: string, removedAt: string) =>
+    ({
+      kind: 'member.removed',
+      householdId: HH,
+      memberId: 'uidB',
+      joinedAt: new Date(joinedAt),
+      removedAt: new Date(removedAt),
+    }) as const;
+  const KEY = 'zelo.member_activated:uidB:creator';
+
+  it('claws back the trimmed amount and refunds the week the award was paid in', () => {
+    // 20 was left in the weekly pool when the 40-point award was paid on 2026-11-12 (week of 11-09).
+    const result = evaluate(
+      removed('2026-11-10T10:00:00.000Z', '2026-11-24T10:00:00.000Z'),
+      input({
+        organizer: organizer({
+          zelo: 20,
+          lifetimeZelo: 20,
+          stats: { ...organizer().stats, membersActivated: 1 },
+          caps: { 'hh:zelo.member_activated': 1, 'week:2026-11-09:zelo': 200, 'week:2026-11-23:zelo': 30 },
+        }),
+        existingKeys: new Set([KEY]),
+        existingRows: new Map([[KEY, { amount: 20, createdAt: new Date('2026-11-12T10:00:00.000Z') }]]),
+      }),
+    );
+    expect(result.zeloRows).toEqual([expect.objectContaining({ key: `rev:${KEY}`, amount: -20 })]);
+    expect(result.organizer?.zelo).toBe(0);
+    expect(result.organizer?.lifetimeZelo).toBe(0);
+    // The award's week gets its 20 back; the reversal week's pool is untouched.
+    expect(result.organizer?.caps['week:2026-11-09:zelo']).toBe(180);
+    expect(result.organizer?.caps['week:2026-11-23:zelo']).toBe(30);
+  });
+
+  it('claws back more than the flat amount when a campaign paid more', () => {
+    const result = evaluate(
+      removed('2026-11-10T10:00:00.000Z', '2026-11-24T10:00:00.000Z'),
+      input({
+        organizer: organizer({ zelo: 80, lifetimeZelo: 80, caps: { 'hh:zelo.member_activated': 1, 'week:2026-11-23:zelo': 80 } }),
+        existingKeys: new Set([KEY]),
+        existingRows: new Map([[KEY, { amount: 80, createdAt: new Date('2026-11-24T08:00:00.000Z') }]]),
+      }),
+    );
+    expect(result.zeloRows[0].amount).toBe(-80);
+    expect(result.organizer?.zelo).toBe(0);
+  });
+
+  it('never drives Zelo below zero', () => {
+    const result = evaluate(
+      removed('2026-11-10T10:00:00.000Z', '2026-11-24T10:00:00.000Z'),
+      input({
+        organizer: organizer({ zelo: 10, lifetimeZelo: 10, caps: { 'hh:zelo.member_activated': 1 } }),
+        existingKeys: new Set([KEY]),
+        existingRows: new Map([[KEY, { amount: 40, createdAt: new Date('2026-11-24T08:00:00.000Z') }]]),
+      }),
+    );
+    expect(result.zeloRows[0].amount).toBe(-40); // the ledger stays exact
+    expect(result.organizer?.zelo).toBe(0);
+  });
+
+  it('claws back the paid chore_done amount when the chore dies within 7 days', () => {
+    const choreKey = 'zelo.chore_done:chore-1:creator';
+    const result = evaluate(
+      {
+        kind: 'chore.deleted',
+        householdId: HH,
+        choreId: 'chore-1',
+        createdBy: CREATOR,
+        isCustom: true,
+        createdAt: new Date('2026-11-20T10:00:00.000Z'),
+        deletedAt: new Date('2026-11-24T10:00:00.000Z'),
+      },
+      input({
+        organizer: organizer({ zelo: 3, lifetimeZelo: 3, caps: { 'week:2026-11-16:zelo': 200, 'week:2026-11-16:zelo.chore_done': 10, 'week:2026-11-23:zelo': 3 } }),
+        existingKeys: new Set([choreKey]),
+        existingRows: new Map([[choreKey, { amount: 3, createdAt: new Date('2026-11-21T10:00:00.000Z') }]]),
+      }),
+    );
+    expect(result.zeloRows[0].amount).toBe(-3);
+    expect(result.organizer?.zelo).toBe(0);
+    expect(result.organizer?.caps['week:2026-11-16:zelo']).toBe(197);
+    expect(result.organizer?.caps['week:2026-11-16:zelo.chore_done']).toBe(9);
+    expect(result.organizer?.caps['week:2026-11-23:zelo']).toBe(3);
+  });
+});
+
+describe('organizer level-ups (G5)', () => {
+  it('celebrates a level reached by a subtask-credit award, with an organizer-scoped id', () => {
+    const start = organizer({ zelo: 195, lifetimeZelo: 195, level: 1 });
+    const result = evaluate(subtaskEvent({ choreId: 'chore-2' }), input({ wallet: wallet('uidB'), organizer: start }));
+    expect(result.organizer?.level).toBe(2);
+    expect(result.celebrations.find((c) => c.moment === 'level')).toMatchObject({
+      id: 'cel:level:organizer:2:creator',
+      track: 'zelo',
+      level: 2,
+    });
+    expect(result.serverEvents.some((e) => e.name === 'gami_level_up' && e.memberId === CREATOR)).toBe(true);
+  });
+
+  it('keeps the member and organizer level ids distinct', () => {
+    const member = evaluate(
+      subtaskEvent({ memberId: 'uidB', xpPeakAfter: 100 }),
+      input({ wallet: { ...wallet('uidB'), xpPeak: 95 }, organizer: organizer({ zelo: 195, lifetimeZelo: 195, level: 1 }) }),
+    );
+    const ids = member.celebrations.filter((c) => c.moment === 'level').map((c) => c.id);
+    expect(ids.sort()).toEqual(['cel:level:member:2:uidB', 'cel:level:organizer:2:creator']);
+  });
+
+  it('celebrates when the setup award crosses a threshold', () => {
+    const thresholds = DEFAULT_RULE_SET.levels.organizer.thresholds;
+    const rules = {
+      ...DEFAULT_RULE_SET,
+      levels: { ...DEFAULT_RULE_SET.levels, organizer: { thresholds: thresholds.map((t, i) => (i === 1 ? { ...t, zelo: 40 } : t)) } },
+    };
+    const result = evaluate(
+      { kind: 'household.setup_finished', householdId: HH, finishedAt: new Date('2026-11-24T10:00:00.000Z') },
+      input({ rules, organizer: null }),
+    );
+    expect(result.celebrations.find((c) => c.moment === 'level')).toMatchObject({ id: 'cel:level:organizer:2:creator' });
+  });
+});

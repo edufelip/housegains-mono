@@ -1,5 +1,11 @@
 import { getMessaging } from 'firebase-admin/messaging';
-import { FieldValue, Timestamp, type DocumentReference, type QueryDocumentSnapshot } from 'firebase-admin/firestore';
+import {
+  FieldValue,
+  Timestamp,
+  type DocumentReference,
+  type DocumentSnapshot,
+  type QueryDocumentSnapshot,
+} from 'firebase-admin/firestore';
 import { db } from './admin';
 import { INSTANCE_HORIZON_DAYS } from './domain/instances';
 import { addDaysToDateKey, dateKeyInTimeZone, formatLocalTime, localDateTimeToInstant } from './domain/time';
@@ -16,7 +22,7 @@ import {
   type WeekClosedContext,
 } from './domain/standings';
 import { pushToMembers } from './notify';
-import { gamiWeekClosedHook } from './gamification/week-close';
+import { gamiWeekClosedHook, gamiWeekProcessed } from './gamification/week-close';
 import { generateChoreInstancesFor } from './store';
 
 // Scheduled work: instance generation, overdue closing, "your turn" reminders,
@@ -171,10 +177,16 @@ interface ClosedWeek {
   memberNames: Map<string, string>;
 }
 
+/** The week doc this run wrote, one that already existed, or a create race another run won. */
+type WeekDocOutcome =
+  | { status: 'created'; closed: ClosedWeek }
+  | { status: 'existing'; snapshot: DocumentSnapshot }
+  | { status: 'raced' };
+
 /**
  * Closes the week doc for one household if it is missing and the close threshold has
  * passed. `create()` keeps it idempotent: if a concurrent run wrote the doc first, the
- * loser treats the race as a no-op (null). Returns null when there is nothing to close.
+ * loser treats the race as a no-op ('raced').
  */
 async function closeHouseholdWeekDoc(
   householdRef: DocumentReference,
@@ -183,9 +195,10 @@ async function closeHouseholdWeekDoc(
   memberUids: string[],
   week: WeekBounds,
   now: Date,
-): Promise<ClosedWeek | null> {
+): Promise<WeekDocOutcome> {
   const weekRef = householdRef.collection('weeks').doc(week.weekStart);
-  if ((await weekRef.get()).exists) return null;
+  const existing = await weekRef.get();
+  if (existing.exists) return { status: 'existing', snapshot: existing };
 
   const instants = weekInstants(week, timeZone);
   const startTs = Timestamp.fromDate(instants.weekStart);
@@ -235,43 +248,102 @@ async function closeHouseholdWeekDoc(
     });
   } catch (error) {
     if (!isAlreadyExists(error)) throw error;
-    return null; // A concurrent run won the create; this run is a no-op.
+    return { status: 'raced' }; // A concurrent run won the create; this run is a no-op.
   }
   return {
-    memberNames,
-    context: {
-      householdId: hid,
-      weekStart: week.weekStart,
-      weekEnd: week.weekEnd,
-      timeZone,
-      closedAt: now,
-      members,
-      topMember,
-      wallOfShame,
+    status: 'created',
+    closed: {
+      memberNames,
+      context: {
+        householdId: hid,
+        weekStart: week.weekStart,
+        weekEnd: week.weekEnd,
+        timeZone,
+        closedAt: now,
+        members,
+        topMember,
+        wallOfShame,
+      },
     },
   };
 }
 
-/** Marks open disputes past their window as expired; completions stand (contract A2). */
+/**
+ * The context of a week that was closed by an earlier run, rebuilt from its week doc (the
+ * snapshot Part B wrote), so a retried gamification close sees exactly what the first one
+ * would have: same closedAt, same member stats.
+ */
+function weekContextFromDoc(householdId: string, snapshot: DocumentSnapshot): WeekClosedContext | null {
+  const data = snapshot.data();
+  const closedAt = data?.closedAt;
+  if (!data || !(closedAt instanceof Timestamp)) return null;
+  const members: WeekClosedContext['members'] = {};
+  for (const [uid, stats] of Object.entries((data.members ?? {}) as Record<string, Record<string, unknown>>)) {
+    members[uid] = {
+      xp: Number(stats.xp) || 0,
+      subtasks: Number(stats.subtasks) || 0,
+      assignedDue: Number(stats.assignedDue) || 0,
+      missed: Number(stats.missed) || 0,
+      lastPositiveAt: null,
+    };
+  }
+  return {
+    householdId,
+    weekStart: data.weekStart as string,
+    weekEnd: data.weekEnd as string,
+    timeZone: data.timeZone as string,
+    closedAt: closedAt.toDate(),
+    members,
+    topMember: (data.topMember ?? null) as WeekClosedContext['topMember'],
+    wallOfShame: (data.wallOfShame ?? null) as WeekClosedContext['wallOfShame'],
+  };
+}
+
+/**
+ * Expires one dispute in its own transaction. The status is re-checked inside it, so a
+ * dispute an admin resolved a moment ago is never overwritten (false), and an instance that
+ * no longer exists (a chore edit or delete removed it) does not fail the write: only the
+ * dispute doc is updated then.
+ */
+async function expireDispute(householdRef: DocumentReference, disputeRef: DocumentReference): Promise<boolean> {
+  return db().runTransaction(async (tx) => {
+    const dispute = await tx.get(disputeRef);
+    if (!dispute.exists || dispute.get('status') !== 'open') return false;
+    const instanceRef = householdRef.collection('instances').doc(disputeRef.id);
+    const instance = await tx.get(instanceRef);
+    tx.update(disputeRef, { status: 'expired' });
+    if (instance.exists) tx.update(instanceRef, { disputeStatus: 'expired' });
+    return true;
+  });
+}
+
+/**
+ * Marks open disputes past their window as expired; completions stand (contract A2). Each
+ * dispute expires on its own, so one failure is logged and never blocks the rest; a pass in
+ * which nothing could be expired ends the loop instead of re-reading the same rows forever.
+ */
 async function expireDisputes(householdRef: DocumentReference, now: Date): Promise<void> {
   const nowTs = Timestamp.fromDate(now);
-  // Batches of 200 disputes (400 writes) stay under the 500-write limit; each pass's
-  // updates take its rows out of the query, like the overdue loop in runReminders.
+  const pageSize = 200;
   for (;;) {
     const open = await householdRef
       .collection('disputes')
       .where('status', '==', 'open')
       .where('expiresAt', '<', nowTs)
-      .limit(200)
+      .limit(pageSize)
       .get();
     if (open.empty) break;
-    const batch = db().batch();
-    for (const dispute of open.docs) {
-      batch.update(dispute.ref, { status: 'expired' });
-      batch.update(householdRef.collection('instances').doc(dispute.id), { disputeStatus: 'expired' });
-    }
-    await batch.commit();
-    if (open.size < 200) break;
+    let failed = 0;
+    await mapWithConcurrency(open.docs, MAX_CONCURRENCY, async (dispute) => {
+      try {
+        await expireDispute(householdRef, dispute.ref);
+      } catch (error) {
+        failed += 1;
+        console.error('expireDispute failed', dispute.ref.path, error);
+      }
+    });
+    // Every row of a pass that is not failing leaves the query (expired, or resolved meanwhile).
+    if (open.size < pageSize || failed === open.size) break;
   }
 }
 
@@ -296,25 +368,42 @@ async function notifyWeekClosed(closed: ClosedWeek, memberUids: string[]): Promi
   }
 }
 
-/** One household's share of the hourly pass: close the week, expire disputes, notify. */
+/** One household's share of the hourly pass: close the week, notify, run the hooks, expire disputes. */
 async function closeHouseholdWeek(household: QueryDocumentSnapshot, now: Date): Promise<void> {
   const data = household.data();
   const timeZone = (data.timeZone as string | undefined) ?? 'UTC';
   const memberUids = (data.memberUids as string[] | undefined) ?? [];
 
+  // Every step is isolated: a failure in one is logged and never skips the others. The week doc
+  // is written first, so anything after it that was skipped would be lost for good.
+  const step = async (name: string, work: () => Promise<void>): Promise<void> => {
+    try {
+      await work();
+    } catch (error) {
+      console.error(`closeWeeks ${name} failed`, household.id, error);
+    }
+  };
+
   const week = weekToClose(now, timeZone);
-  const closed = week
-    ? await closeHouseholdWeekDoc(household.ref, household.id, timeZone, memberUids, week, now)
-    : null;
+  if (week) {
+    await step('week close', async () => {
+      const outcome = await closeHouseholdWeekDoc(household.ref, household.id, timeZone, memberUids, week, now);
+      if (outcome.status === 'created') {
+        await step('notify', () => notifyWeekClosed(outcome.closed, memberUids));
+        // Part C hooks (gamiWeekClosedHook) run here; each logs its own failures.
+        await step('hooks', () => afterWeekClosed(outcome.closed.context));
+      } else if (outcome.status === 'existing' && !gamiWeekProcessed(outcome.snapshot)) {
+        // The close wrote the week doc but its gamification run did not finish (a crash after the
+        // create, or a failed engine run): replay it for this, the latest closed week. The
+        // engine's ledger keys and lastActionWeek keep a replay idempotent.
+        const context = weekContextFromDoc(household.id, outcome.snapshot);
+        if (context) await step('gamification retry', () => afterWeekClosed(context));
+      }
+    });
+  }
 
   // Disputes expire every run, whether or not a week closed this hour.
-  await expireDisputes(household.ref, now);
-
-  if (closed) {
-    await notifyWeekClosed(closed, memberUids);
-    // Part C hooks (gamiWeekClosedHook) run here; each logs its own failures.
-    await afterWeekClosed(closed.context);
-  }
+  await step('expire disputes', () => expireDisputes(household.ref, now));
 }
 
 /**

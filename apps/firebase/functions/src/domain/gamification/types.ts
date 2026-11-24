@@ -527,7 +527,20 @@ export interface EngineInput {
   timeZone: string;
   /** Keys already present in the wallet ledger and the organizer ledger. */
   existingKeys: ReadonlySet<string>;
+  /**
+   * What the rows behind `existingKeys` actually paid, and when. Clawbacks reverse exactly the paid
+   * amount (cap trimming and campaigns make it differ from the rule's flat amount) and refund the
+   * cap counters of the award's own day/week. A key without an entry falls back to the rule's amount
+   * and the reversal's own date; the runner always supplies the rows it loaded.
+   */
+  existingRows?: ReadonlyMap<string, PaidRow>;
   creatorUid: string;
+}
+
+/** A standing ledger row as the engine needs it for a clawback. */
+export interface PaidRow {
+  amount: number;
+  createdAt: Date;
 }
 
 export interface EngineResult {
@@ -551,6 +564,7 @@ export interface EvalContext {
   creatorUid: string;
   householdMemberCount: number;
   existingKeys: ReadonlySet<string>;
+  existingRows: ReadonlyMap<string, PaidRow>;
   /** Keys emitted during this evaluate call. */
   emittedKeys: Set<string>;
 }

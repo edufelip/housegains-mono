@@ -241,6 +241,12 @@ describe('pickTopMember', () => {
     // A full tie goes to the ascending member id.
     expect(pickTopMember({ b: s(10, 1, instant('2026-11-18T12:00:00Z')), a: s(10, 1, instant('2026-11-18T12:00:00Z')) })!.memberId).toBe('a');
   });
+
+  it('orders tied ids by code unit, not by locale (uppercase sorts before lowercase)', () => {
+    // localeCompare would put 'a' before 'B'; "memberId ascending" is the code-unit order.
+    const tie = instant('2026-11-18T12:00:00Z');
+    expect(pickTopMember({ a: s(10, 1, tie), B: s(10, 1, tie) })!.memberId).toBe('B');
+  });
 });
 
 describe('pickWallOfShame', () => {
@@ -266,6 +272,10 @@ describe('pickWallOfShame', () => {
     // Same misses, same ratio: the lower-XP member is the more shameful.
     expect(pickWallOfShame({ a: s(2, 2, 50), b: s(2, 2, 10) })!.memberId).toBe('b');
     expect(pickWallOfShame({ b: s(2, 2, 10), a: s(2, 2, 10) })!.memberId).toBe('a');
+  });
+
+  it('orders tied ids by code unit, not by locale (uppercase sorts before lowercase)', () => {
+    expect(pickWallOfShame({ a: s(2, 2, 10), B: s(2, 2, 10) })!.memberId).toBe('B');
   });
 
   it('lets the same member hold both titles', () => {

@@ -119,7 +119,7 @@ export function processSubtaskEvent(
       });
       if (!outcome) continue;
       res.zeloRows.push(outcome.row);
-      applyAwardToOrganizer(organizer, outcome.awarded, ctx.rules);
+      applyAwardToOrganizer(organizer, outcome.awarded, ctx, res);
       if (rule.id === 'zelo.member_activated') organizer.stats.membersActivated += 1;
       zeloParts.push({ ruleId: rule.id, amount: outcome.awarded });
       if (zeloCopyKey === null && rule.celebrate?.moment === 'toast') zeloCopyKey = rule.celebrate.copyKey;

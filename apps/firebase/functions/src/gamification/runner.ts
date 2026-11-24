@@ -12,6 +12,7 @@ import {
   type GamiEvent,
   type LedgerRowDraft,
   type OrganizerProjection,
+  type PaidRow,
   type ReversedRow,
   type RuleSet,
   type ServerEventDraft,
@@ -116,6 +117,14 @@ export async function runGamification(events: GamiEvent[], ctx: GamiRunContext):
   }
 }
 
+/**
+ * `runGamification` without the safety catch: a failure propagates. For callers that must know
+ * whether the run committed, like the week close marking a week processed.
+ */
+export async function runGamificationStrict(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebration[]> {
+  return run(events, ctx);
+}
+
 async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebration[]> {
   const config = await loadGamiConfig();
   if (config.mode === 'off') return [];
@@ -167,14 +176,17 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
     }
 
     let organizer: OrganizerProjection | null = null;
-    let organizerKeys = new Set<string>();
+    let organizerLedger: LedgerRead = { keys: new Set<string>(), rows: [] };
     if (organizerNeeded) {
       const snap = await tx.get(db().doc(`households/${ctx.householdId}/organizer/${creatorUid}`));
       organizer = snap.exists ? organizerFromDoc(snap.data()!, ctx.householdId, creatorUid) : null;
-      organizerKeys = (
-        await readLedger(tx, db().collection(`households/${ctx.householdId}/organizerLedger`), organizerRefs)
-      ).keys;
+      organizerLedger = await readLedger(
+        tx,
+        db().collection(`households/${ctx.householdId}/organizerLedger`),
+        organizerRefs,
+      );
     }
+    const organizerKeys = organizerLedger.keys;
 
     const memberLedgers = new Map<string, LedgerRead>();
     for (const memberId of memberIds) {
@@ -218,6 +230,8 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
           householdMemberCount: ctx.household.memberCount,
           timeZone: ctx.household.timeZone,
           existingKeys: new Set<string>([...(ledger?.keys ?? []), ...organizerKeys, ...emittedKeys]),
+          // What the standing rows paid and when: clawbacks reverse exactly that (G1-G3).
+          existingRows: paidRows([...(ledger?.rows ?? []), ...organizerLedger.rows]),
           creatorUid,
         });
         if (result.organizer !== null) {
@@ -314,6 +328,10 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
   return ctx.sync
     ? outcome.filter((entry) => entry.owner === ctx.callerUid).map((entry) => entry.celebration)
     : [];
+}
+
+function paidRows(rows: LoadedRow[]): Map<string, PaidRow> {
+  return new Map(rows.map((row) => [row.key, { amount: row.amount, createdAt: row.createdAt }]));
 }
 
 /** Deterministic doc ids: the base, then `#1`, `#2` for repeats of the same base inside one run. */

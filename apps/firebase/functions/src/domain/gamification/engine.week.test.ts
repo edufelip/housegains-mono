@@ -517,3 +517,69 @@ describe('spring and yearend stats', () => {
     expect(second.wallet?.stats.decemberGoalWeeks).toBe(2);
   });
 });
+
+describe('gap weeks (G4)', () => {
+  const lastWeek = '2026-11-02';
+  const streakAt = (overrides: Partial<WalletProjection['streak']>): WalletProjection['streak'] => ({
+    current: 5,
+    record: 5,
+    lastCountedWeek: lastWeek,
+    lastActionWeek: lastWeek,
+    folgas: 0,
+    folgaProgress: 1,
+    awayWeeks: [],
+    ...overrides,
+  });
+
+  it('breaks the streak across unprocessed weeks even though the closing week counts', () => {
+    // Last processed 11-02; 11-09 and 11-16 never ran; 11-23 closes and counts on its own.
+    const result = evaluate(weekEvent(), input({ wallet: wallet('uidA', { streak: streakAt({}) }) }));
+    expect(result.wallet?.streak.current).toBe(1); // restarted by the closing week, not 6
+    expect(result.wallet?.streak.record).toBe(5);
+    expect(result.wallet?.streak.lastActionWeek).toBe('2026-11-23');
+    expect(result.serverEvents.some((e) => e.name === 'gami_streak_broken')).toBe(true);
+    expect(result.wallet?.stats.recentWeeks.map((w) => [w.weekStart, w.counted])).toEqual([
+      ['2026-11-09', false],
+      ['2026-11-16', false],
+      ['2026-11-23', true],
+    ]);
+  });
+
+  it('spends one folga per missed gap week before breaking', () => {
+    const result = evaluate(weekEvent(), input({ wallet: wallet('uidA', { streak: streakAt({ folgas: 2 }) }) }));
+    expect(result.wallet?.streak.folgas).toBe(0);
+    expect(result.wallet?.streak.current).toBe(6); // both gaps were forgiven, the closing week counted
+    expect(result.serverEvents.filter((e) => e.name === 'gami_folga_used')).toHaveLength(2);
+    expect(result.serverEvents.some((e) => e.name === 'gami_streak_broken')).toBe(false);
+  });
+
+  it('keeps the streak frozen across gap weeks the member marked away', () => {
+    const result = evaluate(
+      weekEvent(),
+      input({ wallet: wallet('uidA', { streak: streakAt({ awayWeeks: ['2026-11-09', '2026-11-16'] }) }) }),
+    );
+    expect(result.wallet?.streak.current).toBe(6);
+    expect(result.serverEvents.some((e) => e.name === 'gami_streak_broken' || e.name === 'gami_folga_used')).toBe(false);
+  });
+
+  it('leaves consecutive weeks and fresh wallets untouched', () => {
+    const consecutive = evaluate(
+      weekEvent(),
+      input({ wallet: wallet('uidA', { streak: streakAt({ lastCountedWeek: '2026-11-16', lastActionWeek: '2026-11-16' }) }) }),
+    );
+    expect(consecutive.wallet?.streak.current).toBe(6);
+    const fresh = evaluate(weekEvent(), input({ wallet: wallet() }));
+    expect(fresh.wallet?.streak.current).toBe(1);
+    expect(fresh.wallet?.stats.recentWeeks).toHaveLength(1);
+  });
+
+  it('breaks the organizer streak across unprocessed weeks', () => {
+    const start = organizer({
+      streak: { current: 4, record: 4, lastCountedWeek: lastWeek, lastActionWeek: lastWeek, folgas: 0, folgaProgress: 4 },
+    });
+    const result = evaluate(weekEvent(), input({ wallet: wallet(), organizer: start }));
+    expect(result.organizer?.streak.current).toBe(1);
+    expect(result.organizer?.streak.record).toBe(4);
+    expect(result.serverEvents.some((e) => e.name === 'gami_streak_broken' && e.memberId === CREATOR)).toBe(true);
+  });
+});

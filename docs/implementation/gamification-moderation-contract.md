@@ -39,6 +39,7 @@ choreName: string                 // snapshot for lists
 status: 'open' | 'resolved' | 'expired'
 subtaskIds: string[]              // union of every report's subtasks
 completerIds: string[]            // members whose completions are disputed
+completionIds?: string[]          // Completion.id of every reported completion (union); absent on older disputes
 reports: { uid, subtaskIds: string[], reason: string (0..280), createdAt }[]
 verdict?: 'done' | 'partial' | 'not_done'
 revokedSubtaskIds?: string[]
@@ -47,6 +48,13 @@ createdAt, resolvedAt?, expiresAt  // expiresAt = earliest disputed completedAt 
 ```
 One dispute document per instance for its whole life (doc id = instanceId).
 `instances/{instanceId}.disputeStatus` mirrors `'open' | 'resolved' | 'expired'` (absent = never disputed).
+An instance with a `disputeStatus` or a non-empty `revocations[]` is a review record: chore edits never rewrite or
+delete it (`isEditableFuture`), even when undo left it `open` with no completions.
+A verdict covers the *completions a report named*, not the subtask ids alone: the disputed subtasks whose standing
+completion id is in `completionIds`. If the reported completer undoes and someone else completes the subtask, that
+completion is not covered and stands. A dispute without `completionIds` (written before the field) covers every
+disputed subtask, as before; a later report on such a dispute records the current completion ids of what it already
+disputed.
 
 Constants: `DISPUTE_WINDOW_MS = 72 h` (in `functions/src/domain/moderation.ts`).
 
@@ -68,15 +76,19 @@ Callable `reportCompletion({ householdId, instanceId, subtaskIds?: string[], rea
 Callable `resolveDispute({ householdId, disputeId, verdict, subtaskIds? })`
 - Admin rights required (`permission-denied`).
 - `not-found` / `failed-precondition` when the dispute is missing / not open.
-- Conflict of interest: if any disputed subtask was completed by the caller, `permission-denied`
+- Conflict of interest: if any covered completion (see above) was made by the caller, `permission-denied`
   unless the caller is the only member with admin rights.
+- If the dispute's instance no longer exists the call resolves the dispute without revocations
+  (`revokedSubtaskIds: []`): there is nothing left to revoke, and failing would leave it open until it expires.
 - `verdict: 'done'` — completions stand; nothing is reversed.
 - `verdict: 'not_done'` — revoke every disputed subtask.
 - `verdict: 'partial'` — `subtaskIds` is required: a non-empty, strict subset of the disputed
   subtasks, the ones that were NOT done. They are revoked; the rest stand. If only one subtask
   is disputed, `partial` is `invalid-argument` (the UI hides it).
+- Revokes only covered completions (`not_done` / `partial` targets that are not covered are skipped).
 - Sets `status: 'resolved'`, `verdict`, `revokedSubtaskIds`, `resolverUid`, `resolvedAt`, and
-  `instances/{id}.disputeStatus = 'resolved'`. Notifies the completers and reporters (FCM + inbox).
+  `instances/{id}.disputeStatus = 'resolved'`. Notifies the covered completers and the reporters by FCM only (no inbox
+  row), and only those who are still members of the household.
 - Returns `{ disputeId, verdict, revokedSubtaskIds }`.
 
 Callable `moderateInstance({ householdId, instanceId, verdict: 'partial' | 'not_done', subtaskIds? })`
@@ -84,11 +96,16 @@ Callable `moderateInstance({ householdId, instanceId, verdict: 'partial' | 'not_
 - Targets: `not_done` = every completed subtask (or `subtaskIds` if given);
   `partial` = `subtaskIds` required, non-empty, strict subset of the completed subtasks.
 - Same 72 h window and the same conflict-of-interest rule as `resolveDispute`.
-- If an open dispute exists for the instance, it is resolved with this verdict.
+- If an open dispute exists for the instance, it is resolved with this verdict, so the conflict-of-interest rule covers
+  the targets *and* the completions the dispute covers (an admin cannot close a dispute about their own completion by
+  revoking someone else's subtask). The revoke ledger rows' `moderation.disputeId` (and the revoke events' `disputeId`)
+  carry that dispute's id; they are `null` when there was no open dispute.
 - Returns `{ instanceId, verdict, revokedSubtaskIds }`.
 
 Expiry: the hourly `closeWeeks` job (Part B) marks open disputes past `expiresAt` as
-`expired` (completions stand) and sets `disputeStatus: 'expired'`.
+`expired` (completions stand) and sets `disputeStatus: 'expired'`. Each dispute expires in its own transaction that
+re-checks `status === 'open'` (a dispute an admin resolved meanwhile is left alone) and tolerates a missing instance
+(only the dispute doc is updated). A failing expiry is logged and never blocks the week close.
 
 ### A3. Revocation (shared by resolveDispute and moderateInstance)
 
@@ -131,7 +148,7 @@ Per active member (in `memberUids` at close time):
 - `missed` = those instances whose `status !== 'done'` at close time.
 
 Top member: highest `xp`, must be > 0. Ties: more `subtasks`, then the earlier time of their
-last positive ledger row in the week, then `memberId` ascending.
+last positive ledger row in the week, then `memberId` ascending (code-unit order, not locale order).
 
 Wall of shame: highest `missed`, must be ≥ 1. It is NOT the lowest-XP member. Ties: higher
 `missed / assignedDue`, then lower `xp`, then `memberId` ascending. The same person can hold
@@ -139,6 +156,10 @@ both titles in the same week.
 
 Both are `null` when the household has fewer than 2 active members.
 Later moderation does not rewrite a closed week (the doc is a snapshot).
+
+The close is a sequence of isolated steps (week doc, push, Part C hooks, dispute expiry): a failure in one is logged and
+never skips the others. A pass that finds the latest closed week without `gamification.processedAt` (written only once
+its engine run committed) replays the Part C hook from the stored week doc, so a failed run is not lost; see C8.
 
 After closing, FCM to members with `remindersEnabled !== false` (localized, 6 languages).
 Copy names: en "Top member of the week" / "Wall of shame"; pt-BR "Destaque da semana" /
@@ -313,7 +334,7 @@ campaigns: CampaignDef[]   // Turbo multipliers: { id, multiplier: 1.5|2, ruleId
 ```
 Celebration ids (deterministic; the inbox is keyed by them): `cel:toast:{ledgerRowId}:{memberId}`,
 `cel:toast:zelo:{ledgerRowId}:{creatorUid}`, `cel:toast:{instanceId}|{finalRowId}:{memberId}` (on time),
-`cel:toast:{postId}:{memberId}` (share), `cel:level:{level}:{memberId|creatorUid}`,
+`cel:toast:{postId}:{memberId}` (share), `cel:level:member:{level}:{memberId}`, `cel:level:organizer:{level}:{creatorUid}`,
 `cel:badge:{achievementId}:{tier}:{memberId}`, `cel:streak:{weekStart}:{milestone}:{memberId}`,
 `cel:toast:{weekStart}:{memberId}`, `cel:toast:zelo:{weekStart}:{creatorUid}`, `cel:toast:setup:{creatorUid}`.
 Copy keys in use: `gami.earn.{chore|bonus|assist|on_time|share|week_goal|welcome}`, `gami.zelo.earned`,
@@ -341,8 +362,15 @@ does not): the C9 chore-xp-raise alert input.
 
 Reversals (the `clawback` arrays): every reversal event carries `reversedAward: { subtask, assist }` (or `{ bonus }`) =
 `{ amount, awardedAt } | null`, read by the runner from the original wallet rows, so a clawback returns exactly what a
-row paid after cap trimming and never more. `earn.on_time` is reversed with the rule's flat amount when a reversal
-reopens the instance (`instanceStatusAfter !== 'done'`), for every assignee whose on-time row stands.
+row paid after cap trimming (or a campaign) and never more. `earn.on_time` is reversed when a reversal reopens the
+instance (`instanceStatusAfter !== 'done'`), for every assignee whose on-time row stands, with the amount *that row
+paid*. The Zelo reversals (`chore.deleted`, `member.removed`) likewise reverse exactly what the original organizer row
+paid; the runner loads the rows (amount and `createdAt`) it reverses and passes them to the engine as `existingRows`.
+A reversal refunds the cap counters of the day/week the original award was paid in (the award's local date or Monday),
+never of the day the reversal happens, and the window of the on-time counter comes from the rule's own caps. A
+reversal never takes the organizer's Zelo below 0. The per-assignee `earn.assist` counter refund uses the assignees
+of the reversal event (the ledger row does not store its target): after a reassignment that can differ from the target
+the award was capped against.
 
 ### C5. Zelo rules (creator only)
 
@@ -367,7 +395,11 @@ Level-up celebration fires when `xpPeak` crosses a threshold. Perk used now: lev
 
 Member weekly streak ("semanas seguidas"): a week counts with ≥3 net subtask credits
 (subtask − undo-subtask − revoke-subtask). Missed week: an away week keeps the streak frozen;
-else a folga is consumed if held (`gami_folga_used`); else the streak breaks (record kept).
+else a folga is consumed if held (`gami_folga_used`); else the streak breaks (record kept). Weeks between the last
+processed week (`streak.lastActionWeek`, else `lastCountedWeek`) and the week being closed never reached the engine
+(the close did not run, or the program was off); each of them is replayed first as a missed week (oldest first, at most
+the latest 52), so they spend folgas, break the streak or are frozen by an away week exactly like a close that ran. The
+organizer streak treats them the same way, without knowing whether every member was away (none is paused).
 Folgas: +1 every 4 counted weeks, hold max 1 (2 from level 8). Away mode: callable
 `setAwayWeeks({ householdId?, weekStarts: string[] })` → `{ weekStarts }` (the stored list). The household supplies the
 time zone (default: the caller's current household; `failed-precondition` without one, `permission-denied` for a
@@ -412,7 +444,7 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
   | `joinHousehold`, `saveChore` (new chores) | `member.joined`, `chore.created`: informational (they refresh the cohort) | none |
   | `finishSetup` | `household.setup_finished` | none (the Zelo toast goes to the creator's inbox) |
   | `deleteChore`, `removeMember` | `chore.deleted`, `member.removed` (Zelo clawbacks) | none |
-  | `closeWeeks` | one `household.week_closed`, evaluated once per active member, chaining the organizer | inbox + FCM |
+  | `closeWeeks` | one `household.week_closed`, evaluated once per active member, chaining the organizer; replayed on the next pass if the run did not commit (C11) | inbox + FCM |
 
 - **One transaction per run.** Wallets, the organizer projection and the existing ledger keys (queried by `sourceRef`,
   never whole ledgers) are read, the pure engine evaluates, and the ledger rows (`create()`), projections, server
@@ -505,14 +537,24 @@ Decisions taken while wiring the engine (`functions/src/gamification/*`), where 
   colliding with the first; the wallet deserializer keeps `active: false` on lapsed active badges.
 - **Atomic runs.** See C8. Ledger rows are created, never merged; server events and alerts use `set()` so a repeat can never
   abort the ledger writes.
+- **Level-ups.** Member level-ups are `cel:level:member:{level}:{memberId}` and organizer level-ups
+  `cel:level:organizer:{level}:{creatorUid}` (the two used to share an id). Organizer level-ups are celebrated (toast and
+  `gami_level_up`) wherever Zelo is awarded: a subtask credit, setup or the week close.
 - **Multi-member events.** `instance.completed_on_time` and `household.week_closed` call the engine once per affected wallet,
   chaining the organizer projection and unioning the emitted keys. Undo/revoke call it for the completer and, when the
   instance reopens, for every assignee.
-- **Weekly close.** `afterWeekClosedHooks` runs the Part C hook only on the run that created the week doc. It builds
+- **Weekly close.** `afterWeekClosedHooks` runs the Part C hook on the run that created the week doc, and again on later
+  passes while the latest closed week has no `gamification.processedAt`. It builds
   `household.week_closed` from the standings context plus the week's instances (on-time = done with the last completion
   before `dueAt`), the weekly goal (net week XP of the active members ≥ `weeklyGoalXp`), per-member undo/revoke counts and
   whether every member is away, and writes `weeks/{weekStart}.gamification = { onTimeRate (integer %), dueInstances,
-  doneOnTime, goalReached }` whenever the engine writes (any mode but `off`). FCM and inbox rows only under `live`.
+  doneOnTime, goalReached }` whenever the engine writes (any mode but `off`), then `processedAt` once the engine run
+  committed. The run uses the throwing variant of the runner (`runGamificationStrict`), so a failure leaves the week
+  without `processedAt`; the next hourly pass rebuilds the context from the week doc (same `closedAt` and member stats)
+  and runs it again. This covers the latest closed week only. A week closed while the program was `off` has no marker
+  either, so the first pass after the program is switched on processes it, if it is still the latest closed week.
+  Replays are safe: the ledger keys, the event ids and `lastActionWeek` make a second run a no-op.
+  FCM and inbox rows only under `live`.
 - **Cohort** is recomputed on every run and persisted when it differs (C1); the config is never cached in tests.
 - **Rules** (`firestore.rules`): the owner reads `wallets/{uid}`, `wallets/{uid}/ledger/*` and `users/{uid}/inbox/*`; members
   read the household subcollections (organizer, organizerLedger, events, weeks, ...); nobody writes any of it from the

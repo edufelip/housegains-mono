@@ -140,9 +140,29 @@ export function generateChoreInstances(
   return { instances, generatedThrough };
 }
 
-/** Future, untouched instances: the only ones a chore edit may rewrite or remove. */
-export function isEditableFuture(instance: { status: string; completions: unknown[]; dueAt: Date }, now: Date): boolean {
-  return instance.status === 'open' && instance.completions.length === 0 && instance.dueAt.getTime() > now.getTime();
+/**
+ * Future, untouched instances: the only ones a chore edit may rewrite or remove. An instance
+ * that carries a dispute or a moderation revocation is part of a review record (the dispute
+ * and the revocations live on it), so it is never editable, even when undo left it open with
+ * no completions.
+ */
+export function isEditableFuture(
+  instance: {
+    status: string;
+    completions: unknown[];
+    dueAt: Date;
+    revocations?: unknown[];
+    disputeStatus?: string;
+  },
+  now: Date,
+): boolean {
+  return (
+    instance.status === 'open' &&
+    instance.completions.length === 0 &&
+    (instance.revocations?.length ?? 0) === 0 &&
+    instance.disputeStatus === undefined &&
+    instance.dueAt.getTime() > now.getTime()
+  );
 }
 
 /** Fields to rewrite on an editable future instance after its chore changed. */

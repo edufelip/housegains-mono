@@ -106,7 +106,13 @@ describe('closeAllWeeks with the engine live', () => {
 
     // The week doc keeps the Part B fields and gains the Part C aggregates.
     const week = (await adminDb().doc(`households/${householdId}/weeks/${WEEK}`).get()).data()!;
-    expect(week.gamification).toEqual({ onTimeRate: 100, dueInstances: 5, doneOnTime: 5, goalReached: true });
+    expect(week.gamification).toEqual({
+      onTimeRate: 100,
+      dueInstances: 5,
+      doneOnTime: 5,
+      goalReached: true,
+      processedAt: expect.any(Timestamp),
+    });
     expect(week.topMember.memberId).toBe(a.uid);
 
     // Live: the celebrations wait in each earner's inbox (FCM covers the push, with no tokens here).

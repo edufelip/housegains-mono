@@ -83,7 +83,9 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   `${choreId}_${YYYY-MM-DD}` so generation is idempotent. Moderation adds
   `disputeStatus: 'open'|'resolved'|'expired'` (absent = never disputed) and
   `revocations[]`: `{ subtaskId, memberId, xp, actorUid, verdict: 'partial'|'not_done', at }`,
-  appended when an admin revokes a completion.
+  appended when an admin revokes a completion. An instance that carries a `disputeStatus` or a
+  non-empty `revocations[]` is a review record: chore edits (`saveChore`, `setAssignments`,
+  `setChoreActive`, `deleteChore`) never rewrite or delete it, even when undo left it `open` with no completions.
 - `ledger/{entryId}` — the `XpLedgerEntry` shape (`memberId` = uid). Sources are
   `subtask | bonus | undo-subtask | undo-bonus | revoke-subtask | revoke-bonus`; undo and
   revoke rows are signed reversals with `reversesEntryId`, and revoke rows also carry
@@ -91,12 +93,13 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
 - `disputes/{instanceId}` — one dispute per instance (doc id = instanceId), readable by
   members:
   `instanceId, choreName, status: 'open'|'resolved'|'expired', subtaskIds (union of every
-  report), completerIds, reports: { uid, subtaskIds, reason (0..280), createdAt }[],
+  report), completerIds, completionIds? (the ids of the reported completions, union over reports; absent on
+  older disputes), reports: { uid, subtaskIds, reason (0..280), createdAt }[],
   verdict?, revokedSubtaskIds?, resolverUid?, createdAt, resolvedAt?, expiresAt`
   (`expiresAt` = earliest disputed completion + 72 h). The hourly `closeWeeks` job
   (moderation contract Part B) marks open disputes past `expiresAt` as `expired` and sets
-  `instances.disputeStatus = 'expired'`; a resolve refuses a past-window dispute in the
-  meantime.
+  `instances.disputeStatus = 'expired'`, one transaction per dispute that re-checks it is still open; a resolve
+  refuses a past-window dispute in the meantime.
 - `weeks/{weekStart}` — closed-week snapshot written only by the hourly `closeWeeks` job
   (moderation contract Part B); readable by members, never rewritten by later moderation.
   `weekStart` is the Monday's `YYYY-MM-DD`, `weekEnd` the Sunday's:
@@ -104,8 +107,9 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   members: { [uid]: { xp, subtasks, assignedDue, missed } },
   topMember: { memberId, xp, subtasks } | null,
   wallOfShame: { memberId, missed, assignedDue } | null,
-  gamification?: { onTimeRate, dueInstances, doneOnTime, goalReached }` (the Part C aggregates, written by the
-  same close whenever the gamification engine is not `off`).
+  gamification?: { onTimeRate, dueInstances, doneOnTime, goalReached, processedAt }` (the Part C aggregates, written by
+  the same close whenever the gamification engine is not `off`; `processedAt` is written only once the engine run
+  for the week committed, and its absence is what makes `closeWeeks` replay the week).
 - `feed/{postId}` — `instanceId, memberId, createdAt`. Id `${instanceId}_${uid}`
   (one post per member per instance).
 - `meta/invite` — `code, expiresAt, uses, maxUses, revoked` (the current invite).
@@ -119,8 +123,9 @@ Codes: 6 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, TTL 7 days, max 8 uses.
 `reports/{id}` — no client access. `reporterUid, householdId, kind: 'member'|'household'|'chore',
 targetId, reason (0..500), createdAt`.
 
-Composite indexes: `instances` by `dueAt` asc; `ledger` by `createdAt` desc;
-`feed` by `createdAt` desc. Collection-group `instances` by `status, dueAt` for reminders;
+Composite indexes: `instances` by `dueAt` asc; `ledger` by `createdAt` asc and desc (the `ledger.createdAt` field
+override lists both: an override replaces the automatic single-field indexes, and the week close, the reminders and
+the admin lookup need both orders; `functions/src/firestore-indexes.test.ts` pins this); `feed` by `createdAt` desc. Collection-group `instances` by `status, dueAt` for reminders;
 `disputes` by `status, expiresAt`; `ledger` by `memberId, source, createdAt` (the gamification velocity window);
 collection-group `ledger` by `source, createdAt` (the admin simulator reads the last N days of `households/*/ledger`).
 
@@ -148,8 +153,8 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
 | `undoSubtask` | `{householdId, instanceId, subtaskId}` | Only the completer, within 5 minutes. Reverses subtask credit and, if the instance was `done`, every still-active bonus row (`undo-*` rows with negative amounts and `reversesEntryId`). A revoked (already reversed) row is never reversed again. The engine claws back exactly what the rows paid. `xpPeak` is not lowered. |
 | `setMemberRole` | `{householdId, memberId, role: 'admin'\|'member'}` | Creator only (`permission-denied`). `invalid-argument` if `memberId` is the caller; `not-found` if not in `memberUids`. Idempotent. Returns `{memberId, role}`. |
 | `reportCompletion` | `{householdId, instanceId, subtaskIds?, reason?}` | Any member **without** admin rights; admins get `permission-denied`. `subtaskIds` defaults to every completed subtask the caller did not complete; each id must be completed (`failed-precondition`) and not the caller's own (`invalid-argument`). `failed-precondition` for an instance without completions, an empty target list, completions older than 72 h, or a resolved/expired dispute. Creates or appends to `households/{hid}/disputes/{instanceId}` (`already-exists` if the caller already reported), sets `instances.disputeStatus = 'open'`, pushes FCM to every admin-rights member. Returns `{disputeId}`. |
-| `resolveDispute` | `{householdId, disputeId, verdict: 'done'\|'partial'\|'not_done', subtaskIds?}` | Admin rights required. `not-found` / `failed-precondition` for a missing / not-open (or past-window) dispute. Conflict of interest: `permission-denied` if any disputed subtask was completed by the caller, unless they are the only admin. `done` keeps everything; `not_done` revokes every disputed subtask; `partial` needs a strict subset of the disputed subtasks (`invalid-argument`, also when only one subtask is disputed). Revocation per contract A3; notifies completers and reporters via FCM. Returns `{disputeId, verdict, revokedSubtaskIds}`. |
-| `moderateInstance` | `{householdId, instanceId, verdict: 'partial'\|'not_done', subtaskIds?}` | Admins mark a logged completion directly. `not_done` targets every completed subtask (or `subtaskIds`); `partial` needs a strict subset of the completed subtasks. Same 72 h window and conflict-of-interest rule as `resolveDispute`. Resolves an open dispute for the instance with this verdict. Returns `{instanceId, verdict, revokedSubtaskIds}`. |
+| `resolveDispute` | `{householdId, disputeId, verdict: 'done'\|'partial'\|'not_done', subtaskIds?}` | Admin rights required. `not-found` / `failed-precondition` for a missing / not-open (or past-window) dispute. Conflict of interest: `permission-denied` if any disputed completion was made by the caller, unless they are the only admin. A verdict only touches the completions a report named (`completionIds`): a subtask the reported member undid and somebody else then completed stands, and is not part of the conflict check or the notifications. Disputes without `completionIds` match by subtask id. `done` keeps everything; `not_done` revokes every disputed subtask; `partial` needs a strict subset of the disputed subtasks (`invalid-argument`, also when only one subtask is disputed). If the dispute's instance no longer exists the dispute resolves without revocations (nothing is left to revoke). Revocation per contract A3; notifies the completers and reporters who are still members via FCM only (no inbox row). Returns `{disputeId, verdict, revokedSubtaskIds}`. |
+| `moderateInstance` | `{householdId, instanceId, verdict: 'partial'\|'not_done', subtaskIds?}` | Admins mark a logged completion directly. `not_done` targets every completed subtask (or `subtaskIds`); `partial` needs a strict subset of the completed subtasks. Same 72 h window and conflict-of-interest rule as `resolveDispute`; when an open dispute exists the rule covers the targets and the completions the dispute covers (the call closes that dispute). Resolves an open dispute for the instance with this verdict and stamps its id in `moderation.disputeId` of the revoke rows. Returns `{instanceId, verdict, revokedSubtaskIds}`. |
 | `finishSetup` | `{householdId}` | Creator only. `setupComplete = true`. Pays the one-off Zelo setup award (engine, once per household). |
 | `postCompletion` | `{householdId, instanceId}` | Member who completed at least one subtask of a `done` instance. Idempotent by id. Returns `{postId, created, celebrations}` (the 2-Ganhos share earn, once per day, under live + live cohort). |
 | `ackCelebrations` | `{ids: string[]}` | Marks the caller's `users/{uid}/inbox/{id}` rows seen. 1..50 ids (`invalid-argument`); unknown ids and other users' rows are ignored. Returns `{ok, acknowledged}`. |
@@ -201,12 +206,17 @@ Paths: `gamification/config`, `gamification/ruleSets/items/{version}`, `gamifica
   localized FCM ("Top member of the week" / "Wall of shame", pt-BR "Destaque da semana" /
   "Mural da vergonha") only on the run that created the doc. Every run also expires open
   disputes past `expiresAt` (`status: 'expired'`, `instances.disputeStatus = 'expired'`,
-  completions stand) whether or not a week closed that hour. Per-household errors are
-  logged and never stop the other households. Pure logic lives in
+  completions stand; a dispute whose instance is gone only has its own doc expired) whether or not a week closed that
+  hour. The week close, the notifications, the hooks and the dispute expiry are isolated steps: one failing is logged
+  and never skips the others. Per-household errors are logged and never stop the other households. Pure logic lives in
   `functions/src/domain/standings.ts`; the gamification engine (contract Part C) hooks
   into the exported `afterWeekClosed(context)` after a fresh close: `scheduled.ts` registers the
   `gamiWeekClosedHook`, which runs `household.week_closed` through the engine (goal, streak, Zelo, achievements,
-  localized FCM for the week's earnings under live) and writes `weeks/{weekStart}.gamification`.
+  localized FCM for the week's earnings under live) and writes `weeks/{weekStart}.gamification`, with `processedAt`
+  once the engine run committed. A pass that finds the latest closed week without `processedAt` runs the hook again
+  from the stored week doc (same `closedAt`, same member stats); the engine's keys make that idempotent. A week closed
+  while the program was `off` therefore gets processed by the first pass after it is switched on, while it is still
+  the latest closed week.
 - `gamificationReminders` — every 60 minutes: streak-at-risk push on Sunday 18:00 local and house-running-late push on
   Saturday 10:00 local, `live` households only, once per household per week and kind (the claim doc
   `gamiReminders/{weekStart}:{kind}` is created first), localized in 6 languages, `remindersEnabled` respected, then a

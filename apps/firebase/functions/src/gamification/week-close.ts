@@ -1,4 +1,4 @@
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { db } from '../admin';
 import { weekInstants, type WeekClosedContext } from '../domain/standings';
 import {
@@ -8,7 +8,7 @@ import {
 } from '../domain/gamification';
 import { cohortOf, loadGamiConfig } from './config';
 import { onTimeCounts } from './facts';
-import { runGamification } from './runner';
+import { runGamificationStrict } from './runner';
 
 // The Part C share of a closed week (C7/C8): one household.week_closed event
 // built from the WeekClosedContext plus what the engine still needs (weekly
@@ -16,12 +16,22 @@ import { runGamification } from './runner';
 // through the runner, and the week doc's gamification aggregates. Registered
 // in afterWeekClosedHooks by scheduled.ts.
 
+/**
+ * Runs the week's gamification. A failure is logged and the week doc is left without its
+ * `gamification.processedAt` marker, which is what makes closeWeeks replay it on the next pass
+ * (scheduled.ts); the engine's deterministic keys and `lastActionWeek` make a replay safe.
+ */
 export async function gamiWeekClosedHook(context: WeekClosedContext): Promise<void> {
   try {
     await closeWeek(context);
   } catch (error) {
     console.error('gamiWeekClosedHook failed', { householdId: context.householdId }, error);
   }
+}
+
+/** Whether a closed week's gamification run finished (`gamification.processedAt`, written on success only). */
+export function gamiWeekProcessed(week: DocumentSnapshot): boolean {
+  return week.get('gamification.processedAt') instanceof Timestamp;
 }
 
 async function closeWeek(context: WeekClosedContext): Promise<void> {
@@ -92,7 +102,8 @@ async function closeWeek(context: WeekClosedContext): Promise<void> {
       return snap?.exists === true && Array.isArray(awayWeeks) && (awayWeeks as string[]).includes(context.weekStart);
     });
 
-  await householdRef.collection('weeks').doc(context.weekStart).set(
+  const weekRef = householdRef.collection('weeks').doc(context.weekStart);
+  await weekRef.set(
     {
       gamification: {
         onTimeRate: due > 0 ? Math.round((onTime * 100) / due) : 0,
@@ -118,7 +129,7 @@ async function closeWeek(context: WeekClosedContext): Promise<void> {
     allAway,
     members,
   };
-  await runGamification([event], {
+  await runGamificationStrict([event], {
     householdId: context.householdId,
     household: {
       timeZone,
@@ -130,4 +141,6 @@ async function closeWeek(context: WeekClosedContext): Promise<void> {
     now: context.closedAt,
     sync: false,
   });
+  // Only reached when the engine run committed: a thrown error above leaves the week unmarked.
+  await weekRef.update({ 'gamification.processedAt': FieldValue.serverTimestamp() });
 }

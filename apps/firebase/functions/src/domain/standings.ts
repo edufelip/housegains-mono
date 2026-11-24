@@ -108,6 +108,11 @@ export function memberWeekStats(input: {
   return Object.fromEntries(stats);
 }
 
+/** Code-unit ascending order: the contract's "memberId ascending", independent of the locale. */
+function compareIds(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 /**
  * Highest XP this week, ties broken by more subtasks, then the earlier last positive
  * ledger row, then the ascending member id. Null with fewer than 2 active members or
@@ -123,7 +128,7 @@ export function pickTopMember(stats: Record<string, MemberWeekStats>): TopMember
         b[1].xp - a[1].xp ||
         b[1].subtasks - a[1].subtasks ||
         (a[1].lastPositiveAt?.getTime() ?? Infinity) - (b[1].lastPositiveAt?.getTime() ?? Infinity) ||
-        a[0].localeCompare(b[0]),
+        compareIds(a[0], b[0]),
     );
   const [memberId, member] = ranked[0] ?? [];
   return memberId === undefined ? null : { memberId, xp: member.xp, subtasks: member.subtasks };
@@ -144,7 +149,7 @@ export function pickWallOfShame(stats: Record<string, MemberWeekStats>): WallOfS
         b[1].missed - a[1].missed ||
         b[1].missed / b[1].assignedDue - a[1].missed / a[1].assignedDue ||
         a[1].xp - b[1].xp ||
-        a[0].localeCompare(b[0]),
+        compareIds(a[0], b[0]),
     );
   const [memberId, member] = ranked[0] ?? [];
   return memberId === undefined ? null : { memberId, missed: member.missed, assignedDue: member.assignedDue };

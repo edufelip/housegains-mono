@@ -6,11 +6,10 @@
 
 import { isSpring, springSeasonKey } from './hemisphere';
 import { evaluateMemberAchievements, evaluateOrganizerAchievements } from './achievements';
-import { awardFor, applyAwardToWallet, localDateKey, resolvedAmount, whereMatch, LEVEL_UP_COPY_KEY } from './award';
-import { organizerLevel } from './levels';
+import { awardFor, applyAwardToWallet, localDateKey, resolvedAmount, whereMatch } from './award';
 import { applyMemberStreakWeek, applyOrganizerStreakWeek, newlyReachedMilestones } from './streaks';
 import { applyAwardToOrganizer, ensureOrganizer, ruleActive, type OrganizerSlot } from './projections';
-import { monthOfDateKey } from './weeks';
+import { gapWeeks, monthOfDateKey } from './weeks';
 import type {
   CelebrationPart,
   EvalContext,
@@ -76,6 +75,27 @@ function processMemberWeek(
   if (!memberStats) return; // not an active member at close time
   if (wallet.streak.lastActionWeek !== null && wallet.streak.lastActionWeek >= weekStart) {
     return; // already processed this week (or a late replay of an older one)
+  }
+
+  // Weeks between the last processed one and this one never reached the engine (the close did not
+  // run, or the program was off). Each is a missed week: it spends a folga, breaks the streak, or
+  // is frozen by an away week, exactly as if its own close had run.
+  const lastProcessed = wallet.streak.lastActionWeek ?? wallet.streak.lastCountedWeek;
+  if (lastProcessed !== null) {
+    for (const gapWeek of gapWeeks(lastProcessed, weekStart)) {
+      applyMemberStreakWeek({
+        wallet,
+        weekStart: gapWeek,
+        counted: false,
+        away: wallet.streak.awayWeeks?.includes(gapWeek) ?? false,
+        ctx,
+        res,
+      });
+      wallet.streak.lastActionWeek = gapWeek;
+      wallet.stats.recentWeeks.push({ weekStart: gapWeek, counted: false, xp: 0 });
+      if (wallet.stats.recentWeeks.length > 4) wallet.stats.recentWeeks.shift();
+      res.walletDirty = true;
+    }
   }
 
   const streakRule = ctx.rules.streak.member;
@@ -251,6 +271,17 @@ function processOrganizerWeek(
     return; // idempotent: this week already processed
   }
 
+  // Unprocessed weeks in between count as missed (same rule as the member streak). Whether every
+  // member was away in one of them is unknown here, so none is treated as paused.
+  const lastProcessed = organizer.streak.lastActionWeek ?? organizer.streak.lastCountedWeek;
+  if (lastProcessed !== null) {
+    for (const gapWeek of gapWeeks(lastProcessed, weekStart)) {
+      applyOrganizerStreakWeek({ organizer, weekStart: gapWeek, counted: false, ctx, res });
+      organizer.streak.lastActionWeek = gapWeek;
+      res.organizerDirty = true;
+    }
+  }
+
   const streakRule = ctx.rules.streak.organizer;
   const ratePercent =
     event.instancesDue > 0 ? (event.instancesOnTime * 100) / event.instancesDue : 0;
@@ -272,7 +303,6 @@ function processOrganizerWeek(
     organizer.stats.maestroWeeks += 1;
   }
 
-  const levelBefore = organizer.level;
   const facts = householdWeekFacts(event);
   const zeloParts: CelebrationPart[] = [];
 
@@ -295,7 +325,7 @@ function processOrganizerWeek(
     });
     if (!outcome) continue;
     res.zeloRows.push(outcome.row);
-    applyAwardToOrganizer(organizer, outcome.awarded, ctx.rules);
+    applyAwardToOrganizer(organizer, outcome.awarded, ctx, res);
     zeloParts.push({ ruleId: rule.id, amount: outcome.awarded });
     if (rule.id === 'zelo.even_split') organizer.stats.evenSplitWeeks += 1;
   }
@@ -328,7 +358,7 @@ function processOrganizerWeek(
       });
       if (!outcome) continue;
       res.zeloRows.push(outcome.row);
-      applyAwardToOrganizer(organizer, outcome.awarded, ctx.rules);
+      applyAwardToOrganizer(organizer, outcome.awarded, ctx, res);
       organizer.stats.streakMilestonesPaid.push(milestone);
       zeloParts.push({ ruleId: milestoneRule.id, amount: outcome.awarded });
       res.serverEvents.push({
@@ -361,26 +391,5 @@ function processOrganizerWeek(
       data: { ruleIds: zeloParts.map((part) => part.ruleId).join(','), amount },
       createdAt: ctx.now,
     });
-  }
-
-  // Organizer level-up: zelo crossed a threshold this week.
-  const levelAfter = organizerLevel(organizer.zelo, ctx.rules.levels.organizer.thresholds).level;
-  organizer.level = levelAfter;
-  if (levelAfter > levelBefore) {
-    res.celebrations.push({
-      id: `cel:level:${levelAfter}:${ctx.creatorUid}`,
-      moment: 'level',
-      track: 'zelo',
-      level: levelAfter,
-      copyKey: LEVEL_UP_COPY_KEY,
-    });
-    res.serverEvents.push({
-      name: 'gami_level_up',
-      householdId: res.householdId,
-      memberId: ctx.creatorUid,
-      data: { level: levelAfter },
-      createdAt: ctx.now,
-    });
-    res.organizerDirty = true;
   }
 }

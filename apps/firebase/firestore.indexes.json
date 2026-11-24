@@ -38,7 +38,10 @@
     {
       "collectionGroup": "ledger",
       "fieldPath": "createdAt",
-      "indexes": [{ "queryScope": "COLLECTION", "order": "DESCENDING" }]
+      "indexes": [
+        { "queryScope": "COLLECTION", "order": "ASCENDING" },
+        { "queryScope": "COLLECTION", "order": "DESCENDING" }
+      ]
     },
     {
       "collectionGroup": "feed",
