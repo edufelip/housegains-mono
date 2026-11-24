@@ -1,0 +1,355 @@
+# HouseGains contract: moderation, weekly standings and gamification (v1)
+
+This document extends [firebase-contract.md](firebase-contract.md). It is the source of truth
+for the household moderation rules, the weekly top member / wall of shame, and the Ganhos /
+Zelo gamification program. Where this file and the older plan artifact differ, this file wins.
+
+Everything here is written by Cloud Functions only. Clients never write these paths
+(`allow write: if false`, same as the rest of the contract).
+
+---
+
+## Part A — Roles and moderation
+
+### A1. Roles
+
+`households/{hid}/members/{uid}.role` is `'creator' | 'admin' | 'member'`.
+
+- Exactly one `creator` (unchanged). The creator is always an admin.
+- "Admin rights" means `role in ['creator', 'admin']`.
+- Existing creator-only callables stay creator-only (`updateHousehold`, `rotateInvite`,
+  `saveChore`, `setAssignments`, `setChoreActive`, `deleteChore`, `finishSetup`, `removeMember`).
+  Admin rights add only the moderation powers below.
+- Creator succession (leave / remove / delete account): the successor is the
+  longest-standing remaining `admin`; if there is none, the longest-standing member (as today).
+
+Callable `setMemberRole({ householdId, memberId, role: 'admin' | 'member' })`
+- Creator only (`permission-denied`). `invalid-argument` if `memberId` is the caller.
+- `not-found` if `memberId` is not in `memberUids`.
+- Idempotent. Returns `{ memberId, role }`.
+
+### A2. Disputes ("this wasn't done")
+
+A completion is a subtask completion (`Instance.completions[]`). A dispute is per instance.
+
+`households/{hid}/disputes/{instanceId}` — readable by members.
+```
+instanceId: string
+choreName: string                 // snapshot for lists
+status: 'open' | 'resolved' | 'expired'
+subtaskIds: string[]              // union of every report's subtasks
+completerIds: string[]            // members whose completions are disputed
+reports: { uid, subtaskIds: string[], reason: string (0..280), createdAt }[]
+verdict?: 'done' | 'partial' | 'not_done'
+revokedSubtaskIds?: string[]
+resolverUid?: string
+createdAt, resolvedAt?, expiresAt  // expiresAt = earliest disputed completedAt + 72 h
+```
+One dispute document per instance for its whole life (doc id = instanceId).
+`instances/{instanceId}.disputeStatus` mirrors `'open' | 'resolved' | 'expired'` (absent = never disputed).
+
+Constants: `DISPUTE_WINDOW_MS = 72 h` (in `functions/src/domain/moderation.ts`).
+
+Callable `reportCompletion({ householdId, instanceId, subtaskIds?: string[], reason?: string })`
+- Any member **without** admin rights. Admins get `permission-denied`
+  ("Admins mark completions directly instead of reporting.").
+- `not-found`: instance missing. `failed-precondition`: instance has no completions.
+- `subtaskIds` default: every completed subtask whose completer is not the caller.
+  Each id must be completed (`failed-precondition`) and not completed by the caller
+  (`invalid-argument`). The resulting list must be non-empty (`failed-precondition`).
+- Every reported completion must be younger than `DISPUTE_WINDOW_MS` (`failed-precondition`).
+- No dispute doc: create it (`status: 'open'`). Open dispute: append the report and union
+  `subtaskIds` / `completerIds`; `already-exists` if the caller already reported it.
+  Resolved or expired dispute: `failed-precondition` ("An admin already reviewed this chore.").
+- Sets `instances/{id}.disputeStatus = 'open'`. Sends FCM to every admin-rights member with
+  `remindersEnabled !== false` (localized, 6 languages: "{name} says {chore} wasn't done. Review it.").
+- Returns `{ disputeId }`.
+
+Callable `resolveDispute({ householdId, disputeId, verdict, subtaskIds? })`
+- Admin rights required (`permission-denied`).
+- `not-found` / `failed-precondition` when the dispute is missing / not open.
+- Conflict of interest: if any disputed subtask was completed by the caller, `permission-denied`
+  unless the caller is the only member with admin rights.
+- `verdict: 'done'` — completions stand; nothing is reversed.
+- `verdict: 'not_done'` — revoke every disputed subtask.
+- `verdict: 'partial'` — `subtaskIds` is required: a non-empty, strict subset of the disputed
+  subtasks, the ones that were NOT done. They are revoked; the rest stand. If only one subtask
+  is disputed, `partial` is `invalid-argument` (the UI hides it).
+- Sets `status: 'resolved'`, `verdict`, `revokedSubtaskIds`, `resolverUid`, `resolvedAt`, and
+  `instances/{id}.disputeStatus = 'resolved'`. Notifies the completers and reporters (FCM + inbox).
+- Returns `{ disputeId, verdict, revokedSubtaskIds }`.
+
+Callable `moderateInstance({ householdId, instanceId, verdict: 'partial' | 'not_done', subtaskIds? })`
+- Admins mark a logged completion directly, without a report. Admin rights required.
+- Targets: `not_done` = every completed subtask (or `subtaskIds` if given);
+  `partial` = `subtaskIds` required, non-empty, strict subset of the completed subtasks.
+- Same 72 h window and the same conflict-of-interest rule as `resolveDispute`.
+- If an open dispute exists for the instance, it is resolved with this verdict.
+- Returns `{ instanceId, verdict, revokedSubtaskIds }`.
+
+Expiry: the hourly `closeWeeks` job (Part B) marks open disputes past `expiresAt` as
+`expired` (completions stand) and sets `disputeStatus: 'expired'`.
+
+### A3. Revocation (shared by resolveDispute and moderateInstance)
+
+In one transaction, for each revoked subtask:
+- Ledger row `source: 'revoke-subtask'`, `amount = -subtaskRow.amount`,
+  `reversesEntryId` = the active `subtask` row, `moderation: { actorUid, disputeId | null, verdict }`.
+- If the instance was `done`, every active `bonus` row is reversed with `source: 'revoke-bonus'`
+  (same shape) and `bonusAwards = {}`.
+- The completion is removed from `completions[]` and appended to
+  `instances/{id}.revocations[]`: `{ subtaskId, memberId, xp, actorUid, verdict, at }`.
+- Status: remaining completions = 0 and before due → `open`; otherwise `partial`
+  (the existing `undoInstanceStatus` rule).
+- `members/{uid}.xp` is updated with `nextMemberXp`. A revoked subtask can be completed again
+  through the normal flow while the instance is not past due.
+
+`XpLedgerEntry.source` becomes `'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus' | 'revoke-subtask' | 'revoke-bonus'`.
+All consumers that treat `undo-*` as reversals must treat `revoke-*` the same way.
+
+---
+
+## Part B — Weekly standings: top member and wall of shame
+
+Week = Monday 00:00 to Sunday 24:00 in the household `timeZone` (same as `deriveWeeklyTotals`).
+A week is closed by the scheduled function `closeWeeks` (every 60 minutes) once the local
+time is past Monday 03:00 of the following week. Closing is idempotent: the week doc is
+written with `create()`, a second run is a no-op.
+
+`households/{hid}/weeks/{weekStart}` (weekStart = `YYYY-MM-DD` of the Monday) — readable by members.
+```
+weekStart, weekEnd (YYYY-MM-DD, Sunday), timeZone, closedAt
+members: { [uid]: { xp, subtasks, assignedDue, missed } }
+topMember:   { memberId, xp, subtasks } | null
+wallOfShame: { memberId, missed, assignedDue } | null
+gamification?: { ... }   // Part C aggregates, written by the same job
+```
+Per active member (in `memberUids` at close time):
+- `xp` = net sum of their ledger rows with `createdAt` in the week (all sources, signed).
+- `subtasks` = their `subtask` rows minus their `undo-subtask` and `revoke-subtask` rows in the week.
+- `assignedDue` = instances with `dueAt` in the week where they are in `assigneeIds`.
+- `missed` = those instances whose `status !== 'done'` at close time.
+
+Top member: highest `xp`, must be > 0. Ties: more `subtasks`, then the earlier time of their
+last positive ledger row in the week, then `memberId` ascending.
+
+Wall of shame: highest `missed`, must be ≥ 1. It is NOT the lowest-XP member. Ties: higher
+`missed / assignedDue`, then lower `xp`, then `memberId` ascending. The same person can hold
+both titles in the same week.
+
+Both are `null` when the household has fewer than 2 active members.
+Later moderation does not rewrite a closed week (the doc is a snapshot).
+
+After closing, FCM to members with `remindersEnabled !== false` (localized, 6 languages).
+Copy names: en "Top member of the week" / "Wall of shame"; pt-BR "Destaque da semana" /
+"Mural da vergonha". The Ranks screen shows the last closed week.
+
+Pure functions live in `functions/src/domain/standings.ts` (unit tested).
+
+---
+
+## Part C — Gamification (Ganhos and Zelo)
+
+Product decisions (taken from the plan's recommendations):
+- Two tracks. **Ganhos** (en "Gains"): spendable member wallet, private to the owner.
+  **Zelo** (en "Care", es "Esmero", fr "Soin", de "Fürsorge", it "Cura"): non-spendable
+  organizer reputation for the creator, visible to the household. Balances never convert.
+- Never call Ganhos "XP" or "points/pontos". Code name for badges: `Achievement*`; UI copy "Conquista".
+- Streaks are weekly. Levels use `XP(L) = 50·L·(L−1)` on `xpPeak`, with `levelFloor` migration.
+- Redemption is **out of scope** (design only; legal review pending). No spend paths are built.
+- Haptics are **out of scope** (needs a native dependency and store build).
+- Client analytics are **out of scope**; metrics are server-side events only.
+
+### C1. Configuration and rollout
+
+`gamification/config` (no client access):
+```
+mode: 'off' | 'shadow' | 'live'
+activeVersion: number | null      // published rule set; null → built-in DEFAULT_RULE_SET
+previousVersion: number | null
+cohortSalt: string
+livePercent: number (0..100)      // households shown the program
+controlPercent: number (0..100)   // explicit control group, sees nothing
+```
+Missing doc ⇒ `mode: 'off'`.
+
+Cohort of a household: `h = fnv1a32(householdId + cohortSalt) % 100`;
+`h < livePercent` → `'live'`; `h < livePercent + controlPercent` → `'control'`; else `'shadow'`.
+Written to `households/{hid}.gamificationCohort` whenever the engine runs, and on `createHousehold`.
+
+- `off`: the engine does nothing.
+- `shadow` (or a `shadow`/`control` household under `live`): ledgers and projections are written;
+  no `celebrations` returned; no inbox rows; no FCM.
+- `live` + household cohort `'live'`: everything, including celebrations, inbox and FCM.
+
+Client kill switch: Remote Config boolean `gamification_enabled` (default `false` in the bundled
+defaults). The app shows gamification UI only when `gamification_enabled === true` AND
+`households/{hid}.gamificationCohort === 'live'`.
+
+### C2. Rule sets
+
+`gamification/ruleSets/{version}` (version = positive integer as string):
+```
+status: 'draft' | 'published' | 'archived'
+notes: string   createdBy: uid   createdAt   publishedAt?
+rules: RuleSet  // one JSON object, validated by validateRuleSet()
+```
+`RuleSet` (TypeScript type in `functions/src/domain/gamification/types.ts`):
+```
+schemaVersion: 1
+earnRules: EarnRule[]
+achievements: AchievementDef[]
+streak: { member: MemberStreakRule, organizer: OrganizerStreakRule }
+levels: { member: { base: 50, titles: {fromLevel, key}[] }, organizer: { thresholds: {zelo, key}[] } }
+caps: { dailyGanhos: 400, perInstanceGanhos: 150, weeklyZelo: 200, newChoreCooldownHours: 24 }
+quests: QuestDef[]
+campaigns: CampaignDef[]   // Turbo multipliers: { id, multiplier: 1.5|2, ruleIds, activeFrom, activeTo, audience }
+```
+`EarnRule`: `{ id, track: 'ganhos'|'zelo', status: 'active'|'paused', on: { kind: EventKind, where?: Record<string, unknown> },
+award: { amount }, caps: { scope: 'member'|'member+target'|'household'|'lifetime', window: 'day'|'week'|'life', max }[],
+clawback?: { on: EventKind, match: 'sourceRef' }, spendableAfterHours: number, celebrate?: { moment: 'toast'|'badge'|'streak'|'level', copyKey },
+audience?: { minHouseholdMembers?: number }, activeFrom?: string, activeTo?: string | null }`.
+
+`EventKind`: `ledger.subtask`, `ledger.bonus`, `ledger.undo-subtask`, `ledger.undo-bonus`,
+`ledger.revoke-subtask`, `ledger.revoke-bonus`, `feed.post`, `instance.completed_on_time`,
+`member.joined`, `member.activated`, `household.setup_finished`, `chore.created`, `chore.deleted`,
+`member.removed`, `household.week_closed`.
+
+`DEFAULT_RULE_SET` in code encodes every value in C4–C7 and is used when `activeVersion` is null.
+
+### C3. Ledgers, projections, inbox
+
+- `wallets/{uid}` — owner reads. Projection:
+  `balance, lifetimeEarned, pendingBalance, nextSpendableAt, level, xpPeak, streak: { current, record, lastCountedWeek, folgas, folgaProgress, awayWeeks: string[] },
+  achievements: { [achievementId]: { tier: 'bronze'|'silver'|'gold', unlockedAt, active?: boolean } },
+  stats: { assists, finals, onTime, categories: { [category]: number }, weeksCounted, ... },
+  caps: { [capKey]: number }   // e.g. "day:2026-11-24:ganhos", "day:2026-11-24:earn.assist:target:uidB"
+  projectionVersion, updatedAt`.
+- `wallets/{uid}/ledger/{key}` — owner reads. Append-only rows:
+  `{ key, ruleId, ruleSetVersion, track: 'ganhos', amount (signed), sourceRef, householdId, memberId,
+  reversesEntryId?, reason?, createdAt, spendableAt }`.
+  Key = `{ruleId}:{sourceRef}:{memberId}` (sourceRef has `/` replaced by `|`). Writes use `create()`;
+  an existing key is a no-op. Reversal key = `rev:{originalKey}` with the negated amount.
+- `households/{hid}/organizerLedger/{key}` — members read. Same row shape, `track: 'zelo'`.
+- `households/{hid}/organizer/{uid}` — members read. `{ zelo, lifetimeZelo, level, streak, achievements, caps }`.
+- `households/{hid}/members/{uid}` gains `xpPeak` (max of xp ever) and `levelFloor` (old-curve level, set once).
+  New members get `xpPeak: 0, levelFloor: 1`. Admin callable `adminBackfillLevelFloors` sets
+  `levelFloor = floor(xp/100)+1` and `xpPeak = max(xp, 0)` for members missing them.
+  Displayed level = `max(levelFloor, levelForXp(xpPeak))`.
+- `households/{hid}/events/{id}` — members read. Server events
+  `{ name: 'gami_earned'|'gami_clawback'|'gami_streak_week_counted'|'gami_streak_broken'|'gami_folga_used'|'gami_milestone'|'gami_achievement_unlocked'|'gami_achievement_lost'|'gami_level_up'|'gami_week_closed'|'gami_reminder_sent', memberId?, data, createdAt }`.
+- `users/{uid}/inbox/{id}` — owner reads. `Celebration & { seen: boolean, createdAt }`.
+- `gamification/alerts/{id}`, `gamification/audit/{id}`, `gamification/adjustments/{id}` — admin app only.
+
+`Celebration`:
+```
+{ id, moment: 'toast'|'badge'|'streak'|'level'|'standings', track: 'ganhos'|'zelo',
+  amount?: number, parts?: { ruleId, amount }[], copyKey: string,
+  achievementId?: string, tier?: 'bronze'|'silver'|'gold', level?: number, fullScreen?: boolean,
+  data?: Record<string, string | number> }
+```
+
+### C4. Ganhos earn rules (DEFAULT_RULE_SET)
+
+| ruleId | on | amount | caps | clawback |
+| --- | --- | --- | --- | --- |
+| `earn.subtask` | `ledger.subtask` | 1 per XP | 400/day total chore Ganhos (`dailyGanhos`), 150 per instance | `ledger.undo-subtask` / `ledger.revoke-subtask` on the same sourceRef |
+| `earn.bonus` | `ledger.bonus` | 1 per XP | counts toward `dailyGanhos` | `undo-bonus` / `revoke-bonus` |
+| `earn.assist` | `ledger.subtask` where `isAssist` | 5 | 3/day; 2/day per assignee target | with the subtask reversal |
+| `earn.on_time` | `instance.completed_on_time` (member in assigneeIds, contributed, done before dueAt) | 10 | 3/day | reversed if a reversal reopens the instance |
+| `earn.share` | `feed.post` | 2 | 1/day | none |
+| `earn.week_goal` | `household.week_closed` with weeklyGoalXp reached; member brought ≥10% of the goal | 30 | 1/week | none |
+| `earn.streak_milestone` | streak milestone | 2→25, 4→50, 8→100, 12→150, 26→250 | once per milestone per run | none |
+| `earn.achievement` | achievement tier unlocked | bronze 20, silver 50, gold 120 | once per tier for life | none |
+| `earn.welcome` | `member.joined`, paid at the member's first subtask credit | 50 | once per user for life (`wallets/{uid}.stats.welcomePaid`) | none |
+
+Chores created or edited less than 24 h before the completion (`chores/{id}.updatedAt`) mint
+no Ganhos (XP is unchanged). `spendableAfterHours = 24` for every rule.
+
+### C5. Zelo rules (creator only)
+
+| ruleId | on | amount | caps / notes |
+| --- | --- | --- | --- |
+| `zelo.setup` | `household.setup_finished` | 50 | once per household |
+| `zelo.chore_done` | first completion by a non-creator on a chore the creator created | 5 | 10/week; reversed if `deleteChore` within 7 days of creation |
+| `zelo.member_activated` | a joined member credits 3 subtasks within 14 days of joining | 40 | max 11 per household; reversed if `removeMember` within 30 days of joining |
+| `zelo.on_time` | `household.week_closed`, ≥5 instances due, ≥70% done on time / ≥90% | 30 / 60 | 1/week |
+| `zelo.even_split` | `household.week_closed`, ≥2 active members with XP, nobody >60% of week XP | 20 | 1/week |
+| `zelo.streak_milestone` | organizer streak 4 / 12 / 26 | 20 / 60 / 120 | once per milestone per run |
+Weekly Zelo cap 200. Organizer levels: Organizador 0, Síndico 200, Síndico experiente 600,
+Síndico-mor 1500, Síndico lendário 3000 (keys `organizer`, `sindico`, `sindicoExperiente`, `sindicoMor`, `sindicoLendario`).
+
+### C6. Levels (member)
+
+`xpForLevel(L) = 50 * L * (L - 1)`; `levelForXp(xp)` = largest L with `xpForLevel(L) <= xp` (min 1).
+Titles: 1–2 `rookie`, 3–4 `helper`, 5–7 `tidyTitan`, 8–11 `cleanMaster`, 12–15 `homeLegend`, 16+ `houseGuardian`.
+Level-up celebration fires when `xpPeak` crosses a threshold. Perk used now: level ≥ 8 holds 2 folgas.
+
+### C7. Streaks and achievements (evaluated in closeWeeks)
+
+Member weekly streak ("semanas seguidas"): a week counts with ≥3 net subtask credits
+(subtask − undo-subtask − revoke-subtask). Missed week: an away week keeps the streak frozen;
+else a folga is consumed if held (`gami_folga_used`); else the streak breaks (record kept).
+Folgas: +1 every 4 counted weeks, hold max 1 (2 from level 8). Away mode: callable
+`setAwayWeeks({ weekStarts: string[] })`, future Mondays only, max 3 per calendar year
+(`invalid-argument` / `failed-precondition`). Milestones per C4.
+
+Organizer streak ("Casa em dia"): a week counts when on-time rate ≥60% with ≥5 instances due.
+Folga +1 every 6 counted weeks, hold 1. A week where every member is away pauses it.
+
+Reminders: Sunday 18:00 local, members with <3 credits this week and a current streak ≥1;
+Saturday 10:00 local to the creator if the on-time rate so far is <60%. Through the existing
+FCM send path, respecting `remindersEnabled`, localized. Only for `live` households.
+
+Achievements (`id`, tiers bronze/silver/gold):
+member — `helper` assists 5/25/100; `closer` final completer 10/50/200; `ontime` on-time 10/50/200;
+`kitchen` subtasks in category `kitchen` 20/100/400; `pets` category `pets` 20/100/400;
+`marathon` streak 4/12/52 weeks; `fit` (active) 3 of the last 4 weeks counted;
+`pillar` (active) ≥25% of household XP over the last 28 days; `spring` (seasonal) 30 subtasks in local spring
+(Sep–Nov southern hemisphere, Mar–May northern; hemisphere from the household timeZone);
+`yearend` (seasonal) household weekly goal reached in 2 December weeks.
+organizer — `host` members activated 1/3/6; `maestro` weeks ≥90% on time 4/12/26; `architect`
+custom chores done 10+ times 3/10/25; `fair` even-split weeks 4/12/26; `order` (active) ≥80% on time over the last 4 weeks.
+Active achievements toggle `active` and pay only on first unlock. Organizer achievements pay no Ganhos.
+
+### C8. Engine placement and the client protocol
+
+- The engine runs inside `completeSubtask`, `undoSubtask`, `resolveDispute`, `moderateInstance`,
+  `postCompletion`, `joinHousehold`, `finishSetup`, `saveChore`, `deleteChore`, `removeMember`,
+  right after the existing transaction (same callable), and in `closeWeeks`.
+- A Firestore `onDocumentCreated('households/{hid}/ledger/{id}')` trigger re-runs the engine
+  for that row as a safety net; idempotent keys make re-runs harmless.
+- Engine failures are logged and never fail the XP action.
+- `completeSubtask` and `postCompletion` responses gain `celebrations: Celebration[]` (additive).
+- Callable `ackCelebrations({ ids: string[] })` marks inbox rows seen (max 50).
+- Callable `getWallet({})` is NOT needed: the owner reads `wallets/{uid}` directly.
+- Session rule (client): at most one full-screen celebration per app session; later ones become toasts.
+  When the action also completes the instance, the badge shows inside the S3 celebration.
+
+### C9. Integrity
+
+- Caps and clawbacks as above. Velocity alerts written to `gamification/alerts`:
+  >12 subtasks in 10 minutes by one member; chore XP raised then completed by the creator within 48 h;
+  undo+revoke rate >30% in a week (evaluated in closeWeeks). Alerts never claw back automatically.
+- `deleteAccount` deletes `wallets/{uid}`, its ledger and `users/{uid}/inbox`. Zelo rows stay.
+- `rebuildWallet(uid)` (admin callable) replays the wallet ledger and rewrites the projection.
+
+### C10. Admin (apps/admin + callables)
+
+Callables require the Auth custom claim `admin: true` (`permission-denied` otherwise) and write
+`gamification/audit` for every mutation:
+`adminGetConfig`, `adminSetConfig({ mode, livePercent, controlPercent })`, `adminListRuleSets`,
+`adminSaveDraft({ version?, notes, rules })` (validated), `adminPublish({ version })`,
+`adminRollback()`, `adminSimulate({ rules, days: 1..28 })` (replays the last N days of
+`households/*/ledger` rows through the published and the draft rule sets without writing;
+returns per-rule totals, members affected, cap hits, average per member for both),
+`adminLookupUser({ uid })` (wallet projection + ledger rows with rule explanations),
+`adminAdjust({ uid, amount, reasonCode: 'correction'|'abuse'|'support-goodwill', note })`
+(|amount| > 500 creates a pending adjustment that a second, different admin approves with
+`adminApproveAdjustment({ id })`), `adminListAlerts`, `adminRebuildWallet({ uid })`,
+`adminBackfillLevelFloors()`.
+
+`apps/admin`: Vite + React + TypeScript web app on a second Firebase Hosting site (target `admin`),
+Firebase Auth Google sign-in, all writes through the callables. Screens: rollout/config, rule sets
+(list, diff vs published, publish, roll back), earn-rule form with live toast preview, simulator,
+ledger lookup with signed adjustments, alerts.
