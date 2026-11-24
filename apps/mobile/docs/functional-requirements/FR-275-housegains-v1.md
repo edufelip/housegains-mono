@@ -22,6 +22,9 @@ HouseGains gives a household-owned membership, chore-definition, scheduled-insta
 
 - **FR-275.12 Mandatory localization:** All active HouseGains UI, catalog defaults, validation and accessibility labels support English, Portuguese (Brazil), Spanish, French, German and Italian. Detect a supported device language on first launch; allow selection before household setup and later in Settings. Persist language independently of the visual style, retain the saved locale after failed writes, and expose retry. Preserve user-authored names literally.
 
+- **FR-275.13 Household admins and moderation:** The creator can grant and remove the admin role for any other member (confirm dialog, visible busy and failure states). Admin rights are the creator plus admins. A member without admin rights can report another member's completion within 72 hours of its completion time: pick the disputed steps and an optional reason of up to 280 characters; reporting is blocked for a resolved or expired dispute and for a repeat report by the same caller. Admins review open reports on a dedicated reports screen reachable from Settings with a pending count: verdicts are done (completions stand), not done (every disputed step is revoked), or partially done (a non-empty strict subset of steps is revoked; the option is hidden when fewer than two steps are disputed). Admins can also mark a logged completion directly from the chore detail. Revocations reverse XP, list the acting admin and verdict on the chore detail, and reopen the instance as appropriate. An admin who completed one of the disputed steps cannot judge it unless they are the only admin.
+- **FR-275.14 Weekly standings:** The Ranks screen shows the latest closed week snapshot: the top member of the week (name, steps, XP) and the wall of shame (name, missed of assigned chores), each hidden when the backend recorded none, with an explicit "no week has closed yet" state before the first close. Titles keep the fixed copy names "Top member of the week" / "Wall of shame" (pt-BR "Destaque da semana" / "Mural da vergonha") and never rely on color alone.
+
 ## Not decided by this requirement
 
 The local adapter captures and uses the household's creation timezone, supports every-N intervals from 1 through 365, rejects nonexistent daylight-saving wall times, and resolves an ambiguous repeated wall time to the first exact match. Production behavior if the household timezone changes remains unresolved. Rank period and tie policy, detailed assist-flag semantics beyond storing completion attribution, and production endpoint/schema ownership also require explicit follow-up. See [D-222](../discovery/decisions-log-v1.md) and the [pending wiring checklist](../discovery/pending-wiring-checklist-v1.md).
@@ -30,5 +33,5 @@ The local adapter captures and uses the household's creation timezone, supports 
 
 - Business rules: [BR-413](../business-rules/BR-413-housegains-domain.md)
 - Use case: [UC-004](../use-cases/UC-004-housegains-household-and-xp.md)
-- Acceptance: [AC-618–AC-630](../acceptance-criteria/AC-007-housegains-v1.md)
-- Test cases: [TC-535–TC-549](../test-cases/TC-535-housegains-v1.md)
+- Acceptance: [AC-618–AC-636](../acceptance-criteria/AC-007-housegains-v1.md)
+- Test cases: [TC-535–TC-556](../test-cases/TC-535-housegains-v1.md)

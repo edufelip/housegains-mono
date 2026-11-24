@@ -63,6 +63,13 @@ const authPtBR: Record<string, string> = {
   'housegains.auth.sync.notFound': 'Este item não existe mais.',
   'housegains.auth.sync.offline':
     'Você está offline. Sua alteração não foi salva. Tente de novo quando reconectar.',
+  'housegains.auth.sync.alreadyReported': 'Você já denunciou esta tarefa.',
+  'housegains.auth.sync.alreadyReviewed': 'Um admin já revisou esta tarefa.',
+  'housegains.auth.sync.reviewWindowClosed':
+    'O prazo de 72 horas para revisar esta conclusão já passou.',
+  'housegains.auth.sync.conflictOfInterest':
+    'Você concluiu parte desta tarefa, então outro admin deve revisá-la.',
+  'housegains.auth.sync.nothingToReport': 'Não há conclusões de outras pessoas para denunciar.',
 };
 
 export default authPtBR;

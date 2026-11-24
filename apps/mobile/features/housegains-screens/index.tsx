@@ -29,6 +29,7 @@ import {
   HouseholdRanksScreen,
   HouseGainsSettingsScreen,
 } from './main-tab-screens';
+import { AdminReportsScreen } from './moderation-screens';
 import {
   resolveInstanceChore,
   totalXpForMember,
@@ -456,7 +457,33 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
         members={data.household.members}
         weeklyTotals={data.weeklyTotals}
         currentMember={data.currentMember}
+        lastWeek={data.lastWeek}
         onNavigate={navigateTab}
+      />
+    );
+  }
+
+  if (screen.name === 'reports') {
+    if (!data.household)
+      return (
+        <CreateHouseholdScreen
+          existingHousehold={null}
+          onCreate={data.createHousehold}
+          onJoin={() => go({ name: 'join' })}
+          hasError={actionError}
+        />
+      );
+    return (
+      <AdminReportsScreen
+        disputes={data.disputes}
+        members={[...data.household.members, ...(data.household.formerMembers ?? [])]}
+        instances={data.instances}
+        hasError={data.error !== null}
+        onBack={() => go({ name: 'settings' })}
+        onResolve={(disputeId, verdict, subtaskIds) =>
+          data.resolveDispute(disputeId, verdict, subtaskIds)
+        }
+        onRetry={() => void data.retryHydration()}
       />
     );
   }
@@ -475,14 +502,17 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
       <HouseGainsSettingsScreen
         household={data.household}
         currentMember={data.currentMember}
+        openDisputeCount={data.disputes?.length ?? 0}
         hasError={actionError}
         onError={setActionError}
         onNavigate={navigateTab}
         onOpenChores={() => go({ name: 'chore-list', returnTo: 'settings' })}
+        onOpenReports={() => go({ name: 'reports' })}
         onOpenInvite={() => go({ name: 'invite', returnTo: 'settings' })}
         onEditHousehold={() => go({ name: 'household-edit' })}
         onSelectTheme={(themeId) => appearance.selectTheme(themeId)}
         onDeleteAccount={() => go({ name: 'delete-account' })}
+        onSetMemberRole={(memberId, role) => data.setMemberRole(memberId, role)}
         onLeftHousehold={() => go({ name: 'create-household' })}
       />
     );
@@ -629,7 +659,9 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
         instance={instance}
         chore={chore}
         members={[...data.household.members, ...(data.household.formerMembers ?? [])]}
+        rosterMembers={data.household.members}
         currentMember={data.currentMember}
+        disputes={data.disputes}
         hasError={actionError}
         onBack={() => go({ name: 'today' })}
         onComplete={(instanceId, subtaskId) => {
@@ -646,6 +678,12 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
           });
         }}
         onUndo={(instanceId, subtaskId) => perform(() => data.undoSubtask(instanceId, subtaskId))}
+        onModerate={(instanceId, verdict, subtaskIds) =>
+          data.moderateInstance(instanceId, verdict, subtaskIds)
+        }
+        onReport={(instanceId, subtaskIds, reason) =>
+          data.reportCompletion(instanceId, subtaskIds, reason)
+        }
       />
     );
   }

@@ -3,10 +3,12 @@ import test from 'node:test';
 import {
   callableErrorKey,
   isoOf,
+  mapDispute,
   mapInstance,
   mapInvite,
   mapLedgerEntry,
   mapMember,
+  mapWeekStandings,
   placeholderMember,
   splitMembers,
 } from './household-mapping';
@@ -218,4 +220,111 @@ test('permission, connection and unknown failures map to their messages', () => 
     'housegains.auth.error.generic',
   );
   assert.equal(callableErrorKey('internal', 'boom'), 'housegains.auth.error.generic');
+});
+
+test('disputes map reports, verdict fields and ISO timestamps', () => {
+  const at = new Date('2026-11-22T08:00:00.000Z');
+  const dispute = mapDispute('inst-1', {
+    instanceId: 'inst-1',
+    choreName: 'Dog care',
+    status: 'open',
+    subtaskIds: ['feed', 'walk'],
+    completerIds: ['bia'],
+    reports: [{ uid: 'rafa', subtaskIds: ['feed'], reason: 'not done', createdAt: at }],
+    createdAt: at,
+    expiresAt: at,
+  });
+  assert.equal(dispute.id, 'inst-1');
+  assert.equal(dispute.status, 'open');
+  assert.deepEqual(dispute.reports, [
+    {
+      uid: 'rafa',
+      subtaskIds: ['feed'],
+      reason: 'not done',
+      createdAt: '2026-11-22T08:00:00.000Z',
+    },
+  ]);
+  assert.equal(dispute.verdict, undefined);
+  assert.equal(dispute.resolverUid, undefined);
+
+  const resolved = mapDispute('inst-2', {
+    choreName: 'Dishes',
+    status: 'resolved',
+    verdict: 'partial',
+    revokedSubtaskIds: ['wash'],
+    resolverUid: 'edu',
+    createdAt: at,
+    resolvedAt: at,
+    expiresAt: at,
+  });
+  assert.equal(resolved.status, 'resolved');
+  assert.equal(resolved.verdict, 'partial');
+  assert.deepEqual(resolved.revokedSubtaskIds, ['wash']);
+  assert.equal(resolved.resolverUid, 'edu');
+  assert.equal(mapDispute('inst-3', { status: 'weird' }).status, 'open');
+});
+
+test('weeks map the closed snapshot, nullable titles, and member totals', () => {
+  assert.equal(mapWeekStandings(undefined), null);
+  assert.equal(mapWeekStandings({}), null);
+
+  const week = mapWeekStandings({
+    weekStart: '2026-11-16',
+    weekEnd: '2026-11-22',
+    members: { bia: { xp: 40, subtasks: 8, assignedDue: 9, missed: 1 } },
+    topMember: { memberId: 'bia', xp: 40, subtasks: 8 },
+    wallOfShame: { memberId: 'rafa', missed: 3, assignedDue: 5 },
+  });
+  assert.deepEqual(week, {
+    weekStart: '2026-11-16',
+    weekEnd: '2026-11-22',
+    topMember: { memberId: 'bia', xp: 40, subtasks: 8 },
+    wallOfShame: { memberId: 'rafa', missed: 3, assignedDue: 5 },
+    members: { bia: { xp: 40, subtasks: 8, assignedDue: 9, missed: 1 } },
+  });
+
+  const hidden = mapWeekStandings({
+    weekStart: '2026-11-16',
+    weekEnd: '2026-11-22',
+    topMember: null,
+    wallOfShame: null,
+    members: {},
+  });
+  assert.ok(hidden);
+  assert.equal(hidden.topMember, null);
+  assert.equal(hidden.wallOfShame, null);
+  assert.deepEqual(hidden.members, {});
+});
+
+test('moderation failures map to their own messages', () => {
+  assert.equal(
+    callableErrorKey('failed-precondition', 'An admin already reviewed this chore.'),
+    'housegains.auth.sync.alreadyReviewed',
+  );
+  assert.equal(
+    callableErrorKey('failed-precondition', 'The 72-hour dispute window has closed.'),
+    'housegains.auth.sync.reviewWindowClosed',
+  );
+  assert.equal(
+    callableErrorKey('failed-precondition', 'Completions can only be disputed within 72 hours.'),
+    'housegains.auth.sync.reviewWindowClosed',
+  );
+  assert.equal(
+    callableErrorKey(
+      'failed-precondition',
+      'There is nothing completed by another member to report.',
+    ),
+    'housegains.auth.sync.nothingToReport',
+  );
+  assert.equal(
+    callableErrorKey('already-exists', 'You already reported this chore.'),
+    'housegains.auth.sync.alreadyReported',
+  );
+  assert.equal(
+    callableErrorKey(
+      'permission-denied',
+      'You completed part of this chore, so another admin must review it.',
+    ),
+    'housegains.auth.sync.conflictOfInterest',
+  );
 });

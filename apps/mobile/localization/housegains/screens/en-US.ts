@@ -394,6 +394,68 @@ const houseGainsScreensEnUS = {
   'housegains.screens.settings.readOnlyHousehold':
     'Only the household creator can edit this profile.',
   'housegains.screens.builder.recurrence.every': 'Custom interval',
+
+  'housegains.screens.common.confirm': 'Confirm',
+  'housegains.screens.members.makeAdmin': 'Make admin',
+  'housegains.screens.members.removeAdmin': 'Remove admin',
+  'housegains.screens.members.makeAdminTitle': 'Make {name} an admin?',
+  'housegains.screens.members.makeAdminBody':
+    'Admins review reported completions and can mark chores as not done.',
+  'housegains.screens.members.removeAdminTitle': 'Remove {name} as admin?',
+  'housegains.screens.members.removeAdminBody':
+    '{name} keeps their points and history, but can no longer review reports.',
+  'housegains.screens.settings.reports': 'Completion reports',
+  'housegains.screens.reports.title': 'Completion reports',
+  'housegains.screens.reports.description': 'Review completions your household reported.',
+  'housegains.screens.reports.pendingCount': '{count} to review',
+  'housegains.screens.reports.emptyTitle': 'Nothing to review',
+  'housegains.screens.reports.emptyBody': 'When someone reports a completion, it will appear here.',
+  'housegains.screens.reports.reportedBy': 'Reported by {names}',
+  'housegains.screens.reports.reasonLine': 'Reason: {reason}',
+  'housegains.screens.reports.disputedSteps': 'Reported steps',
+  'housegains.screens.reports.verdict.done': 'Done',
+  'housegains.screens.reports.verdict.partial': 'Partially done',
+  'housegains.screens.reports.verdict.not_done': 'Not done',
+  'housegains.screens.reports.confirmDoneTitle': 'Keep this chore as done?',
+  'housegains.screens.reports.confirmDoneBody':
+    'The reported steps keep their XP and the report is closed.',
+  'housegains.screens.reports.confirmNotDoneTitle': 'Mark this chore as not done?',
+  'housegains.screens.reports.confirmNotDoneBody':
+    'The reported steps lose their XP and the report is closed.',
+  'housegains.screens.moderation.pickTitle': 'Which steps were not done?',
+  'housegains.screens.moderation.pickHint': 'Select at least one step and keep at least one done.',
+  'housegains.screens.moderation.stepBy': '{step} · by {member}',
+  'housegains.screens.moderation.submitting': 'Submitting…',
+  'housegains.screens.choreDetail.underReview': 'Under review · an admin is checking this chore.',
+  'housegains.screens.choreDetail.reportNotDone': 'Report: not done',
+  'housegains.screens.choreDetail.reportSheetTitle': 'Report this chore',
+  'housegains.screens.choreDetail.reportSheetBody':
+    'Pick the steps that were not done. An admin reviews reports within 72 hours.',
+  'housegains.screens.choreDetail.reportReasonLabel': 'Reason (optional)',
+  'housegains.screens.choreDetail.reportReasonPlaceholder': 'Tell the admin what happened',
+  'housegains.screens.choreDetail.reportReasonCount': '{count}/280',
+  'housegains.screens.choreDetail.reportSubmit': 'Send report',
+  'housegains.screens.choreDetail.reportSending': 'Sending…',
+  'housegains.screens.choreDetail.alreadyReported':
+    'You already reported this chore. An admin will review it.',
+  'housegains.screens.choreDetail.reportSent': 'Thanks — an admin will review it.',
+  'housegains.screens.choreDetail.markNotDone': 'Mark as not done',
+  'housegains.screens.choreDetail.markPartial': 'Mark as partially done',
+  'housegains.screens.choreDetail.conflictNote':
+    'You completed part of this chore, so another admin must review it.',
+  'housegains.screens.choreDetail.confirmNotDoneTitle': 'Mark as not done?',
+  'housegains.screens.choreDetail.confirmNotDoneBody': 'These steps lose their XP: {steps}.',
+  'housegains.screens.choreDetail.reviewWindowClosed':
+    'Completions can be reviewed for 72 hours after they are logged.',
+  'housegains.screens.choreDetail.revocationsTitle': 'Revoked by an admin',
+  'housegains.screens.choreDetail.revocationNote':
+    '{actor} marked “{subtask}” as {verdict} · −{xp} XP',
+  'housegains.screens.ranks.lastWeekTitle': 'Last week',
+  'housegains.screens.ranks.topMemberTitle': 'Top member of the week',
+  'housegains.screens.ranks.topMemberDetail': '{subtasks} steps done · {xp} XP',
+  'housegains.screens.ranks.wallOfShameTitle': 'Wall of shame',
+  'housegains.screens.ranks.wallOfShameDetail': '{missed} of {assigned} chores missed',
+  'housegains.screens.ranks.noWeekYet': 'No week has closed yet.',
 } as const;
 
 export default houseGainsScreensEnUS;

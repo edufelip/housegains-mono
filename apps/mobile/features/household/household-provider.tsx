@@ -95,7 +95,9 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
         slices.chores !== undefined &&
         slices.instances !== undefined &&
         slices.ledger !== undefined &&
-        slices.feed !== undefined));
+        slices.feed !== undefined &&
+        slices.disputes !== undefined &&
+        slices.lastWeek !== undefined));
   // A listener error also ends hydration so the app can show its retry screen.
   const hydrated = uid !== null && (loaded || error !== null);
 
@@ -270,9 +272,46 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
           instanceId,
         });
       }),
+    setMemberRole: (memberId, role) =>
+      perform(async () => {
+        await householdCalls.setMemberRole({
+          householdId: requireHouseholdId(),
+          memberId,
+          role,
+        });
+      }),
+    reportCompletion: (instanceId, subtaskIds, reason) =>
+      perform(async () => {
+        await householdCalls.reportCompletion({
+          householdId: requireHouseholdId(),
+          instanceId,
+          ...(subtaskIds ? { subtaskIds } : {}),
+          ...(reason ? { reason } : {}),
+        });
+      }),
+    resolveDispute: (disputeId, verdict, subtaskIds) =>
+      perform(async () => {
+        await householdCalls.resolveDispute({
+          householdId: requireHouseholdId(),
+          disputeId,
+          verdict,
+          ...(subtaskIds ? { subtaskIds } : {}),
+        });
+      }),
+    moderateInstance: (instanceId, verdict, subtaskIds) =>
+      perform(async () => {
+        await householdCalls.moderateInstance({
+          householdId: requireHouseholdId(),
+          instanceId,
+          verdict,
+          ...(subtaskIds ? { subtaskIds } : {}),
+        });
+      }),
     weeklyTotals,
     streak,
     xpLedger: ledger,
+    disputes: slices.disputes ?? null,
+    lastWeek: slices.lastWeek ?? null,
   };
 
   return <HouseholdContext.Provider value={value}>{children}</HouseholdContext.Provider>;

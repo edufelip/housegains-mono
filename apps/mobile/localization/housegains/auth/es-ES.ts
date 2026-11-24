@@ -66,6 +66,13 @@ const authEsES: Record<string, string> = {
   'housegains.auth.sync.notFound': 'Este elemento ya no existe.',
   'housegains.auth.sync.offline':
     'Estás sin conexión. Tu cambio no se guardó. Inténtalo de nuevo al reconectarte.',
+  'housegains.auth.sync.alreadyReported': 'Ya reportaste esta tarea.',
+  'housegains.auth.sync.alreadyReviewed': 'Un admin ya revisó esta tarea.',
+  'housegains.auth.sync.reviewWindowClosed':
+    'El plazo de 72 horas para revisar esta tarea ya pasó.',
+  'housegains.auth.sync.conflictOfInterest':
+    'Completaste parte de esta tarea, así que otro admin debe revisarla.',
+  'housegains.auth.sync.nothingToReport': 'No hay tareas de otras personas para reportar.',
 };
 
 export default authEsES;

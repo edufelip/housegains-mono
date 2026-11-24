@@ -49,7 +49,7 @@ function collectScreenTranslationKeys(): Set<string> {
   for (const title of ['rookie', 'tidyTitan']) {
     keys.add(`housegains.screens.dashboard.title.${title}`);
   }
-  for (const role of ['creator', 'member']) {
+  for (const role of ['creator', 'member', 'admin']) {
     keys.add(`housegains.screens.common.role.${role}`);
   }
   for (const category of ['all', ...new Set(CATALOG.map((chore) => chore.category))]) {

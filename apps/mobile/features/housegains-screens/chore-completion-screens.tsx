@@ -1,12 +1,30 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
+import {
+  canReportCompletion,
+  hasAdminRights,
+  hasModerationConflict,
+  moderatableSubtasks,
+  partialAvailable,
+  reportableSubtasks,
+} from '@/features/household/moderation-rules';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { ReportSheet } from './household-safety';
+import {
+  ConfirmSheet,
+  PartialPickerSheet,
+  ReportCompletionSheet,
+  VERDICT_LABEL_KEYS,
+  moderationStepsFor,
+  type ConfirmRequest,
+} from './moderation-screens';
 import { MemberBadge } from './screen-elements';
 import { choreDisplayName, subtaskDisplayName } from './screen-model';
-import type { Chore, Completion, Instance, Member } from '@/features/household';
+import type { Dispute, Instance, Member } from '@/features/household';
+import type { Chore, Completion } from '@/features/household/types';
 
 const UNDO_WINDOW_MS = 5 * 60 * 1000;
 const MAX_TIMEOUT_MS = 2_000_000_000;
@@ -20,6 +38,16 @@ type ChoreDetailScreenProps = {
   onBack: () => void;
   onComplete: (instanceId: string, subtaskId: string) => Promise<void>;
   onUndo: (instanceId: string, subtaskId: string) => Promise<void>;
+  /** Open disputes, or null while the listener has not delivered. */
+  disputes?: Dispute[] | null;
+  /** The live roster (admins counted for the conflict rule); defaults to `members`. */
+  rosterMembers?: Member[];
+  onReport?: (instanceId: string, subtaskIds: string[], reason: string) => Promise<void>;
+  onModerate?: (
+    instanceId: string,
+    verdict: 'partial' | 'not_done',
+    subtaskIds?: string[],
+  ) => Promise<void>;
   hasError: boolean;
 };
 
@@ -147,6 +175,10 @@ export function ChoreDetailScreen({
   onBack,
   onComplete,
   onUndo,
+  disputes,
+  rosterMembers,
+  onReport,
+  onModerate,
   hasError,
 }: ChoreDetailScreenProps) {
   const { themeId, tokens } = useAppearance();
@@ -169,6 +201,29 @@ export function ChoreDetailScreen({
   const shouldShowError = hasError || actionError;
   const sticker = themeId === 'sticker';
   const [reportingChore, setReportingChore] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [partialOpen, setPartialOpen] = useState(false);
+  const [moderateConfirm, setModerateConfirm] = useState<ConfirmRequest>(null);
+
+  // Moderation eligibility (contract A2): the 72-hour window, the caller's rights,
+  // the open dispute state, and the conflict-of-interest rule.
+  const isAdmin = hasAdminRights(currentMember.role);
+  const openDispute = disputes?.find((dispute) => dispute.instanceId === instance.id);
+  const moderatable = moderatableSubtasks(instance, now);
+  const completedCount = new Set(instance.completions.map(({ subtaskId }) => subtaskId)).size;
+  const canModerate = isAdmin && moderatable.length > 0 && onModerate !== undefined;
+  const conflicted = canModerate
+    ? hasModerationConflict(instance, moderatable, currentMember.id, rosterMembers ?? members)
+    : false;
+  const canReport = canReportCompletion(currentMember, instance, openDispute, now);
+  const alreadyReported =
+    openDispute?.reports.some((report) => report.uid === currentMember.id) ?? false;
+  const reportSteps = moderationStepsFor(
+    reportableSubtasks(instance, currentMember.id, now),
+    instance,
+    members,
+    t,
+  );
 
   return (
     <Screen
@@ -464,6 +519,114 @@ export function ChoreDetailScreen({
           </Card>
         ) : null
       ) : null}
+      {instance.disputeStatus === 'open' ? (
+        <Card style={{ gap: 8 }} testID="housegains.choreDetail.underReview">
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}>
+            <Ionicons
+              accessibilityElementsHidden
+              color={tokens.accent}
+              name="hourglass-outline"
+              size={tokens.iconSize.lg}
+            />
+            <Label style={{ fontWeight: '700' }}>
+              {t('housegains.screens.choreDetail.underReview')}
+            </Label>
+          </View>
+        </Card>
+      ) : null}
+
+      {instance.revocations && instance.revocations.length > 0 ? (
+        <Card style={{ gap: 8 }} testID="housegains.choreDetail.revocations">
+          <Label variant="heading">{t('housegains.screens.choreDetail.revocationsTitle')}</Label>
+          {instance.revocations.map((revocation) => {
+            const subtask = instance.subtasks.find(({ id }) => id === revocation.subtaskId);
+            return (
+              <Label
+                key={`${revocation.subtaskId}-${revocation.at}`}
+                variant="caption"
+                testID={`housegains.choreDetail.revocation.${revocation.subtaskId}`}
+              >
+                {t('housegains.screens.choreDetail.revocationNote', {
+                  actor:
+                    memberById.get(revocation.actorUid)?.name ??
+                    t('housegains.screens.choreDetail.unknownContributor'),
+                  subtask: subtask ? subtaskDisplayName(subtask, t) : revocation.subtaskId,
+                  verdict: t(VERDICT_LABEL_KEYS[revocation.verdict]),
+                  xp: revocation.xp,
+                })}
+              </Label>
+            );
+          })}
+        </Card>
+      ) : null}
+
+      {canModerate && conflicted ? (
+        <Card style={{ gap: 8 }} testID="housegains.choreDetail.conflict">
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}>
+            <Ionicons
+              accessibilityElementsHidden
+              color={tokens.danger}
+              name="person-outline"
+              size={tokens.iconSize.md}
+            />
+            <Label style={{ color: tokens.danger, fontWeight: '700' }}>
+              {t('housegains.screens.choreDetail.conflictNote')}
+            </Label>
+          </View>
+        </Card>
+      ) : null}
+
+      {canModerate && !conflicted ? (
+        <Card style={{ gap: 10 }} testID="housegains.choreDetail.moderation">
+          {partialAvailable(completedCount) ? (
+            <Button
+              onPress={() => setPartialOpen(true)}
+              testID="housegains.choreDetail.markPartial"
+              title={t('housegains.screens.choreDetail.markPartial')}
+              variant="secondary"
+            />
+          ) : null}
+          <Button
+            onPress={() =>
+              setModerateConfirm({
+                title: t('housegains.screens.choreDetail.confirmNotDoneTitle'),
+                body: t('housegains.screens.choreDetail.confirmNotDoneBody', {
+                  steps: moderationStepsFor(moderatable, instance, members, t)
+                    .map((step) => step.label)
+                    .join(', '),
+                }),
+                confirmTitle: t('housegains.screens.choreDetail.markNotDone'),
+                onConfirm: () => onModerate(instance.id, 'not_done', moderatable),
+              })
+            }
+            testID="housegains.choreDetail.markNotDone"
+            title={t('housegains.screens.choreDetail.markNotDone')}
+            variant="secondary"
+          />
+        </Card>
+      ) : null}
+
+      {isAdmin && moderatable.length === 0 && completedCount > 0 ? (
+        <Label variant="caption" testID="housegains.choreDetail.reviewWindowClosed">
+          {t('housegains.screens.choreDetail.reviewWindowClosed')}
+        </Label>
+      ) : null}
+
+      {canReport && onReport ? (
+        <Button
+          onPress={() => setReportOpen(true)}
+          testID="housegains.choreDetail.reportNotDone"
+          title={t('housegains.screens.choreDetail.reportNotDone')}
+          variant="secondary"
+        />
+      ) : null}
+
+      {!isAdmin && alreadyReported ? (
+        <Label variant="caption" testID="housegains.choreDetail.alreadyReported">
+          {t('housegains.screens.choreDetail.alreadyReported')}
+        </Label>
+      ) : null}
+
       <Button
         onPress={() => setReportingChore(true)}
         testID="housegains.choreDetail.report"
@@ -474,6 +637,31 @@ export function ChoreDetailScreen({
         householdId={householdId}
         onClose={() => setReportingChore(false)}
         target={reportingChore ? { kind: 'chore', targetId: chore.id } : null}
+      />
+      {onReport ? (
+        <ReportCompletionSheet
+          onClose={() => setReportOpen(false)}
+          onSubmit={(subtaskIds, reason) => onReport(instance.id, subtaskIds, reason)}
+          steps={reportSteps}
+          testID="housegains.choreDetail.reportSheet"
+          visible={reportOpen}
+        />
+      ) : null}
+      {onModerate && partialOpen ? (
+        <PartialPickerSheet
+          confirmTitle={t('housegains.screens.choreDetail.markPartial')}
+          onClose={() => setPartialOpen(false)}
+          onSubmit={(subtaskIds) => onModerate(instance.id, 'partial', subtaskIds)}
+          steps={moderationStepsFor(moderatable, instance, members, t)}
+          testID="housegains.choreDetail.partialSheet"
+          title={t('housegains.screens.moderation.pickTitle')}
+          visible={partialOpen}
+        />
+      ) : null}
+      <ConfirmSheet
+        onClose={() => setModerateConfirm(null)}
+        request={moderateConfirm}
+        testID="housegains.choreDetail.confirmSheet"
       />
     </Screen>
   );

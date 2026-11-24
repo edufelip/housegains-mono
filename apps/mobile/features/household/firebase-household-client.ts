@@ -2,17 +2,30 @@ import firestore from '@react-native-firebase/firestore';
 import { callFunction } from '@/features/firebase';
 import {
   mapChore,
+  mapDispute,
   mapFeedPost,
   mapInstance,
   mapInvite,
   mapLedgerEntry,
+  mapWeekStandings,
   splitMembers,
 } from './household-mapping';
 import { householdQueryWindow } from './household-query-window';
-import type { Chore, FeedPost, Instance, Invite, Member, XpLedgerEntry } from './types';
+import type {
+  Chore,
+  Dispute,
+  FeedPost,
+  Instance,
+  Invite,
+  Member,
+  WeekStandings,
+  XpLedgerEntry,
+} from './types';
 
 // Firestore reads (live listeners) and callable writes. The shapes follow
-// docs/implementation/firebase-contract.md and apps/firebase/functions/src/store.ts.
+// docs/implementation/firebase-contract.md, its moderation addendum
+// (gamification-moderation-contract.md Parts A and B), and
+// apps/firebase/functions/src/store.ts.
 
 const FEED_LIMIT = 50;
 
@@ -33,6 +46,10 @@ export interface HouseholdSlices {
   instances: Instance[];
   ledger: XpLedgerEntry[];
   feed: FeedPost[];
+  /** Open completion disputes (status == 'open'). */
+  disputes: Dispute[];
+  /** Latest closed week snapshot, or null before any week has closed. */
+  lastWeek: WeekStandings | null;
 }
 
 type Unsubscribe = () => void;
@@ -109,6 +126,23 @@ export function subscribeToHousehold(
       .onSnapshot((snap) => {
         onPatch({ feed: snap.docs.map((doc) => mapFeedPost(doc.id, doc.data())) });
       }, onError),
+    // Open completion disputes only; resolved and expired disputes stay out of the app's
+    // working set (contract A2, doc id = instance id).
+    household
+      .collection('disputes')
+      .where('status', '==', 'open')
+      .onSnapshot((snap) => {
+        onPatch({ disputes: snap.docs.map((doc) => mapDispute(doc.id, doc.data())) });
+      }, onError),
+    // The latest closed week snapshot (contract Part B: Ranks "Last week" card).
+    household
+      .collection('weeks')
+      .orderBy('weekStart', 'desc')
+      .limit(1)
+      .onSnapshot((snap) => {
+        const latest = snap.docs[0];
+        onPatch({ lastWeek: latest ? mapWeekStandings(latest.data()) : null });
+      }, onError),
   ];
 
   return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
@@ -141,4 +175,33 @@ export const householdCalls = {
   finishSetup: (input: { householdId: string }) => callFunction<unknown>('finishSetup', input),
   postCompletion: (input: { householdId: string; instanceId: string }) =>
     callFunction<unknown>('postCompletion', input),
+  // Moderation callables (gamification-moderation-contract.md Part A).
+  setMemberRole: (input: { householdId: string; memberId: string; role: 'admin' | 'member' }) =>
+    callFunction<{ memberId: string; role: 'admin' | 'member' }>('setMemberRole', input),
+  reportCompletion: (input: {
+    householdId: string;
+    instanceId: string;
+    subtaskIds?: string[];
+    reason?: string;
+  }) => callFunction<{ disputeId: string }>('reportCompletion', input),
+  resolveDispute: (input: {
+    householdId: string;
+    disputeId: string;
+    verdict: 'done' | 'partial' | 'not_done';
+    subtaskIds?: string[];
+  }) =>
+    callFunction<{ disputeId: string; verdict: string; revokedSubtaskIds: string[] }>(
+      'resolveDispute',
+      input,
+    ),
+  moderateInstance: (input: {
+    householdId: string;
+    instanceId: string;
+    verdict: 'partial' | 'not_done';
+    subtaskIds?: string[];
+  }) =>
+    callFunction<{ instanceId: string; verdict: string; revokedSubtaskIds: string[] }>(
+      'moderateInstance',
+      input,
+    ),
 };

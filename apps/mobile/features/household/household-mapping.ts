@@ -1,6 +1,8 @@
 import type {
   Chore,
   Completion,
+  Dispute,
+  DisputeReport,
   FeedPost,
   Household,
   Instance,
@@ -8,6 +10,8 @@ import type {
   Invite,
   Member,
   Subtask,
+  WeekMemberTotals,
+  WeekStandings,
   XpLedgerEntry,
 } from './types';
 
@@ -148,6 +152,74 @@ export function mapFeedPost(id: string, data: DocData): FeedPost {
   };
 }
 
+function mapDisputeReport(data: DocData): DisputeReport {
+  return {
+    uid: data.uid,
+    subtaskIds: data.subtaskIds ?? [],
+    reason: typeof data.reason === 'string' ? data.reason : '',
+    createdAt: isoOf(data.createdAt),
+  };
+}
+
+/** households/{hid}/disputes/{instanceId} — doc id equals the instance id (contract A2). */
+export function mapDispute(id: string, data: DocData): Dispute {
+  return {
+    id,
+    instanceId: data.instanceId ?? id,
+    choreName: data.choreName ?? '',
+    status: data.status === 'resolved' || data.status === 'expired' ? data.status : 'open',
+    subtaskIds: data.subtaskIds ?? [],
+    completerIds: data.completerIds ?? [],
+    reports: (data.reports ?? []).map(mapDisputeReport),
+    ...(data.verdict ? { verdict: data.verdict } : {}),
+    ...(Array.isArray(data.revokedSubtaskIds) ? { revokedSubtaskIds: data.revokedSubtaskIds } : {}),
+    ...(data.resolverUid ? { resolverUid: data.resolverUid } : {}),
+    createdAt: isoOf(data.createdAt),
+    ...(data.resolvedAt ? { resolvedAt: isoOf(data.resolvedAt) } : {}),
+    expiresAt: isoOf(data.expiresAt),
+  };
+}
+
+function mapWeekMember(data: DocData): WeekMemberTotals {
+  return {
+    xp: data.xp ?? 0,
+    subtasks: data.subtasks ?? 0,
+    assignedDue: data.assignedDue ?? 0,
+    missed: data.missed ?? 0,
+  };
+}
+
+/** households/{hid}/weeks/{weekStart} snapshot (contract Part B); id is the Monday date. */
+export function mapWeekStandings(data: DocData | undefined): WeekStandings | null {
+  if (!data?.weekStart) return null;
+  const topMember = data.topMember as DocData | null | undefined;
+  const wallOfShame = data.wallOfShame as DocData | null | undefined;
+  return {
+    weekStart: data.weekStart,
+    weekEnd: data.weekEnd ?? '',
+    topMember: topMember?.memberId
+      ? {
+          memberId: topMember.memberId,
+          xp: topMember.xp ?? 0,
+          subtasks: topMember.subtasks ?? 0,
+        }
+      : null,
+    wallOfShame: wallOfShame?.memberId
+      ? {
+          memberId: wallOfShame.memberId,
+          missed: wallOfShame.missed ?? 0,
+          assignedDue: wallOfShame.assignedDue ?? 0,
+        }
+      : null,
+    members: Object.fromEntries(
+      Object.entries(data.members ?? {}).map(([uid, value]) => [
+        uid,
+        mapWeekMember(value as DocData),
+      ]),
+    ),
+  };
+}
+
 export function mapHousehold(
   id: string,
   data: DocData,
@@ -203,13 +275,24 @@ export function callableErrorKey(code: string, message = ''): string {
       if (/deadline/i.test(message)) return 'housegains.auth.sync.deadlinePassed';
       if (/undo is available/i.test(message)) return 'housegains.auth.sync.undoExpired';
       if (/profile/i.test(message)) return 'housegains.auth.sync.profileMissing';
+      // Moderation callables (contract A2): already reviewed, window closed, nothing to report.
+      if (/already reviewed/i.test(message)) return 'housegains.auth.sync.alreadyReviewed';
+      if (/72-hour/i.test(message)) return 'housegains.auth.sync.reviewWindowClosed';
+      if (/disputed within 72 hours/i.test(message))
+        return 'housegains.auth.sync.reviewWindowClosed';
+      if (/nothing completed by another member/i.test(message))
+        return 'housegains.auth.sync.nothingToReport';
       return 'housegains.auth.error.generic';
     case 'already-exists':
+      if (/already reported/i.test(message)) return 'housegains.auth.sync.alreadyReported';
       return 'housegains.auth.sync.stepDone';
     case 'resource-exhausted':
       return 'housegains.auth.sync.householdFull';
     case 'permission-denied':
     case 'unauthenticated':
+      // Moderation callables (contract A2): conflict of interest has its own copy.
+      if (/another admin must review/i.test(message))
+        return 'housegains.auth.sync.conflictOfInterest';
       return 'housegains.auth.sync.notAllowed';
     case 'unavailable':
     case 'deadline-exceeded':

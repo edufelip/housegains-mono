@@ -118,6 +118,12 @@ function fakeModel(overrides: Partial<HouseholdViewModel> = {}): HouseholdViewMo
     weeklyTotals: { me: 0 },
     streak: 0,
     xpLedger: [],
+    disputes: [],
+    lastWeek: null,
+    setMemberRole: noop,
+    reportCompletion: noop,
+    resolveDispute: noop,
+    moderateInstance: noop,
     ...overrides,
   };
 }

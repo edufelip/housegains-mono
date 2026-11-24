@@ -78,6 +78,47 @@ export interface Invite {
   revoked: boolean;
 }
 
+/** One member's report inside a dispute (contract Part A2). */
+export interface DisputeReport {
+  uid: string;
+  subtaskIds: string[];
+  reason: string;
+  createdAt: string;
+}
+
+/** households/{hid}/disputes/{instanceId}, doc id = instanceId. */
+export interface Dispute {
+  id: string;
+  instanceId: string;
+  choreName: string;
+  status: 'open' | 'resolved' | 'expired';
+  subtaskIds: string[];
+  completerIds: string[];
+  reports: DisputeReport[];
+  verdict?: 'done' | 'partial' | 'not_done';
+  revokedSubtaskIds?: string[];
+  resolverUid?: string;
+  createdAt: string;
+  resolvedAt?: string;
+  expiresAt: string;
+}
+
+export interface WeekMemberTotals {
+  xp: number;
+  subtasks: number;
+  assignedDue: number;
+  missed: number;
+}
+
+/** Latest closed households/{hid}/weeks/{weekStart} snapshot (contract Part B). */
+export interface WeekStandings {
+  weekStart: string;
+  weekEnd: string;
+  topMember: { memberId: string; xp: number; subtasks: number } | null;
+  wallOfShame: { memberId: string; missed: number; assignedDue: number } | null;
+  members: Record<string, WeekMemberTotals>;
+}
+
 export interface Household {
   weeklyGoalXp?: number | null;
   id: string;
@@ -139,4 +180,25 @@ export interface HouseholdViewModel {
   streak: number;
   /** Persisted credit and reversal events used to derive all XP totals. */
   xpLedger: XpLedgerEntry[];
+  /** Open completion disputes (households/{hid}/disputes where status == 'open'),
+   *  or null while the listener has not delivered. */
+  disputes: Dispute[] | null;
+  /** Latest closed week snapshot, or null before any week has closed. */
+  lastWeek: WeekStandings | null;
+  /** Creator-only role management (contract A1). */
+  setMemberRole(memberId: string, role: 'admin' | 'member'): Promise<void>;
+  /** Member report of someone else's completion (contract A2). */
+  reportCompletion(instanceId: string, subtaskIds?: string[], reason?: string): Promise<void>;
+  /** Admin verdict on an open dispute (contract A2). */
+  resolveDispute(
+    disputeId: string,
+    verdict: 'done' | 'partial' | 'not_done',
+    subtaskIds?: string[],
+  ): Promise<void>;
+  /** Admin verdict directly on a completion, without a report (contract A2). */
+  moderateInstance(
+    instanceId: string,
+    verdict: 'partial' | 'not_done',
+    subtaskIds?: string[],
+  ): Promise<void>;
 }

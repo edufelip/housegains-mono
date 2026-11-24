@@ -14,6 +14,7 @@ export type HouseGainsScreen =
   | { name: 'feed' }
   | { name: 'ranks' }
   | { name: 'settings' }
+  | { name: 'reports' }
   | { name: 'household-edit' }
   | { name: 'delete-account' }
   | { name: 'chore-list'; returnTo: 'today' | 'settings' }

@@ -18,6 +18,11 @@
 14. **Undo window:** A member may undo only their own completion, within five minutes of its completion instant. Undo removes that subtask's XP effect and, if the instance had paid a bonus, reverses the instance bonus awards and reopens the instance as appropriate.
 15. **Local/demo boundary:** Local fixture behavior must be labeled as local/demo. It is not evidence of a remote invite, cross-device membership, synchronized feed, or production ledger.
 16. **Local XP scorecard:** Weekly totals sum signed ledger events from Monday 00:00 in the household timezone. This slice's streak is consecutive household-timezone dates with net-positive XP for the current member; if today has no positive total yet, calculation may continue from yesterday. All-time net XP determines level as `floor(totalXP / 100) + 1`; title is Rookie below level 5 and Tidy Titan at level 5 or above.
+17. **Admin rights:** Admin rights mean role `creator` or `admin`. The creator grants and removes the admin role (creator-only, confirmed, never on themselves). Existing creator-only operations stay creator-only; admin rights add only the moderation powers.
+18. **Dispute window:** A completion can be disputed or moderated within 72 hours of its completion time. A resolved or expired dispute can no longer be reported; the same member cannot report the same instance twice.
+19. **Verdicts:** `done` keeps every disputed completion; `not_done` revokes all of them; `partial` revokes a non-empty strict subset chosen by the reviewer and is unavailable when fewer than two steps are disputed. Revocation reverses the step XP (and the instance bonus when the instance was done) through `revoke-*` ledger rows, records who acted and the verdict on the instance, and reopens the instance per the undo status rule.
+20. **Conflict of interest:** An admin who completed one of the disputed or moderated steps cannot pass the verdict unless they are the only member with admin rights; the backend rejects the attempt and the client shows the reason.
+21. **Weekly standings snapshot:** Ranks shows only the latest closed week written by the scheduled job (top member and wall of shame, both possibly null). Moderation after a close never rewrites the snapshot; the client renders it read-only.
 
 ## Open rule details
 
