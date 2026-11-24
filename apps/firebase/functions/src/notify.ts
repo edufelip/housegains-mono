@@ -13,7 +13,8 @@ const DEAD_TOKEN_CODES = new Set([
 
 export async function pushToMembers(input: {
   uids: string[];
-  title: string;
+  /** Fixed title, or a per-locale resolver for copy whose name is localized. */
+  title: string | ((locale: unknown) => string);
   bodyFor: (locale: unknown) => string;
 }): Promise<void> {
   await Promise.all(
@@ -26,9 +27,10 @@ export async function pushToMembers(input: {
           (token): token is string => typeof token === 'string',
         );
         if (tokens.length === 0) return;
+        const title = typeof input.title === 'function' ? input.title(profile.locale) : input.title;
         const response = await getMessaging().sendEachForMulticast({
           tokens,
-          notification: { title: input.title, body: input.bodyFor(profile.locale) },
+          notification: { title, body: input.bodyFor(profile.locale) },
         });
         const dead = response.responses.flatMap((result, index) =>
           !result.success && DEAD_TOKEN_CODES.has(result.error?.code ?? '') ? [tokens[index]] : [],

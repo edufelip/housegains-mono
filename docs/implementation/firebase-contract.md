@@ -84,6 +84,13 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   (moderation contract Part B) marks open disputes past `expiresAt` as `expired` and sets
   `instances.disputeStatus = 'expired'`; a resolve refuses a past-window dispute in the
   meantime.
+- `weeks/{weekStart}` — closed-week snapshot written only by the hourly `closeWeeks` job
+  (moderation contract Part B); readable by members, never rewritten by later moderation.
+  `weekStart` is the Monday's `YYYY-MM-DD`, `weekEnd` the Sunday's:
+  `weekStart, weekEnd, timeZone, closedAt,
+  members: { [uid]: { xp, subtasks, assignedDue, missed } },
+  topMember: { memberId, xp, subtasks } | null,
+  wallOfShame: { memberId, missed, assignedDue } | null`.
 - `feed/{postId}` — `instanceId, memberId, createdAt`. Id `${instanceId}_${uid}`
   (one post per member per instance).
 - `meta/invite` — `code, expiresAt, uses, maxUses, revoked` (the current invite).
@@ -136,6 +143,16 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
   each assignee with `remindersEnabled !== false`, localized to the user's `locale`
   (title: chore name; body: "Your turn: {chore} is due at {time}" in 6 languages).
   Set `reminderSentAt`. Remove tokens FCM reports as unregistered.
+- `closeWeeks` — every 60 minutes, for every household: close the finished week
+  (moderation contract Part B) once local time passes Monday 03:00 of the following week
+  — write `households/{hid}/weeks/{weekStart}` with `create()` (idempotent), then push
+  localized FCM ("Top member of the week" / "Wall of shame", pt-BR "Destaque da semana" /
+  "Mural da vergonha") only on the run that created the doc. Every run also expires open
+  disputes past `expiresAt` (`status: 'expired'`, `instances.disputeStatus = 'expired'`,
+  completions stand) whether or not a week closed that hour. Per-household errors are
+  logged and never stop the other households. Pure logic lives in
+  `functions/src/domain/standings.ts`; the gamification engine (contract Part C) hooks
+  into the exported `afterWeekClosed(context)` after a fresh close.
 
 ## Hosting
 

@@ -3,7 +3,7 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import './admin';
 import { DomainError } from './domain/errors';
-import { generateAllInstances, runReminders } from './scheduled';
+import { generateAllInstances, closeAllWeeks, runReminders } from './scheduled';
 import * as store from './store';
 
 // Every callable and scheduled function in the HouseGains v1 contract, region us-central1.
@@ -58,5 +58,12 @@ export const sendReminders = onSchedule(
   { schedule: 'every 30 minutes', timeZone: 'UTC', region: REGION, timeoutSeconds: 540, maxInstances: 1 },
   async () => {
     await runReminders(new Date());
+  },
+);
+
+export const closeWeeks = onSchedule(
+  { schedule: 'every 60 minutes', timeZone: 'UTC', region: REGION, timeoutSeconds: 540, maxInstances: 1 },
+  async () => {
+    await closeAllWeeks(new Date());
   },
 );

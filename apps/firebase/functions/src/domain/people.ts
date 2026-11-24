@@ -78,3 +78,61 @@ export function reportReviewBody(locale: unknown, reporterName: string, choreNam
 export function completionReviewedBody(locale: unknown): string {
   return COMPLETION_REVIEWED_BODY[resolveLocale(locale)];
 }
+
+// Weekly standings pushes (gamification-moderation-contract.md Part B). The en and
+// pt-BR names are fixed by the contract; the other locales use natural equivalents.
+const WEEK_TOP_TITLE: Record<SupportedLocale, string> = {
+  'en-US': 'Top member of the week',
+  'pt-BR': 'Destaque da semana',
+  'es-ES': 'Miembro de la semana',
+  'fr-FR': 'Membre de la semaine',
+  'de-DE': 'Mitglied der Woche',
+  'it-IT': 'Membro della settimana',
+};
+
+const WEEK_SHAME_TITLE: Record<SupportedLocale, string> = {
+  'en-US': 'Wall of shame',
+  'pt-BR': 'Mural da vergonha',
+  'es-ES': 'Muro de la vergüenza',
+  'fr-FR': 'Mur de la honte',
+  'de-DE': 'Mauer der Schande',
+  'it-IT': 'Muro della vergogna',
+};
+
+const WEEK_TOP_BODY: Record<SupportedLocale, string> = {
+  'en-US': '{name} earned {xp} XP this week.',
+  'pt-BR': '{name} ganhou {xp} XP nesta semana.',
+  'es-ES': '{name} consiguió {xp} XP esta semana.',
+  'fr-FR': '{name} a gagné {xp} XP cette semaine.',
+  'de-DE': '{name} hat diese Woche {xp} XP verdient.',
+  'it-IT': '{name} ha guadagnato {xp} XP questa settimana.',
+};
+
+const WEEK_SHAME_BODY: Record<SupportedLocale, string> = {
+  'en-US': '{name} missed {missed} of their chores this week.',
+  'pt-BR': '{name} deixou {missed} tarefa(s) para trás nesta semana.',
+  'es-ES': '{name} dejó {missed} tarea(s) sin hacer esta semana.',
+  'fr-FR': '{name} a laissé {missed} tâche(s) inachevée(s) cette semaine.',
+  'de-DE': '{name} hat diese Woche {missed} Aufgabe(n) verpasst.',
+  'it-IT': '{name} ha lasciato {missed} attività da fare questa settimana.',
+};
+
+export function weekTopTitle(locale: unknown): string {
+  return WEEK_TOP_TITLE[resolveLocale(locale)];
+}
+
+export function weekShameTitle(locale: unknown): string {
+  return WEEK_SHAME_TITLE[resolveLocale(locale)];
+}
+
+export function weekTopBody(locale: unknown, name: string, xp: number): string {
+  return WEEK_TOP_BODY[resolveLocale(locale)]
+    .replace('{name}', name)
+    .replace('{xp}', String(xp));
+}
+
+export function weekShameBody(locale: unknown, name: string, missed: number): string {
+  return WEEK_SHAME_BODY[resolveLocale(locale)]
+    .replace('{name}', name)
+    .replace('{missed}', String(missed));
+}

@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { assertFails, assertSucceeds, initializeTestEnvironment, type RulesTestEnvironment } from '@firebase/rules-unit-testing';
-import { doc, getDoc, getDocs, collection, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, getDocs, collection, setDoc, updateDoc, deleteDoc } from 'firebase/firestore';
 import { afterAll, beforeAll, beforeEach, describe, it } from 'vitest';
 import { PROJECT_ID } from './helpers';
 
@@ -31,6 +31,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'households/h1/instances/c1_2026-01-05'), { choreId: 'c1', status: 'open' });
     await setDoc(doc(db, 'households/h1/ledger/e1'), { memberId: 'alice', amount: 10 });
     await setDoc(doc(db, 'households/h1/disputes/c1_2026-01-05'), { instanceId: 'c1_2026-01-05', status: 'open', subtaskIds: ['wash'] });
+    await setDoc(doc(db, 'households/h1/weeks/2026-01-05'), { weekStart: '2026-01-05', weekEnd: '2026-01-11', timeZone: 'UTC' });
     await setDoc(doc(db, 'households/h1/meta/invite'), { code: 'A2B3C4' });
     await setDoc(doc(db, 'inviteCodes/A2B3C4'), { householdId: 'h1', uses: 0 });
     await setDoc(doc(db, 'reports/r1'), { reporterUid: 'alice' });
@@ -66,7 +67,7 @@ describe('household read access', () => {
   it('members read every household subcollection; non-members read none', async () => {
     const bob = env.authenticatedContext('bob').firestore();
     const eve = env.authenticatedContext('eve').firestore();
-    for (const path of ['households/h1/chores/c1', 'households/h1/members/alice', 'households/h1/instances/c1_2026-01-05', 'households/h1/ledger/e1', 'households/h1/disputes/c1_2026-01-05', 'households/h1/meta/invite']) {
+    for (const path of ['households/h1/chores/c1', 'households/h1/members/alice', 'households/h1/instances/c1_2026-01-05', 'households/h1/ledger/e1', 'households/h1/disputes/c1_2026-01-05', 'households/h1/weeks/2026-01-05', 'households/h1/meta/invite']) {
       await assertSucceeds(getDoc(doc(bob, path)));
       await assertFails(getDoc(doc(eve, path)));
     }
@@ -129,6 +130,14 @@ describe('client writes outside the profile are denied', () => {
     const alice = env.authenticatedContext('alice').firestore();
     await assertFails(updateDoc(doc(alice, 'households/h1/disputes/c1_2026-01-05'), { status: 'resolved' }));
     await assertFails(setDoc(doc(alice, 'households/h1/disputes/other'), { instanceId: 'other', status: 'open' }));
+  });
+
+  it('closed weeks are read-only for clients: no edits, no fabricated weeks', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertFails(updateDoc(doc(alice, 'households/h1/weeks/2026-01-05'), { topMember: { memberId: 'alice', xp: 999 } }));
+    await assertFails(setDoc(doc(alice, 'households/h1/weeks/2027-01-04'), { weekStart: '2027-01-04' }));
+    await assertFails(deleteDoc(doc(alice, 'households/h1/weeks/2026-01-05')));
+    await assertFails(getDoc(doc(env.authenticatedContext('eve').firestore(), 'households/h1/weeks/2026-01-05')));
   });
 
   it('nobody reads invite codes or reports from the client', async () => {
