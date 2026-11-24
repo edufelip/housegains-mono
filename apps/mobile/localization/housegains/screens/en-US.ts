@@ -165,6 +165,7 @@ const houseGainsScreensEnUS = {
   'housegains.screens.common.weeklyDays': 'Every {days}',
   'housegains.screens.common.role.creator': 'Household creator',
   'housegains.screens.common.role.member': 'Member',
+  'housegains.screens.common.role.admin': 'Household admin',
   'housegains.screens.tabs.today': 'Today',
   'housegains.screens.tabs.feed': 'Activity',
   'housegains.screens.tabs.add': 'Add a chore',

@@ -979,6 +979,7 @@ Picker and preview keys are present in all three HouseGains locale dictionaries.
 | `housegains.screens.common.retry` | HouseGains | Common: Retry | Try again | Tentar novamente | Intentar de nuevo | |
 | `housegains.screens.common.role.creator` | HouseGains | Common: Creator | Household creator | Quem criou a casa | Creador del hogar | |
 | `housegains.screens.common.role.member` | HouseGains | Common: Member | Member | Pessoa participante | Miembro | |
+| `housegains.screens.common.role.admin` | HouseGains | Common: Admin | Household admin | Admin da casa | Admin del hogar | |
 | `housegains.screens.common.skip` | HouseGains | Common: Skip | Skip for now | Pular por enquanto | Omitir por ahora | |
 | `housegains.screens.common.unassigned` | HouseGains | Common: Unassigned | Unassigned | Sem responsável | Sin asignar | |
 | `housegains.screens.common.unavailableBody` | HouseGains | Common: Unavailable Body | This screen is not available right now. | Esta tela não está disponível no momento. | Esta pantalla no está disponible en este momento. | |

@@ -48,3 +48,33 @@ export function resolveLocale(locale: unknown): SupportedLocale {
 export function reminderBody(locale: unknown, choreName: string, time: string): string {
   return REMINDER_BODY[resolveLocale(locale)].replace('{chore}', choreName).replace('{time}', time);
 }
+
+// Moderation pushes (gamification-moderation-contract.md A2): "new report to review"
+// goes to members with admin rights; "an admin reviewed your chore" to completers and reporters.
+const REPORT_REVIEW_BODY: Record<SupportedLocale, string> = {
+  'en-US': "{name} says {chore} wasn't done. Review it.",
+  'pt-BR': '{name} diz que {chore} não foi feito. Revise.',
+  'es-ES': '{name} dice que {chore} no se hizo. Revísalo.',
+  'fr-FR': "{name} dit que {chore} n'a pas été fait. Vérifie.",
+  'de-DE': '{name} sagt, {chore} wurde nicht erledigt. Prüfe es.',
+  'it-IT': '{name} dice che {chore} non è stato fatto. Verificalo.',
+};
+
+const COMPLETION_REVIEWED_BODY: Record<SupportedLocale, string> = {
+  'en-US': 'An admin reviewed your chore.',
+  'pt-BR': 'Um administrador revisou sua tarefa.',
+  'es-ES': 'Un administrador revisó tu tarea.',
+  'fr-FR': 'Un administrateur a révisé ta tâche.',
+  'de-DE': 'Ein Admin hat deine Aufgabe geprüft.',
+  'it-IT': 'Un amministratore ha revisionato la tua attività.',
+};
+
+export function reportReviewBody(locale: unknown, reporterName: string, choreName: string): string {
+  return REPORT_REVIEW_BODY[resolveLocale(locale)]
+    .replace('{name}', reporterName)
+    .replace('{chore}', choreName);
+}
+
+export function completionReviewedBody(locale: unknown): string {
+  return COMPLETION_REVIEWED_BODY[resolveLocale(locale)];
+}

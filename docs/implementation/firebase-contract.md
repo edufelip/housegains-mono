@@ -56,15 +56,34 @@ creatorUid  memberUids: string[] (max 12)  setupComplete: bool  createdAt  updat
 
 Subcollections of `households/{hid}` (all readable by members, client writes: none):
 
-- `members/{uid}` — `name, initials, color, role: 'creator'|'member', joinedAt`.
+- `members/{uid}` — `name, initials, color, role: 'creator'|'admin'|'member', xp, joinedAt`.
+  Exactly one `creator` (always an admin); "admin rights" means `role` is `creator` or
+  `admin`. Existing creator-only callables stay creator-only; admin rights only add the
+  moderation powers below. Creator succession (leave / remove / delete account) picks the
+  longest-standing remaining admin, else the longest-standing member.
   A deleted account leaves a tombstone: `name: 'Former member'`, `initials: '?'`,
   `deleted: true`, and the uid is removed from `memberUids`.
 - `chores/{choreId}` — the `Chore` shape in `apps/mobile/features/household/types.ts`
   plus `recurrenceAnchor` (YYYY-MM-DD) and `generatedThrough` (YYYY-MM-DD).
 - `instances/{instanceId}` — the `Instance` shape (with `choreSnapshot`, embedded
   `completions[]` and `bonusAwards` map). `dueAt` is a Timestamp. Id is
-  `${choreId}_${YYYY-MM-DD}` so generation is idempotent.
-- `ledger/{entryId}` — the `XpLedgerEntry` shape (`memberId` = uid).
+  `${choreId}_${YYYY-MM-DD}` so generation is idempotent. Moderation adds
+  `disputeStatus: 'open'|'resolved'|'expired'` (absent = never disputed) and
+  `revocations[]`: `{ subtaskId, memberId, xp, actorUid, verdict: 'partial'|'not_done', at }`,
+  appended when an admin revokes a completion.
+- `ledger/{entryId}` — the `XpLedgerEntry` shape (`memberId` = uid). Sources are
+  `subtask | bonus | undo-subtask | undo-bonus | revoke-subtask | revoke-bonus`; undo and
+  revoke rows are signed reversals with `reversesEntryId`, and revoke rows also carry
+  `moderation: { actorUid, disputeId | null, verdict }`.
+- `disputes/{instanceId}` — one dispute per instance (doc id = instanceId), readable by
+  members:
+  `instanceId, choreName, status: 'open'|'resolved'|'expired', subtaskIds (union of every
+  report), completerIds, reports: { uid, subtaskIds, reason (0..280), createdAt }[],
+  verdict?, revokedSubtaskIds?, resolverUid?, createdAt, resolvedAt?, expiresAt`
+  (`expiresAt` = earliest disputed completion + 72 h). The hourly `closeWeeks` job
+  (moderation contract Part B) marks open disputes past `expiresAt` as `expired` and sets
+  `instances.disputeStatus = 'expired'`; a resolve refuses a past-window dispute in the
+  meantime.
 - `feed/{postId}` — `instanceId, memberId, createdAt`. Id `${instanceId}_${uid}`
   (one post per member per instance).
 - `meta/invite` — `code, expiresAt, uses, maxUses, revoked` (the current invite).
@@ -95,7 +114,11 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
 | `setChoreActive` | `{householdId, choreId, isActive}` | Creator only. Pausing deletes future untouched instances. |
 | `deleteChore` | `{householdId, choreId}` | Creator only. Deletes chore and future untouched instances; keeps history. |
 | `completeSubtask` | `{householdId, instanceId, subtaskId}` | Any member. Transaction: `already-exists` if that subtask is done; append completion (`isAssist` = caller not in assignees), ledger `subtask` credit. When all subtasks are done: status `done`, compute `bonusAwards` with the existing `calculateBonusAwards` rule and write `bonus` ledger rows. Else status `partial`. |
-| `undoSubtask` | `{householdId, instanceId, subtaskId}` | Only the completer, within 5 minutes. Reverses subtask credit and, if the instance was `done`, every bonus row (`undo-*` rows with negative amounts and `reversesEntryId`). |
+| `undoSubtask` | `{householdId, instanceId, subtaskId}` | Only the completer, within 5 minutes. Reverses subtask credit and, if the instance was `done`, every still-active bonus row (`undo-*` rows with negative amounts and `reversesEntryId`). A revoked (already reversed) row is never reversed again. |
+| `setMemberRole` | `{householdId, memberId, role: 'admin'\|'member'}` | Creator only (`permission-denied`). `invalid-argument` if `memberId` is the caller; `not-found` if not in `memberUids`. Idempotent. Returns `{memberId, role}`. |
+| `reportCompletion` | `{householdId, instanceId, subtaskIds?, reason?}` | Any member **without** admin rights; admins get `permission-denied`. `subtaskIds` defaults to every completed subtask the caller did not complete; each id must be completed (`failed-precondition`) and not the caller's own (`invalid-argument`). `failed-precondition` for an instance without completions, an empty target list, completions older than 72 h, or a resolved/expired dispute. Creates or appends to `households/{hid}/disputes/{instanceId}` (`already-exists` if the caller already reported), sets `instances.disputeStatus = 'open'`, pushes FCM to every admin-rights member. Returns `{disputeId}`. |
+| `resolveDispute` | `{householdId, disputeId, verdict: 'done'\|'partial'\|'not_done', subtaskIds?}` | Admin rights required. `not-found` / `failed-precondition` for a missing / not-open (or past-window) dispute. Conflict of interest: `permission-denied` if any disputed subtask was completed by the caller, unless they are the only admin. `done` keeps everything; `not_done` revokes every disputed subtask; `partial` needs a strict subset of the disputed subtasks (`invalid-argument`, also when only one subtask is disputed). Revocation per contract A3; notifies completers and reporters via FCM. Returns `{disputeId, verdict, revokedSubtaskIds}`. |
+| `moderateInstance` | `{householdId, instanceId, verdict: 'partial'\|'not_done', subtaskIds?}` | Admins mark a logged completion directly. `not_done` targets every completed subtask (or `subtaskIds`); `partial` needs a strict subset of the completed subtasks. Same 72 h window and conflict-of-interest rule as `resolveDispute`. Resolves an open dispute for the instance with this verdict. Returns `{instanceId, verdict, revokedSubtaskIds}`. |
 | `finishSetup` | `{householdId}` | Creator only. `setupComplete = true`. |
 | `postCompletion` | `{householdId, instanceId}` | Member who completed at least one subtask of a `done` instance. Idempotent by id. |
 | `leaveHousehold` | `{householdId}` | Removes caller from `memberUids`, tombstones member doc, removes caller from chore and open-instance assignees, clears `users.householdId`. If the caller is the creator, ownership moves to the longest-standing remaining member. If nobody remains, the household and all subcollections and its invite codes are deleted. |

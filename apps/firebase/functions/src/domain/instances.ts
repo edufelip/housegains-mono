@@ -53,6 +53,16 @@ export interface Completion {
   isAssist: boolean;
 }
 
+/** A moderation reversal, appended when a completion is revoked (contract A3). */
+export interface Revocation {
+  subtaskId: string;
+  memberId: string;
+  xp: number;
+  actorUid: string;
+  verdict: 'partial' | 'not_done';
+  at: Date;
+}
+
 export interface InstanceRecord {
   id: string;
   choreId: string;
@@ -65,6 +75,8 @@ export interface InstanceRecord {
   bonusAwards: Record<string, number>;
   choreSnapshot: ChoreSnapshot;
   reminderSentAt?: Date;
+  revocations?: Revocation[];
+  disputeStatus?: 'open' | 'resolved' | 'expired';
 }
 
 export function instanceIdFor(choreId: string, dateKey: string): string {

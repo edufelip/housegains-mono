@@ -173,6 +173,7 @@ const houseGainsScreensItIT: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Ogni settimana: {days}',
   'housegains.screens.common.role.creator': 'Creatore della casa',
   'housegains.screens.common.role.member': 'Membro',
+  'housegains.screens.common.role.admin': 'Admin della casa',
   'housegains.screens.tabs.today': 'Oggi',
   'housegains.screens.tabs.feed': 'Attività',
   'housegains.screens.tabs.add': 'Aggiungi faccenda',

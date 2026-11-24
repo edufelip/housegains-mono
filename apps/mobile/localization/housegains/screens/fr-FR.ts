@@ -173,6 +173,7 @@ const houseGainsScreensFrFR: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Chaque semaine : {days}',
   'housegains.screens.common.role.creator': 'Personne qui a créé le foyer',
   'housegains.screens.common.role.member': 'Membre',
+  'housegains.screens.common.role.admin': 'Admin du foyer',
   'housegains.screens.tabs.today': 'Aujourd’hui',
   'housegains.screens.tabs.feed': 'Activité',
   'housegains.screens.tabs.add': 'Ajouter une tâche',

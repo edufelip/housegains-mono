@@ -402,6 +402,7 @@ Active app copy in English, Portuguese, Spanish, French, German and Italian. Gen
 | `housegains.screens.common.retry` | Try again | Tentar novamente | Intentar de nuevo | Réessayer | Erneut versuchen | Riprova |
 | `housegains.screens.common.role.creator` | Household creator | Quem criou a casa | Creador del hogar | Personne qui a créé le foyer | Person, die den Haushalt erstellt hat | Creatore della casa |
 | `housegains.screens.common.role.member` | Member | Pessoa participante | Miembro | Membre | Mitglied | Membro |
+| `housegains.screens.common.role.admin` | Household admin | Admin da casa | Admin del hogar | Admin du foyer | Haushalts-Admin | Admin della casa |
 | `housegains.screens.common.skip` | Skip for now | Pular por enquanto | Omitir por ahora | Ignorer pour le moment | Vorerst überspringen | Salta per ora |
 | `housegains.screens.common.unassigned` | Unassigned | Sem responsável | Sin asignar | Sans responsable | Nicht zugewiesen | Non assegnato |
 | `housegains.screens.common.unavailableBody` | This screen is not available right now. | Esta tela não está disponível no momento. | Esta pantalla no está disponible en este momento. | Cet écran est indisponible pour le moment. | Dieser Bildschirm ist momentan nicht verfügbar. | Questa schermata non è al momento disponibile. |

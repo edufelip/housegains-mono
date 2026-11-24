@@ -30,6 +30,7 @@ beforeEach(async () => {
     await setDoc(doc(db, 'households/h1/chores/c1'), { name: 'Trash', assigneeIds: ['alice'] });
     await setDoc(doc(db, 'households/h1/instances/c1_2026-01-05'), { choreId: 'c1', status: 'open' });
     await setDoc(doc(db, 'households/h1/ledger/e1'), { memberId: 'alice', amount: 10 });
+    await setDoc(doc(db, 'households/h1/disputes/c1_2026-01-05'), { instanceId: 'c1_2026-01-05', status: 'open', subtaskIds: ['wash'] });
     await setDoc(doc(db, 'households/h1/meta/invite'), { code: 'A2B3C4' });
     await setDoc(doc(db, 'inviteCodes/A2B3C4'), { householdId: 'h1', uses: 0 });
     await setDoc(doc(db, 'reports/r1'), { reporterUid: 'alice' });
@@ -65,7 +66,7 @@ describe('household read access', () => {
   it('members read every household subcollection; non-members read none', async () => {
     const bob = env.authenticatedContext('bob').firestore();
     const eve = env.authenticatedContext('eve').firestore();
-    for (const path of ['households/h1/chores/c1', 'households/h1/members/alice', 'households/h1/instances/c1_2026-01-05', 'households/h1/ledger/e1', 'households/h1/meta/invite']) {
+    for (const path of ['households/h1/chores/c1', 'households/h1/members/alice', 'households/h1/instances/c1_2026-01-05', 'households/h1/ledger/e1', 'households/h1/disputes/c1_2026-01-05', 'households/h1/meta/invite']) {
       await assertSucceeds(getDoc(doc(bob, path)));
       await assertFails(getDoc(doc(eve, path)));
     }
@@ -122,6 +123,12 @@ describe('client writes outside the profile are denied', () => {
     await assertFails(updateDoc(doc(alice, 'households/h1/instances/c1_2026-01-05'), { status: 'done' }));
     await assertFails(setDoc(doc(alice, 'households/h1/ledger/e2'), { memberId: 'alice', amount: 999 }));
     await assertFails(setDoc(doc(alice, 'households/h1/feed/f1'), { memberId: 'alice' }));
+  });
+
+  it('members cannot write disputes, even to agree with a report', async () => {
+    const alice = env.authenticatedContext('alice').firestore();
+    await assertFails(updateDoc(doc(alice, 'households/h1/disputes/c1_2026-01-05'), { status: 'resolved' }));
+    await assertFails(setDoc(doc(alice, 'households/h1/disputes/other'), { instanceId: 'other', status: 'open' }));
   });
 
   it('nobody reads invite codes or reports from the client', async () => {

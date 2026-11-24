@@ -1,4 +1,4 @@
-export type HouseholdRole = 'creator' | 'member';
+export type HouseholdRole = 'creator' | 'admin' | 'member';
 
 export interface Member {
   id: string;
@@ -55,6 +55,19 @@ export interface Instance {
   status: 'open' | 'partial' | 'done';
   completions: Completion[];
   bonusAwards: Record<string, number>;
+  /** Mirrors the dispute lifecycle; absent when the instance was never disputed. */
+  disputeStatus?: 'open' | 'resolved' | 'expired';
+  /** Moderation reversals: completions an admin revoked. */
+  revocations?: InstanceRevocation[];
+}
+
+export interface InstanceRevocation {
+  subtaskId: string;
+  memberId: string;
+  xp: number;
+  actorUid: string;
+  verdict: 'partial' | 'not_done';
+  at: string;
 }
 
 export interface Invite {
@@ -86,14 +99,14 @@ export interface FeedPost {
   createdAt: string;
 }
 
-/** Signed XP event. Undo rows use negative amounts and point to their source row. */
+/** Signed XP event. Undo and revoke rows use negative amounts and point to their source row. */
 export interface XpLedgerEntry {
   id: string;
   instanceId: string;
   subtaskId?: string;
   memberId: string;
   amount: number;
-  source: 'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus';
+  source: 'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus' | 'revoke-subtask' | 'revoke-bonus';
   createdAt: string;
   reversesEntryId?: string;
 }

@@ -175,6 +175,7 @@ const houseGainsScreensEsES: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Cada semana: {days}',
   'housegains.screens.common.role.creator': 'Creador del hogar',
   'housegains.screens.common.role.member': 'Miembro',
+  'housegains.screens.common.role.admin': 'Admin del hogar',
   'housegains.screens.tabs.today': 'Hoy',
   'housegains.screens.tabs.feed': 'Actividad',
   'housegains.screens.tabs.add': 'Añadir tarea',

@@ -4,6 +4,7 @@ import type {
   FeedPost,
   Household,
   Instance,
+  InstanceRevocation,
   Invite,
   Member,
   Subtask,
@@ -29,7 +30,7 @@ export function mapMember(id: string, data: DocData): Member {
     name: data.name ?? '',
     initials: data.initials ?? '',
     color: data.color ?? '#7c5cff',
-    role: data.role === 'creator' ? 'creator' : 'member',
+    role: data.role === 'creator' || data.role === 'admin' ? data.role : 'member',
     ...(typeof data.xp === 'number' ? { xp: data.xp } : {}),
   };
 }
@@ -95,6 +96,17 @@ function mapCompletion(data: DocData): Completion {
   };
 }
 
+function mapRevocation(data: DocData): InstanceRevocation {
+  return {
+    subtaskId: data.subtaskId,
+    memberId: data.memberId,
+    xp: data.xp,
+    actorUid: data.actorUid,
+    verdict: data.verdict,
+    at: isoOf(data.at),
+  };
+}
+
 export function mapInstance(id: string, data: DocData): Instance {
   return {
     id,
@@ -107,6 +119,10 @@ export function mapInstance(id: string, data: DocData): Instance {
     completions: (data.completions ?? []).map(mapCompletion),
     bonusAwards: data.bonusAwards ?? {},
     ...(data.choreSnapshot ? { choreSnapshot: data.choreSnapshot } : {}),
+    ...(data.disputeStatus ? { disputeStatus: data.disputeStatus } : {}),
+    ...(Array.isArray(data.revocations) && data.revocations.length > 0
+      ? { revocations: data.revocations.map(mapRevocation) }
+      : {}),
   };
 }
 

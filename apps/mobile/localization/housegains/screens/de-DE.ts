@@ -174,6 +174,7 @@ const houseGainsScreensDeDE: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Jede Woche: {days}',
   'housegains.screens.common.role.creator': 'Person, die den Haushalt erstellt hat',
   'housegains.screens.common.role.member': 'Mitglied',
+  'housegains.screens.common.role.admin': 'Haushalts-Admin',
   'housegains.screens.tabs.today': 'Heute',
   'housegains.screens.tabs.feed': 'Aktivität',
   'housegains.screens.tabs.add': 'Aufgabe hinzufügen',

@@ -175,6 +175,7 @@ const houseGainsScreensPtBR: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Toda semana: {days}',
   'housegains.screens.common.role.creator': 'Quem criou a casa',
   'housegains.screens.common.role.member': 'Pessoa participante',
+  'housegains.screens.common.role.admin': 'Admin da casa',
   'housegains.screens.tabs.today': 'Hoje',
   'housegains.screens.tabs.feed': 'Atividade',
   'housegains.screens.tabs.add': 'Adicionar tarefa',

@@ -32,9 +32,21 @@ import {
   isEditableFuture,
   refreshedFields,
 } from './domain/instances';
-import { colorFor, initialsFor, pickSuccessor } from './domain/people';
+import { colorFor, completionReviewedBody, initialsFor, reportReviewBody } from './domain/people';
 import { recurrenceKey } from './domain/recurrence';
 import { addDaysToDateKey, dateKeyInTimeZone } from './domain/time';
+import {
+  assertNoConflict,
+  assertWithinDisputeWindow,
+  DISPUTE_WINDOW_MS,
+  hasAdminRights,
+  moderateTargets,
+  type MemberRole,
+  pickAdminSuccessor,
+  reportTargets,
+  resolveTargets,
+} from './domain/moderation';
+import { pushToMembers } from './notify';
 import {
   asObject,
   parseAssigneeIds,
@@ -61,6 +73,7 @@ const inviteRef = (code: string) => db().collection('inviteCodes').doc(code);
 const inviteMetaRef = (hid: string) => householdRef(hid).collection('meta').doc('invite');
 const choreRef = (hid: string, choreId: string) => householdRef(hid).collection('chores').doc(choreId);
 const instanceRef = (hid: string, instanceId: string) => householdRef(hid).collection('instances').doc(instanceId);
+const disputeRef = (hid: string, instanceId: string) => householdRef(hid).collection('disputes').doc(instanceId);
 const ledgerCol = (hid: string) => householdRef(hid).collection('ledger');
 
 // ---- Read helpers -------------------------------------------------------------
@@ -106,6 +119,15 @@ function readInstance(snap: DocumentSnapshot): InstanceRecord {
     bonusAwards: d.bonusAwards ?? {},
     choreSnapshot: d.choreSnapshot,
     ...(d.reminderSentAt ? { reminderSentAt: d.reminderSentAt.toDate() } : {}),
+    ...(d.revocations
+      ? {
+          revocations: (d.revocations as Array<Record<string, unknown> & { at: Timestamp }>).map((r) => ({
+            ...r,
+            at: r.at.toDate(),
+          })) as InstanceRecord['revocations'],
+        }
+      : {}),
+    ...(d.disputeStatus ? { disputeStatus: d.disputeStatus as InstanceRecord['disputeStatus'] } : {}),
   };
 }
 
@@ -120,6 +142,10 @@ function instanceDoc(instance: InstanceRecord) {
     completions: instance.completions.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
     bonusAwards: instance.bonusAwards,
     choreSnapshot: instance.choreSnapshot,
+    ...(instance.revocations
+      ? { revocations: instance.revocations.map((r) => ({ ...r, at: ts(r.at) })) }
+      : {}),
+    ...(instance.disputeStatus ? { disputeStatus: instance.disputeStatus } : {}),
   };
 }
 
@@ -154,7 +180,7 @@ function assertCreator(household: DocumentSnapshot, uid: string): Record<string,
   return data;
 }
 
-function memberDoc(profile: Record<string, any>, role: 'creator' | 'member', now: Date) {
+function memberDoc(profile: Record<string, any>, role: MemberRole, now: Date) {
   return {
     name: profile.displayName,
     initials: profile.initials,
@@ -453,9 +479,10 @@ export async function departMember(
 
     const successor =
       hh.creatorUid === targetUid
-        ? pickSuccessor(
+        ? pickAdminSuccessor(
             remainingUids.map((id) => ({
               uid: id,
+              role: (members.docs.find((d) => d.id === id)?.data().role ?? 'member') as MemberRole,
               joinedAt: members.docs.find((d) => d.id === id)?.data().joinedAt?.toDate() ?? now,
             })),
           )
@@ -736,9 +763,10 @@ function ledgerRow(input: {
   subtaskId?: string;
   memberId: string;
   amount: number;
-  source: 'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus';
+  source: 'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus' | 'revoke-subtask' | 'revoke-bonus';
   createdAt: Date;
   reversesEntryId?: string;
+  moderation?: { actorUid: string; disputeId: string | null; verdict: 'partial' | 'not_done' };
 }) {
   return {
     instanceId: input.instanceId,
@@ -748,6 +776,7 @@ function ledgerRow(input: {
     source: input.source,
     createdAt: ts(input.createdAt),
     ...(input.reversesEntryId ? { reversesEntryId: input.reversesEntryId } : {}),
+    ...(input.moderation ? { moderation: input.moderation } : {}),
   };
 }
 
@@ -857,12 +886,18 @@ export async function undoSubtask(uid: string, raw: unknown) {
       fail('failed-precondition', 'Undo is available for 5 minutes after your completion.');
     }
 
-    const [subtaskLedger, bonusLedger, undoBonusLedger] = await Promise.all([
+    const [subtaskLedger, bonusLedger, reversalLedger] = await Promise.all([
       tx.get(ledgerCol(hid).where('instanceId', '==', instanceId).where('subtaskId', '==', subtaskId)),
       tx.get(ledgerCol(hid).where('instanceId', '==', instanceId).where('source', '==', 'bonus')),
-      tx.get(ledgerCol(hid).where('instanceId', '==', instanceId).where('source', '==', 'undo-bonus')),
+      // undo-* and revoke-* both mark their source rows reversed; fetching both keeps
+      // a revoked bonus row from ever being reversed a second time.
+      tx.get(
+        ledgerCol(hid)
+          .where('instanceId', '==', instanceId)
+          .where('source', 'in', ['undo-bonus', 'revoke-bonus']),
+      ),
     ]);
-    const rows = [...subtaskLedger.docs, ...bonusLedger.docs, ...undoBonusLedger.docs].map(
+    const rows = [...subtaskLedger.docs, ...bonusLedger.docs, ...reversalLedger.docs].map(
       (doc) => ({ id: doc.id, ...doc.data() }) as Record<string, any> & { id: string },
     );
     const reversed = new Set(rows.map((r) => r.reversesEntryId).filter(Boolean));
@@ -936,4 +971,354 @@ export async function postCompletion(uid: string, raw: unknown) {
     tx.set(postRef, { instanceId, memberId: uid, createdAt: ts(now) });
     return { postId: postRef.id, created: true };
   });
+}
+
+// ---- Moderation (contract Part A) ----------------------------------------------
+
+interface DisputeDoc {
+  choreName: string;
+  status: 'open' | 'resolved' | 'expired';
+  subtaskIds: string[];
+  completerIds: string[];
+  reports: { uid: string; subtaskIds: string[]; reason: string; createdAt: Timestamp }[];
+  expiresAt: Timestamp;
+}
+
+function readDispute(snap: DocumentSnapshot): DisputeDoc {
+  const d = snap.data()!;
+  return {
+    choreName: d.choreName,
+    status: d.status,
+    subtaskIds: (d.subtaskIds ?? []) as string[],
+    completerIds: (d.completerIds ?? []) as string[],
+    reports: (d.reports ?? []) as DisputeDoc['reports'],
+    expiresAt: d.expiresAt as Timestamp,
+  };
+}
+
+/** The caller's member doc plus every member doc with admin rights. */
+async function memberContext(tx: Transaction, hid: string, uid: string) {
+  const members = await tx.get(householdRef(hid).collection('members'));
+  const admins = members.docs.filter((doc) => hasAdminRights(doc.get('role'))).map((doc) => doc.id);
+  return {
+    admins,
+    soleAdmin: admins.length === 1,
+    callerRole: members.docs.find((doc) => doc.id === uid)?.get('role'),
+    callerName: (members.docs.find((doc) => doc.id === uid)?.get('name') as string | undefined) ?? 'Someone',
+  };
+}
+
+export async function setMemberRole(uid: string, raw: unknown) {
+  const input = asObject(raw);
+  const hid = requireId(input.householdId, 'householdId');
+  const memberId = requireId(input.memberId, 'memberId');
+  const role = requireOneOf(input.role, 'role', ['admin', 'member'] as const);
+  const hRef = householdRef(hid);
+
+  await db().runTransaction(async (tx) => {
+    const hh = assertCreator(await tx.get(hRef), uid);
+    if (memberId === uid) fail('invalid-argument', 'You cannot change your own role.');
+    if (!(hh.memberUids as string[]).includes(memberId)) {
+      fail('not-found', 'That person is not a member of this household.');
+    }
+    tx.set(hRef.collection('members').doc(memberId), { role }, { merge: true });
+  });
+  return { memberId, role };
+}
+
+export async function reportCompletion(uid: string, raw: unknown) {
+  const input = asObject(raw);
+  const hid = requireId(input.householdId, 'householdId');
+  const instanceId = requireId(input.instanceId, 'instanceId');
+  const reason = requireString(input.reason ?? '', 'reason', 0, 280);
+  const now = new Date();
+  const hRef = householdRef(hid);
+
+  const outcome = await db().runTransaction(async (tx) => {
+    assertMember(await tx.get(hRef), uid);
+    const members = await memberContext(tx, hid, uid);
+    if (hasAdminRights(members.callerRole)) {
+      fail('permission-denied', 'Admins mark completions directly instead of reporting.');
+    }
+    const instanceSnap = await tx.get(instanceRef(hid, instanceId));
+    if (!instanceSnap.exists) fail('not-found', 'Chore instance not found.');
+    const instance = readInstance(instanceSnap);
+    if (instance.completions.length === 0) fail('failed-precondition', 'This chore has no completions to report.');
+    const targets = reportTargets(instance.completions, uid, input.subtaskIds, now);
+
+    const choreName = instance.choreSnapshot.name;
+    const completerIds = [...new Set(targets.map((id) => instance.completions.find((c) => c.subtaskId === id)!.memberId))];
+    const earliest = Math.min(
+      ...targets.map((id) => instance.completions.find((c) => c.subtaskId === id)!.completedAt.getTime()),
+    );
+
+    const dRef = disputeRef(hid, instanceId);
+    const disputeSnap = await tx.get(dRef);
+    if (!disputeSnap.exists) {
+      tx.set(dRef, {
+        instanceId,
+        choreName,
+        status: 'open',
+        subtaskIds: targets,
+        completerIds,
+        reports: [{ uid, subtaskIds: targets, reason, createdAt: ts(now) }],
+        createdAt: ts(now),
+        expiresAt: ts(new Date(earliest + DISPUTE_WINDOW_MS)),
+      });
+    } else {
+      const dispute = readDispute(disputeSnap);
+      if (dispute.status !== 'open') fail('failed-precondition', 'An admin already reviewed this chore.');
+      if (dispute.reports.some((report) => report.uid === uid)) {
+        fail('already-exists', 'You already reported this chore.');
+      }
+      tx.update(dRef, {
+        subtaskIds: [...new Set([...dispute.subtaskIds, ...targets])],
+        completerIds: [...new Set([...dispute.completerIds, ...completerIds])],
+        reports: [...dispute.reports, { uid, subtaskIds: targets, reason, createdAt: ts(now) }],
+        // expiresAt keeps tracking the earliest disputed completion.
+        expiresAt: ts(new Date(Math.min(dispute.expiresAt.toMillis(), earliest + DISPUTE_WINDOW_MS))),
+      });
+    }
+    tx.update(instanceRef(hid, instanceId), { disputeStatus: 'open' });
+    return { admins: members.admins, reporterName: members.callerName, choreName };
+  });
+
+  await pushToMembers({
+    uids: outcome.admins,
+    title: outcome.choreName,
+    bodyFor: (locale) => reportReviewBody(locale, outcome.reporterName, outcome.choreName),
+  });
+  return { disputeId: instanceId };
+}
+
+/** The ledger fields revocation reads; every other field passes through untouched. */
+interface RevocationLedgerRow {
+  id: string;
+  source: string;
+  subtaskId?: string;
+  memberId: string;
+  amount: number;
+  reversesEntryId?: string;
+}
+
+/**
+ * Shared A3 revocation: reverses each revoked subtask's active ledger row (and, when
+ * the instance was done, every active bonus row) with 'revoke-*' rows carrying
+ * `reversesEntryId` and a `moderation` marker, moves the completions to
+ * `revocations[]`, reopens the instance per the undo status rule, and updates member
+ * XP. `disputeStatus` mirrors the dispute lifecycle when given.
+ */
+async function applyRevocation(
+  tx: Transaction,
+  hid: string,
+  instance: InstanceRecord,
+  revokedIds: string[],
+  moderation: { actorUid: string; disputeId: string | null; verdict: 'partial' | 'not_done' },
+  now: Date,
+  extra: { disputeStatus?: 'open' | 'resolved' | 'expired' } = {},
+): Promise<string[]> {
+  const revoked = revokedIds
+    .map((subtaskId) => ({ subtaskId, completion: instance.completions.find((c) => c.subtaskId === subtaskId) }))
+    .filter((entry): entry is { subtaskId: string; completion: Completion } => Boolean(entry.completion));
+  if (revoked.length === 0) {
+    if (extra.disputeStatus) tx.update(instanceRef(hid, instance.id), { disputeStatus: extra.disputeStatus });
+    return [];
+  }
+
+  const ledger = await tx.get(ledgerCol(hid).where('instanceId', '==', instance.id));
+  const rows = ledger.docs.map((doc) => ({ id: doc.id, ...doc.data() }) as RevocationLedgerRow);
+  const reversed = new Set(rows.map((row) => row.reversesEntryId).filter((id): id is string => Boolean(id)));
+
+  const revokeRows: ReturnType<typeof ledgerRow>[] = [];
+  for (const { subtaskId, completion } of revoked) {
+    const subtaskRow = rows.find(
+      (row) => row.source === 'subtask' && row.subtaskId === subtaskId && !reversed.has(row.id),
+    );
+    if (!subtaskRow) fail('failed-precondition', 'The subtask XP entry is missing.');
+    revokeRows.push(
+      ledgerRow({
+        instanceId: instance.id,
+        subtaskId,
+        memberId: completion.memberId,
+        amount: -subtaskRow.amount,
+        source: 'revoke-subtask',
+        createdAt: now,
+        reversesEntryId: subtaskRow.id,
+        moderation,
+      }),
+    );
+  }
+
+  const wasDone = instance.status === 'done';
+  if (wasDone) {
+    for (const bonus of rows.filter((row) => row.source === 'bonus' && !reversed.has(row.id))) {
+      revokeRows.push(
+        ledgerRow({
+          instanceId: instance.id,
+          memberId: bonus.memberId,
+          amount: -bonus.amount,
+          source: 'revoke-bonus',
+          createdAt: now,
+          reversesEntryId: bonus.id,
+          moderation,
+        }),
+      );
+    }
+  }
+
+  const xpTotals = await nextMemberXp(tx, hid, revokeRows);
+  for (const row of revokeRows) tx.set(ledgerCol(hid).doc(), row);
+  for (const [memberId, xp] of xpTotals) {
+    tx.set(householdRef(hid).collection('members').doc(memberId), { xp }, { merge: true });
+  }
+
+  const remaining = instance.completions.filter((c) => !revokedIds.includes(c.subtaskId));
+  tx.update(instanceRef(hid, instance.id), {
+    completions: remaining.map((c) => ({ ...c, completedAt: ts(c.completedAt) })),
+    revocations: [
+      ...(instance.revocations ?? []),
+      ...revoked.map(({ subtaskId, completion }) => ({
+        subtaskId,
+        memberId: completion.memberId,
+        xp: completion.xp,
+        actorUid: moderation.actorUid,
+        verdict: moderation.verdict,
+        at: ts(now),
+      })),
+    ],
+    status: undoInstanceStatus({ dueAt: instance.dueAt, now, remainingCompletions: remaining.length }),
+    ...(wasDone ? { bonusAwards: {} } : {}),
+    ...(extra.disputeStatus ? { disputeStatus: extra.disputeStatus } : {}),
+  });
+  return revoked.map(({ subtaskId }) => subtaskId);
+}
+
+export async function resolveDispute(uid: string, raw: unknown) {
+  const input = asObject(raw);
+  const hid = requireId(input.householdId, 'householdId');
+  const disputeId = requireId(input.disputeId, 'disputeId');
+  const verdict = requireOneOf(input.verdict, 'verdict', ['done', 'partial', 'not_done'] as const);
+  const now = new Date();
+  const hRef = householdRef(hid);
+
+  const outcome = await db().runTransaction(async (tx) => {
+    assertMember(await tx.get(hRef), uid);
+    const members = await memberContext(tx, hid, uid);
+    if (!hasAdminRights(members.callerRole)) {
+      fail('permission-denied', 'Only members with admin rights can review reports.');
+    }
+    const disputeSnap = await tx.get(disputeRef(hid, disputeId));
+    if (!disputeSnap.exists) fail('not-found', 'Dispute not found.');
+    const dispute = readDispute(disputeSnap);
+    if (dispute.status !== 'open') fail('failed-precondition', 'An admin already reviewed this chore.');
+    // The 72-hour window holds until the closeWeeks job marks the dispute expired.
+    if (now.getTime() > dispute.expiresAt.toMillis()) {
+      fail('failed-precondition', 'The 72-hour dispute window has closed.');
+    }
+    const targets = resolveTargets(dispute, verdict, input.subtaskIds);
+
+    const instanceSnap = await tx.get(instanceRef(hid, disputeId));
+    if (!instanceSnap.exists) fail('not-found', 'Chore instance not found.');
+    const instance = readInstance(instanceSnap);
+    assertNoConflict(instance.completions, dispute.subtaskIds, uid, members.soleAdmin);
+
+    let revokedIds: string[] = [];
+    if (verdict === 'done') {
+      tx.update(instanceRef(hid, disputeId), { disputeStatus: 'resolved' });
+    } else {
+      revokedIds = await applyRevocation(
+        tx,
+        hid,
+        instance,
+        targets,
+        { actorUid: uid, disputeId, verdict },
+        now,
+        { disputeStatus: 'resolved' },
+      );
+    }
+    tx.update(disputeRef(hid, disputeId), {
+      status: 'resolved',
+      verdict,
+      revokedSubtaskIds: revokedIds,
+      resolverUid: uid,
+      resolvedAt: ts(now),
+    });
+    return {
+      revokedIds,
+      recipients: [...new Set([...dispute.completerIds, ...dispute.reports.map((report) => report.uid)])].filter(
+        (memberId) => memberId !== uid,
+      ),
+      choreName: dispute.choreName,
+    };
+  });
+
+  await pushToMembers({
+    uids: outcome.recipients,
+    title: outcome.choreName,
+    bodyFor: (locale) => completionReviewedBody(locale),
+  });
+  return { disputeId, verdict, revokedSubtaskIds: outcome.revokedIds };
+}
+
+export async function moderateInstance(uid: string, raw: unknown) {
+  const input = asObject(raw);
+  const hid = requireId(input.householdId, 'householdId');
+  const instanceId = requireId(input.instanceId, 'instanceId');
+  const verdict = requireOneOf(input.verdict, 'verdict', ['partial', 'not_done'] as const);
+  const now = new Date();
+  const hRef = householdRef(hid);
+
+  const outcome = await db().runTransaction(async (tx) => {
+    assertMember(await tx.get(hRef), uid);
+    const members = await memberContext(tx, hid, uid);
+    if (!hasAdminRights(members.callerRole)) {
+      fail('permission-denied', 'Only members with admin rights can review completions.');
+    }
+    const instanceSnap = await tx.get(instanceRef(hid, instanceId));
+    if (!instanceSnap.exists) fail('not-found', 'Chore instance not found.');
+    const instance = readInstance(instanceSnap);
+    const targets = moderateTargets(instance.completions, verdict, input.subtaskIds);
+    assertWithinDisputeWindow(instance.completions, targets, now);
+    assertNoConflict(instance.completions, targets, uid, members.soleAdmin);
+
+    const disputeSnap = await tx.get(disputeRef(hid, instanceId));
+    const openDispute = disputeSnap.exists && readDispute(disputeSnap).status === 'open';
+    const revokedIds = await applyRevocation(
+      tx,
+      hid,
+      instance,
+      targets,
+      { actorUid: uid, disputeId: null, verdict },
+      now,
+      openDispute ? { disputeStatus: 'resolved' } : {},
+    );
+    if (openDispute) {
+      tx.update(disputeRef(hid, instanceId), {
+        status: 'resolved',
+        verdict,
+        revokedSubtaskIds: revokedIds,
+        resolverUid: uid,
+        resolvedAt: ts(now),
+      });
+    }
+
+    const dispute = openDispute ? readDispute(disputeSnap) : null;
+    const revokedCompleters = instance.completions
+      .filter((c) => revokedIds.includes(c.subtaskId))
+      .map((c) => c.memberId);
+    return {
+      revokedIds,
+      recipients: [
+        ...new Set([...(dispute?.completerIds ?? []), ...(dispute?.reports.map((report) => report.uid) ?? []), ...revokedCompleters]),
+      ].filter((memberId) => memberId !== uid),
+      choreName: instance.choreSnapshot.name,
+    };
+  });
+
+  await pushToMembers({
+    uids: outcome.recipients,
+    title: outcome.choreName,
+    bodyFor: (locale) => completionReviewedBody(locale),
+  });
+  return { instanceId, verdict, revokedSubtaskIds: outcome.revokedIds };
 }

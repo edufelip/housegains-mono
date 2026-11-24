@@ -3,7 +3,9 @@ import test from 'node:test';
 import {
   callableErrorKey,
   isoOf,
+  mapInstance,
   mapInvite,
+  mapLedgerEntry,
   mapMember,
   placeholderMember,
   splitMembers,
@@ -57,6 +59,93 @@ test('the signed-in member placeholder is a plain member until the snapshot arri
     color: '#FFD33D',
     role: 'member',
   });
+});
+
+test('the admin role is kept and unknown roles fall back to member', () => {
+  assert.equal(mapMember('a', { role: 'admin' }).role, 'admin');
+  assert.equal(mapMember('b', { role: 'creator' }).role, 'creator');
+  assert.equal(mapMember('c', { role: 'former' }).role, 'member');
+});
+
+test('instances map dispute status and moderation revocations', () => {
+  const at = new Date('2026-11-20T10:00:00.000Z');
+  const base = {
+    choreId: 'c1',
+    dueAt: at,
+    subtasks: [],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'partial',
+    completions: [],
+    bonusAwards: {},
+  };
+  const instance = mapInstance('i1', {
+    ...base,
+    disputeStatus: 'resolved',
+    revocations: [
+      { subtaskId: 'wash', memberId: 'm1', xp: 10, actorUid: 'creator', verdict: 'not_done', at },
+    ],
+  });
+  assert.equal(instance.disputeStatus, 'resolved');
+  assert.deepEqual(instance.revocations, [
+    {
+      subtaskId: 'wash',
+      memberId: 'm1',
+      xp: 10,
+      actorUid: 'creator',
+      verdict: 'not_done',
+      at: '2026-11-20T10:00:00.000Z',
+    },
+  ]);
+});
+
+test('an instance that was never disputed omits the moderation fields', () => {
+  const instance = mapInstance('i1', {
+    choreId: 'c1',
+    dueAt: new Date(),
+    subtasks: [],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'open',
+    completions: [],
+    bonusAwards: {},
+  });
+  assert.equal(instance.disputeStatus, undefined);
+  assert.equal(instance.revocations, undefined);
+});
+
+test('revoke ledger rows keep their source and reversal pointer', () => {
+  const at = new Date('2026-11-20T10:00:00.000Z');
+  assert.equal(
+    mapLedgerEntry('e1', {
+      instanceId: 'i',
+      subtaskId: 'wash',
+      memberId: 'm',
+      amount: -10,
+      source: 'revoke-subtask',
+      createdAt: at,
+    }).source,
+    'revoke-subtask',
+  );
+  assert.deepEqual(
+    mapLedgerEntry('e2', {
+      instanceId: 'i',
+      memberId: 'm',
+      amount: -5,
+      source: 'revoke-bonus',
+      createdAt: at,
+      reversesEntryId: 'e0',
+    }),
+    {
+      id: 'e2',
+      instanceId: 'i',
+      memberId: 'm',
+      amount: -5,
+      source: 'revoke-bonus',
+      createdAt: '2026-11-20T10:00:00.000Z',
+      reversesEntryId: 'e0',
+    },
+  );
 });
 
 test('invite codes map to the invite-specific messages', () => {
