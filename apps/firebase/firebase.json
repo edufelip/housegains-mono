@@ -16,24 +16,33 @@
       "ignore": ["node_modules", "src", "test", "*.log"]
     }
   ],
-  "hosting": {
-    "public": "hosting/public",
-    "cleanUrls": true,
-    "rewrites": [
-      { "source": "/j/**", "destination": "/j/index.html" },
-      { "source": "/join/**", "destination": "/j/index.html" }
-    ],
-    "headers": [
-      {
-        "source": "/.well-known/apple-app-site-association",
-        "headers": [{ "key": "Content-Type", "value": "application/json" }]
-      },
-      {
-        "source": "**",
-        "headers": [{ "key": "Cache-Control", "value": "public, max-age=300" }]
-      }
-    ]
-  },
+  "hosting": [
+    {
+      "target": "site",
+      "public": "hosting/public",
+      "cleanUrls": true,
+      "rewrites": [
+        { "source": "/j/**", "destination": "/j/index.html" },
+        { "source": "/join/**", "destination": "/j/index.html" }
+      ],
+      "headers": [
+        {
+          "source": "/.well-known/apple-app-site-association",
+          "headers": [{ "key": "Content-Type", "value": "application/json" }]
+        },
+        {
+          "source": "**",
+          "headers": [{ "key": "Cache-Control", "value": "public, max-age=300" }]
+        }
+      ]
+    },
+    {
+      "target": "admin",
+      "public": "../admin/dist",
+      "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+      "rewrites": [{ "source": "**", "destination": "/index.html" }]
+    }
+  ],
   "emulators": {
     "singleProjectMode": true,
     "auth": { "port": 9099 },

@@ -164,6 +164,16 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
 - `/privacy`, `/terms`, `/support`, `/delete-account` in 6 languages (`/pt-BR/privacy` …),
   English at the root path.
 
+### Admin site (target `admin`)
+
+A second Firebase Hosting site serves the gamification admin app (contract Part C10):
+`firebase.json` maps hosting target `admin` to `apps/admin/dist` (a Vite + React +
+TypeScript SPA; every route rewrites to `/index.html`). The site ids are linked in
+`.firebaserc` (`housegains-admin-dev` / `housegains-admin-prod`; the main site is target
+`site`). The admin sites must be created in the Firebase console before the first
+`firebase deploy --only hosting:admin`. The app signs in with Firebase Auth (Google) and
+only ID tokens carrying the `admin: true` custom claim may call the `admin*` callables.
+
 ## Remote Config
 
 The appearance picker's pages come from one Firebase Remote Config parameter, `style_picker_config`.
