@@ -393,7 +393,11 @@ describe('adjustments', () => {
     expect(await walletOf(member.uid)).toMatchObject({ balance: 0, lifetimeEarned: 115 });
     const audit = await auditRows('adjust.apply');
     expect(audit).toHaveLength(2);
-    expect(audit[0]).toMatchObject({ actorUid: admin.uid, before: { balance: 15 }, after: { balance: 115, amount: 100 } });
+    // The query has no order, so match each audit row by its amount.
+    const credit = audit.find((row) => row.after?.amount === 100);
+    const debit = audit.find((row) => row.after?.amount === -115);
+    expect(credit).toMatchObject({ actorUid: admin.uid, before: { balance: 15 }, after: { balance: 115, amount: 100 } });
+    expect(debit).toMatchObject({ actorUid: admin.uid, before: { balance: 115 }, after: { balance: 0, amount: -115 } });
   });
 
   it('refuses a balance below zero, bad amounts and a missing note, and changes nothing', async () => {
