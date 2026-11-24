@@ -9,6 +9,22 @@ import { replayGamiLedgerRow } from './gamification/trigger';
 import { runGamificationReminders } from './gamification/reminders';
 import * as store from './store';
 
+export {
+  adminAdjust,
+  adminApproveAdjustment,
+  adminBackfillLevelFloors,
+  adminGetConfig,
+  adminListAlerts,
+  adminListRuleSets,
+  adminLookupUser,
+  adminPublish,
+  adminRebuildWallet,
+  adminRollback,
+  adminSaveDraft,
+  adminSetConfig,
+  adminSimulate,
+} from './admin-gamification';
+
 // Every callable and scheduled function in the HouseGains v1 contract, region us-central1.
 
 const REGION = 'us-central1';

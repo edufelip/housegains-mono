@@ -19,7 +19,7 @@ import { runGamification } from './runner';
 // It is an approximation of what the callable saw (the callable path is exact):
 // a completion that has since been undone or revoked is not paid again.
 
-type LedgerSource = 'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus' | 'revoke-subtask' | 'revoke-bonus';
+export type LedgerSource = 'subtask' | 'bonus' | 'undo-subtask' | 'undo-bonus' | 'revoke-subtask' | 'revoke-bonus';
 const SOURCES: ReadonlySet<string> = new Set<LedgerSource>([
   'subtask',
   'bonus',
@@ -28,10 +28,6 @@ const SOURCES: ReadonlySet<string> = new Set<LedgerSource>([
   'revoke-subtask',
   'revoke-bonus',
 ]);
-
-function isLedgerSource(value: unknown): value is LedgerSource {
-  return typeof value === 'string' && SOURCES.has(value);
-}
 
 /**
  * Never throws: a failed replay is logged and nothing retries it. A row the callable already covered
@@ -90,25 +86,11 @@ async function replay(doc: QueryDocumentSnapshot, graceMs: number): Promise<void
     reversesRowId: typeof data.reversesEntryId === 'string' ? data.reversesEntryId : null,
     subtaskId: typeof data.subtaskId === 'string' ? data.subtaskId : null,
     moderation: readModeration(data.moderation, memberId),
+    recentSubtaskTimestamps: source === 'subtask' ? await recentSubtaskTimes(hid, memberId, actionAt) : [],
+    reversed: source === 'bonus' ? await hasReversal(hid, doc.id) : false,
   };
 
-  let events: GamiEvent[];
-  switch (source) {
-    case 'subtask':
-      events = await subtaskEvents(facts);
-      break;
-    case 'bonus':
-      events = (await hasReversal(hid, doc.id)) ? [] : [bonusEvent(facts)];
-      break;
-    case 'undo-subtask':
-    case 'revoke-subtask':
-      events = subtaskReversalEvents(facts, source);
-      break;
-    case 'undo-bonus':
-    case 'revoke-bonus':
-      events = bonusReversalEvents(facts, source);
-      break;
-  }
+  const events = buildReplayEvents(source, facts);
   if (events.length === 0) return;
   await runGamification(events, {
     householdId: hid,
@@ -120,7 +102,8 @@ async function replay(doc: QueryDocumentSnapshot, graceMs: number): Promise<void
   });
 }
 
-interface ReplayFacts {
+/** Everything buildReplayEvents needs about one households/{hid}/ledger row; the caller does the reads. */
+export interface ReplayFacts {
   hid: string;
   rowId: string;
   instance: InstanceRecord;
@@ -133,9 +116,36 @@ interface ReplayFacts {
   reversesRowId: string | null;
   subtaskId: string | null;
   moderation: { actorUid: string; verdict: 'partial' | 'not_done'; disputeId: string | null };
+  /** Subtask rows only: the member's subtask credit times in the 10 minutes up to the action (C9 velocity). */
+  recentSubtaskTimestamps: Date[];
+  /** Bonus rows only: a later undo/revoke row names this row, so it must not be paid. */
+  reversed: boolean;
 }
 
-function readModeration(
+/**
+ * The engine events for one XP ledger row, rebuilt from the documents as they are now. Pure: the safety-net
+ * trigger and the admin simulator both use it, each supplying the facts its own way.
+ */
+export function buildReplayEvents(source: LedgerSource, facts: ReplayFacts): GamiEvent[] {
+  switch (source) {
+    case 'subtask':
+      return subtaskEvents(facts);
+    case 'bonus':
+      return facts.reversed ? [] : [bonusEvent(facts)];
+    case 'undo-subtask':
+    case 'revoke-subtask':
+      return subtaskReversalEvents(facts, source);
+    case 'undo-bonus':
+    case 'revoke-bonus':
+      return bonusReversalEvents(facts, source);
+  }
+}
+
+export function isLedgerSource(value: unknown): value is LedgerSource {
+  return typeof value === 'string' && SOURCES.has(value);
+}
+
+export function readModeration(
   value: unknown,
   fallbackActor: string,
 ): { actorUid: string; verdict: 'partial' | 'not_done'; disputeId: string | null } {
@@ -157,7 +167,7 @@ async function hasReversal(hid: string, rowId: string): Promise<boolean> {
   return !snap.empty;
 }
 
-async function subtaskEvents(facts: ReplayFacts): Promise<GamiEvent[]> {
+function subtaskEvents(facts: ReplayFacts): GamiEvent[] {
   const { hid, instance, chore, memberId, actionAt } = facts;
   const completion = instance.completions.find(
     (entry) =>
@@ -190,7 +200,7 @@ async function subtaskEvents(facts: ReplayFacts): Promise<GamiEvent[]> {
       memberJoinedAt: facts.joinedAt,
       xpPeakAfter: facts.xpPeakAfter,
       choreXpRaised: chore?.xpRaisedAt != null,
-      recentSubtaskTimestamps: await recentSubtaskTimes(hid, memberId, actionAt),
+      recentSubtaskTimestamps: facts.recentSubtaskTimestamps,
     },
   ];
   if (isFinalCompleter && actionAt.getTime() <= instance.dueAt.getTime()) {

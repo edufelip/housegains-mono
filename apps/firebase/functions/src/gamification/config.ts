@@ -10,8 +10,9 @@ import {
 } from '../domain/gamification';
 
 // gamification/config (C1) plus the published rule set it points at, cached
-// briefly per function instance. Under the emulator the cache is off so tests
-// can flip the config between calls.
+// briefly per function instance (other instances pick a publish up within
+// CACHE_MS). Under the emulator the cache is off so tests can flip the config
+// between calls.
 
 export interface GamiConfig {
   mode: RolloutMode;
@@ -34,6 +35,11 @@ const OFF_CONFIG: GamiConfig = {
   controlPercent: 0,
 };
 
+/** Drops this instance's cached config; the admin callables call it after a config or publish change. */
+export function invalidateGamiConfigCache(): void {
+  cache = null;
+}
+
 export async function loadGamiConfig(): Promise<GamiConfig> {
   if (cache !== null && Date.now() - cache.at < CACHE_MS) return cache.value;
   const value = await readGamiConfig();
@@ -41,7 +47,8 @@ export async function loadGamiConfig(): Promise<GamiConfig> {
   return value;
 }
 
-async function readGamiConfig(): Promise<GamiConfig> {
+/** The config and its published rule set straight from Firestore, bypassing the cache. */
+export async function readGamiConfig(): Promise<GamiConfig> {
   const snap = await db().doc(GAMI_CONFIG_PATH).get();
   if (!snap.exists) return OFF_CONFIG;
   const d = snap.data()!;

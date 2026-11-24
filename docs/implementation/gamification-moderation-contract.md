@@ -452,18 +452,38 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
 
 ### C10. Admin (apps/admin + callables)
 
-Callables require the Auth custom claim `admin: true` (`permission-denied` otherwise) and write
-`gamification/audit` for every mutation:
-`adminGetConfig`, `adminSetConfig({ mode, livePercent, controlPercent })`, `adminListRuleSets`,
-`adminSaveDraft({ version?, notes, rules })` (validated), `adminPublish({ version })`,
-`adminRollback()`, `adminSimulate({ rules, days: 1..28 })` (replays the last N days of
-`households/*/ledger` rows through the published and the draft rule sets without writing;
-returns per-rule totals, members affected, cap hits, average per member for both),
-`adminLookupUser({ uid })` (wallet projection + ledger rows with rule explanations),
-`adminAdjust({ uid, amount, reasonCode: 'correction'|'abuse'|'support-goodwill', note })`
-(|amount| > 500 creates a pending adjustment that a second, different admin approves with
-`adminApproveAdjustment({ id })`), `adminListAlerts`, `adminRebuildWallet({ uid })`,
-`adminBackfillLevelFloors()`.
+Callables (code: `functions/src/admin-gamification/`, request/response types: `apps/admin/src/api-types.ts`) require the
+Auth custom claim `admin: true` (`permission-denied` otherwise, `unauthenticated` without sign-in; granted with
+`functions/scripts/set-admin-claim.mjs`) and write `gamification/audit/items/{id}` = `{ action, actorUid, at, before, after }`
+for every mutation, in the transaction that makes the change. The full table of inputs, errors and effects is in
+`docs/implementation/firebase-contract.md` ("Admin callables"). Final shapes:
+
+- `adminGetConfig()` → `{ mode, activeVersion, previousVersion, cohortSalt, livePercent, controlPercent }`.
+- `adminSetConfig({ mode, livePercent, controlPercent })` → the config. Percentages 0..100, sum ≤ 100; the salt is created
+  once and never changed.
+- `adminListRuleSets()` → `{ ruleSets: { version, status, notes, createdBy, createdAt, publishedAt, rules }[] }` newest first.
+- `adminSaveDraft({ version?, notes, rules })` → `{ version, status: 'draft', createdAt }`; validation errors →
+  `invalid-argument` whose message lists them.
+- `adminPublish({ version })` → `{ activeVersion, previousVersion, publishedAt }`; `adminRollback()` →
+  `{ activeVersion, previousVersion }` (the pair is swapped).
+- `adminSimulate({ rules, days: 1..28 })` → `{ days, published, draft, perRule }`; each side is
+  `{ ganhos, zelo, membersAffected, capHits, averagePerMember }` (`averagePerMember` = (Ganhos + Zelo) / members affected,
+  one decimal), `perRule` is `{ ruleId, track, published: {total, membersAffected, capHits, averagePerMember} | null, draft: … | null }[]`
+  sorted by rule id. The ledger rows are replayed in time order through each rule set with fresh projections (so every member
+  starts without a welcome payout), without any write. A *cap hit* is a replayed event where the rule's award is smaller than
+  the same rule's award with its caps removed. Events are rebuilt like the safety-net trigger does (current instance state).
+- `adminLookupUser({ uid })` → `{ uid, wallet | null, ledger: (wallet row + explanation)[], pendingAdjustments[] }`, ledger
+  newest first, at most 500 rows.
+- `adminAdjust({ uid, amount, reasonCode, note })` → `{ id: null, status: 'applied' }` for |amount| ≤ 500, otherwise
+  `{ id, status: 'pending' }`; `adminApproveAdjustment({ id })` (a different admin) → `{ id, status: 'applied', approvedBy, appliedAt }`.
+  Applying writes the wallet ledger row `admin.adjust` (key `admin.adjust:{adjustmentId}:{uid}`, signed `amount`, `reason` = note,
+  `reasonCode`, `adjustmentId`, `appliedBy`) and updates the projection (balance, and lifetimeEarned for a positive amount)
+  in one transaction; a balance below 0 is `failed-precondition`.
+- `adminListAlerts()` → `{ alerts }` (200 newest first); `adminRebuildWallet({ uid })` → `{ uid, rows, balance }`;
+  `adminBackfillLevelFloors()` → `{ updatedMembers }`.
+
+Publishing, rolling back and changing the config drop the config cache of the instance that served the call; other
+instances read the new rule set within the 60 s cache window (C1).
 
 `apps/admin`: Vite + React + TypeScript web app on a second Firebase Hosting site (target `admin`),
 Firebase Auth Google sign-in, all writes through the callables. Screens: rollout/config, rule sets

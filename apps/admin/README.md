@@ -42,8 +42,40 @@ bun run build      # typecheck + production build into dist/
 ```
 
 Sign-in is Google via Firebase Auth; the app only works for accounts whose ID
-token carries the `admin: true` custom claim. Grant it with the Firebase Admin
-SDK (`auth.setCustomUserClaims(uid, { admin: true })`).
+token carries the `admin: true` custom claim.
+
+### Granting the admin claim
+
+The callables (`apps/firebase/functions/src/admin-gamification/`) reject every
+caller whose ID token has no `admin: true`. Grant it with the ops script, then
+sign out and back in (the claim is read from a fresh ID token):
+
+```bash
+cd apps/firebase/functions
+# real project: service-account key or application-default credentials
+GOOGLE_APPLICATION_CREDENTIALS=/path/key.json node scripts/set-admin-claim.mjs <uid> --project <projectId>
+node scripts/set-admin-claim.mjs <uid> --remove --project <projectId>   # revoke
+```
+
+Other custom claims on the user are kept. A large adjustment (|amount| > 500)
+needs a *second* admin to approve it, so grant the claim to at least two people.
+
+### Run against the emulators
+
+```bash
+cd apps/firebase
+npx firebase-tools@14 emulators:start --only auth,firestore,functions --project demo-housegains
+# second terminal: create a user in the Auth emulator UI (http://localhost:4000),
+# then grant the claim against the emulator:
+cd functions && npm run build
+FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 GCLOUD_PROJECT=demo-housegains \
+  node scripts/set-admin-claim.mjs <uid>
+# third terminal:
+cd apps/admin && VITE_USE_EMULATORS=1 bun run dev
+```
+
+The backend tests for every callable are `apps/firebase/functions/test/emulator/admin-gamification.test.ts`
+(run with `npm run test:emulator` under `firebase emulators:exec`).
 
 ## Deploy
 

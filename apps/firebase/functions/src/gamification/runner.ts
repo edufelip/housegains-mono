@@ -66,7 +66,7 @@ export interface GamiRunContext {
   ledgerRowIds?: string[];
 }
 
-interface LoadedRow {
+export interface LoadedRow {
   key: string;
   amount: number;
   createdAt: Date;
@@ -83,13 +83,13 @@ interface OwnedCelebration {
   celebration: Celebration;
 }
 
-type ReversalEvent = Extract<
+export type ReversalEvent = Extract<
   GamiEvent,
   { kind: 'ledger.undo-subtask' | 'ledger.revoke-subtask' | 'ledger.undo-bonus' | 'ledger.revoke-bonus' }
 >;
 
 /** Events the engine can award Zelo on; they need the organizer projection. */
-const ORGANIZER_KINDS = new Set<GamiEvent['kind']>([
+export const ORGANIZER_KINDS = new Set<GamiEvent['kind']>([
   'ledger.subtask',
   'household.setup_finished',
   'chore.deleted',
@@ -329,7 +329,7 @@ function dedupe<T>(items: T[], baseOf: (item: T) => string): Array<[string, T]> 
 
 // ---- per-event membership and source refs ----------------------------------------
 
-function membersFor(event: GamiEvent): string[] {
+export function membersFor(event: GamiEvent): string[] {
   switch (event.kind) {
     case 'ledger.subtask':
     case 'ledger.bonus':
@@ -474,7 +474,7 @@ async function readLedger(
 
 // ---- reversal enrichment -----------------------------------------------------------
 
-function isReversal(event: GamiEvent): event is ReversalEvent {
+export function isReversal(event: GamiEvent): event is ReversalEvent {
   return (
     event.kind === 'ledger.undo-subtask' ||
     event.kind === 'ledger.revoke-subtask' ||
@@ -484,7 +484,7 @@ function isReversal(event: GamiEvent): event is ReversalEvent {
 }
 
 /** reversedAward comes from the original wallet rows (amount + awardedAt), or null (C4). */
-function enrichReversal(event: ReversalEvent, walletOwner: string | null, rows: LoadedRow[]): ReversalEvent {
+export function enrichReversal(event: ReversalEvent, walletOwner: string | null, rows: LoadedRow[]): ReversalEvent {
   const awarded = (ruleId: string): ReversedRow | null => {
     if (walletOwner !== event.memberId) return null;
     const key = walletKey(ruleId, event.reversedRowId, event.memberId);
