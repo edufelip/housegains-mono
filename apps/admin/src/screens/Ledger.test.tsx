@@ -30,6 +30,19 @@ beforeEach(() => {
   authState.uid = 'admin-2';
 });
 
+async function lookUp(uid: string) {
+  fireEvent.change(screen.getByLabelText('User uid'), { target: { value: uid } });
+  fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
+  await waitFor(() => expect(apiMock.lookupUser).toHaveBeenLastCalledWith({ uid }));
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Look up' })).toBeEnabled());
+}
+
+function fillAdjustment(amount: string) {
+  fireEvent.change(screen.getByLabelText('Amount'), { target: { value: amount } });
+  fireEvent.change(screen.getByLabelText('Reason code'), { target: { value: 'correction' } });
+  fireEvent.change(screen.getByLabelText('Note (required)'), { target: { value: 'make-good' } });
+}
+
 describe('Ledger screen', () => {
   it('looks up a uid and shows the wallet, rows and pending adjustments', async () => {
     apiMock.lookupUser.mockResolvedValue(sampleLookup());
@@ -84,7 +97,7 @@ describe('Ledger screen', () => {
     apiMock.adjust.mockResolvedValue({ id: 'adj-2', status: 'pending' });
     render(<Ledger />);
 
-    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: 'user-1' } });
+    await lookUp('user-1');
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '600' } });
     fireEvent.change(screen.getByLabelText('Reason code'), { target: { value: 'correction' } });
     fireEvent.change(screen.getByLabelText('Note (required)'), {
@@ -117,7 +130,7 @@ describe('Ledger screen', () => {
     apiMock.adjust.mockResolvedValue({ id: null, status: 'applied' });
     render(<Ledger />);
 
-    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: 'user-1' } });
+    await lookUp('user-1');
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-25' } });
     fireEvent.change(screen.getByLabelText('Reason code'), { target: { value: 'abuse' } });
     fireEvent.change(screen.getByLabelText('Note (required)'), {
@@ -158,7 +171,7 @@ describe('Ledger screen', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
     render(<Ledger />);
 
-    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: 'user-1' } });
+    await lookUp('user-1');
     fireEvent.click(screen.getByRole('button', { name: 'Rebuild wallet' }));
 
     await waitFor(() => expect(apiMock.rebuildWallet).toHaveBeenCalledWith({ uid: 'user-1' }));
@@ -175,5 +188,76 @@ describe('Ledger screen', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Look up' }));
 
     expect(await screen.findByText('no such user')).toBeInTheDocument();
+  });
+
+  it('disables adjust and rebuild until a user has been looked up', () => {
+    render(<Ledger />);
+
+    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: 'user-1' } });
+    fillAdjustment('25');
+
+    expect(screen.getByRole('button', { name: 'Rebuild wallet' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Apply adjustment' })).toBeDisabled();
+    expect(screen.getByText(/Look up a user before rebuilding/)).toBeInTheDocument();
+  });
+
+  it('never adjusts or rebuilds a uid typed after the lookup', async () => {
+    apiMock.lookupUser.mockResolvedValue(sampleLookup());
+    render(<Ledger />);
+
+    await lookUp('user-1');
+    expect(screen.getByRole('button', { name: 'Rebuild wallet' })).toBeEnabled();
+
+    // The wallet on screen is still user-1's; the input now names someone else.
+    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: 'user-2' } });
+    fillAdjustment('25');
+
+    expect(screen.getByRole('button', { name: 'Apply adjustment' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Rebuild wallet' })).toBeDisabled();
+    expect(screen.getByText(/The wallet below is user-1's/)).toBeInTheDocument();
+    fireEvent.submit(screen.getByLabelText('Amount').closest('form') as HTMLFormElement);
+    expect(apiMock.adjust).not.toHaveBeenCalled();
+    expect(apiMock.rebuildWallet).not.toHaveBeenCalled();
+
+    // Typing the looked-up uid back re-enables them, targeting that uid.
+    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: ' user-1 ' } });
+    expect(screen.getByRole('button', { name: 'Apply adjustment' })).toBeEnabled();
+  });
+
+  it('refreshes the looked-up user, not the edited input, after approving', async () => {
+    apiMock.lookupUser.mockResolvedValue(sampleLookup());
+    apiMock.approveAdjustment.mockResolvedValue({
+      id: 'adj-1',
+      status: 'applied',
+      approvedBy: 'admin-2',
+      appliedAt: '2026-11-24T12:00:00.000Z',
+    });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<Ledger />);
+
+    await lookUp('user-1');
+    fireEvent.change(screen.getByLabelText('User uid'), { target: { value: 'user-2' } });
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve 600' }));
+
+    await waitFor(() => expect(apiMock.approveAdjustment).toHaveBeenCalledWith({ id: 'adj-1' }));
+    await waitFor(() => expect(apiMock.lookupUser).toHaveBeenCalledTimes(2));
+    expect(apiMock.lookupUser).toHaveBeenNthCalledWith(2, { uid: 'user-1' });
+    expect(apiMock.lookupUser).not.toHaveBeenCalledWith({ uid: 'user-2' });
+  });
+
+  it('credits the looked-up user and refreshes that user after an adjustment', async () => {
+    apiMock.lookupUser.mockResolvedValue(sampleLookup());
+    apiMock.adjust.mockResolvedValue({ id: null, status: 'applied' });
+    render(<Ledger />);
+
+    await lookUp('user-1');
+    fillAdjustment('25');
+    fireEvent.click(screen.getByRole('button', { name: 'Apply adjustment' }));
+
+    await waitFor(() =>
+      expect(apiMock.adjust).toHaveBeenCalledWith(expect.objectContaining({ uid: 'user-1' })),
+    );
+    await waitFor(() => expect(apiMock.lookupUser).toHaveBeenCalledTimes(2));
+    expect(apiMock.lookupUser).toHaveBeenNthCalledWith(2, { uid: 'user-1' });
   });
 });

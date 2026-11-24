@@ -79,6 +79,41 @@ export function displayedLevel({ xp, xpPeak, levelFloor }: LevelInputs): number 
   return Math.max(floor, levelForXp(peak));
 }
 
+export interface LevelMoment {
+  /** False when the celebration must be acknowledged without being shown. */
+  show: boolean;
+  /** The level to show: the level the rest of the app displays for this member. */
+  level: number;
+}
+
+/**
+ * Whether a `moment: 'level'` celebration is a real level-up for this member, and which level to
+ * show. The server only knows the new curve and sends `levelForXp(xpPeak)`; a backfilled member
+ * keeps `levelFloor` (or, before the backfill, the old-curve level) as a floor of their displayed
+ * level. A celebration at or below that floor is not a level-up in the app (they stay on the floor
+ * level), so it is acknowledged silently. Above the floor the new-curve level is the displayed
+ * level, so the shown number never disagrees with the rest of the app.
+ */
+export function levelMoment(
+  celebrationLevel: number | undefined,
+  member: LevelInputs,
+): LevelMoment {
+  const displayed = displayedLevel(member);
+  if (typeof celebrationLevel !== 'number' || !Number.isFinite(celebrationLevel)) {
+    return { show: false, level: displayed };
+  }
+  const current = Math.max(0, Math.floor(finiteOrZero(member.xp)));
+  const floor =
+    typeof member.levelFloor === 'number' && Number.isFinite(member.levelFloor)
+      ? member.levelFloor
+      : Math.floor(current / 100) + 1;
+  return {
+    show: celebrationLevel > floor,
+    // The member snapshot can lag the celebration by a moment: never show a lower level than sent.
+    level: Math.max(displayed, celebrationLevel),
+  };
+}
+
 export interface LevelProgress {
   currentThreshold: number;
   nextThreshold: number;

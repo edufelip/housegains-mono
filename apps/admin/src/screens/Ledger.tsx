@@ -159,7 +159,10 @@ function PendingAdjustments({
 
 export function Ledger() {
   const { uid: currentUid } = useAuth();
+  // `uid` is the live input; `lookedUpUid` is the user the wallet below belongs to. Every mutation
+  // and refresh targets `lookedUpUid`, so editing the input can never redirect them.
   const [uid, setUid] = useState('');
+  const [lookedUpUid, setLookedUpUid] = useState<string | null>(null);
   const [lookup, setLookup] = useState<AdminLookupUserResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [lookupError, setLookupError] = useState<unknown>(null);
@@ -178,13 +181,16 @@ export function Ledger() {
   const showSecondAdminNote =
     parsedAdjustment.value !== null && needsSecondAdmin(parsedAdjustment.value.amount);
 
-  async function runLookup() {
-    const trimmed = uid.trim();
-    if (!trimmed) return;
+  const mutationsEnabled = lookedUpUid !== null && uid.trim() === lookedUpUid;
+
+  async function lookUp(target: string) {
+    if (!target) return;
     setLoading(true);
     setLookupError(null);
     try {
-      setLookup(await api.lookupUser({ uid: trimmed }));
+      const result = await api.lookupUser({ uid: target });
+      setLookup(result);
+      setLookedUpUid(target);
     } catch (e) {
       setLookupError(e);
     } finally {
@@ -193,18 +199,19 @@ export function Ledger() {
   }
 
   async function submitAdjustment() {
-    if (!parsedAdjustment.value) return;
+    if (!parsedAdjustment.value || lookedUpUid === null || !mutationsEnabled) return;
+    const target = lookedUpUid;
     setAdjusting(true);
     setAdjustError(null);
     setAdjustNote('');
     try {
-      const result = await api.adjust({ uid: uid.trim(), ...parsedAdjustment.value });
+      const result = await api.adjust({ uid: target, ...parsedAdjustment.value });
       setAdjustNote(
         result.status === 'pending'
           ? 'Pending: over ±500 needs approval by a second admin.'
           : 'Adjustment applied.',
       );
-      await runLookup();
+      await lookUp(target);
     } catch (e) {
       setAdjustError(e);
     } finally {
@@ -213,24 +220,28 @@ export function Ledger() {
   }
 
   async function approve(id: string) {
+    if (lookedUpUid === null) return;
+    const target = lookedUpUid;
     setActionError(null);
     setActionNote('');
     try {
       await api.approveAdjustment({ id });
       setActionNote('Adjustment approved and applied.');
-      await runLookup();
+      await lookUp(target);
     } catch (e) {
       setActionError(e);
     }
   }
 
   async function rebuild() {
+    if (lookedUpUid === null || !mutationsEnabled) return;
+    const target = lookedUpUid;
     setActionError(null);
     setActionNote('');
     try {
-      const result = await api.rebuildWallet({ uid: uid.trim() });
+      const result = await api.rebuildWallet({ uid: target });
       setActionNote(`Wallet rebuilt from ${result.rows} rows; balance is now ${result.balance}.`);
-      await runLookup();
+      await lookUp(target);
     } catch (e) {
       setActionError(e);
     }
@@ -243,7 +254,7 @@ export function Ledger() {
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          void runLookup();
+          void lookUp(uid.trim());
         }}
       >
         <label htmlFor="lookup-uid">User uid</label>
@@ -259,11 +270,18 @@ export function Ledger() {
           </button>
           <ConfirmButton
             label="Rebuild wallet"
-            confirmText={`Rebuild ${uid.trim() || 'this user'}'s wallet by replaying the whole ledger?`}
-            disabled={loading}
+            confirmText={`Rebuild ${lookedUpUid ?? 'this user'}'s wallet by replaying the whole ledger?`}
+            disabled={loading || !mutationsEnabled}
             onConfirm={() => void rebuild()}
           />
         </div>
+        {!mutationsEnabled ? (
+          <p className="muted">
+            {lookedUpUid === null
+              ? 'Look up a user before rebuilding their wallet or adjusting their Ganhos.'
+              : `The wallet below is ${lookedUpUid}'s. Look up the uid above again before rebuilding or adjusting.`}
+          </p>
+        ) : null}
       </form>
 
       {lookupError !== null ? <ErrorNote error={lookupError} /> : null}
@@ -292,7 +310,10 @@ export function Ledger() {
       ) : null}
 
       <h3>Adjustment</h3>
-      <p className="muted">Signed integer Ganhos amount; positive credits, negative debits.</p>
+      <p className="muted">
+        Signed integer Ganhos amount; positive credits, negative debits.
+        {lookedUpUid !== null ? ` Applies to ${lookedUpUid}.` : ''}
+      </p>
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -351,7 +372,7 @@ export function Ledger() {
         <div className="row-actions">
           <button
             type="submit"
-            disabled={parsedAdjustment.value === null || adjusting || uid.trim() === ''}
+            disabled={parsedAdjustment.value === null || adjusting || !mutationsEnabled}
           >
             {adjusting ? 'Applying…' : 'Apply adjustment'}
           </button>

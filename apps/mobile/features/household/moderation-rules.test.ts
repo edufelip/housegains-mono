@@ -9,7 +9,9 @@ import {
   isWithinReviewWindow,
   moderatableSubtasks,
   partialAvailable,
+  partialModerationAvailable,
   reportableSubtasks,
+  selectableForModeration,
   soleAdminOf,
 } from './moderation-rules';
 import type { Dispute, Instance, Member } from './types';
@@ -175,4 +177,28 @@ test('isPartialSelection requires a non-empty strict subset of the pool', () => 
   assert.equal(isPartialSelection(pool, pool), false);
   assert.equal(isPartialSelection(['feed', 'walk', 'paws'], pool), false);
   assert.equal(isPartialSelection(['feed', 'unknown'], pool), false);
+});
+
+test('selectableForModeration drops the caller’s own completions unless they are the sole admin', () => {
+  const instanceOne = instance([
+    completion('feed', 'edu', IN_WINDOW),
+    completion('walk', 'bia', IN_WINDOW),
+  ]);
+  assert.deepEqual(selectableForModeration(instanceOne, ['feed', 'walk'], 'edu', members), [
+    'walk',
+  ]);
+  const soleAdminHousehold = [member('edu', 'creator'), member('bia')];
+  assert.deepEqual(
+    selectableForModeration(instanceOne, ['feed', 'walk'], 'edu', soleAdminHousehold),
+    ['feed', 'walk'],
+  );
+});
+
+test('partialModerationAvailable counts only selectable steps and keeps one step done', () => {
+  assert.equal(partialModerationAvailable([], ['feed', 'walk']), false);
+  // Everything selectable: a single step cannot be split, two can.
+  assert.equal(partialModerationAvailable(['feed'], ['feed']), false);
+  assert.equal(partialModerationAvailable(['feed', 'walk'], ['feed', 'walk']), true);
+  // One step is the caller's own and stays done, so the other one is a valid partial.
+  assert.equal(partialModerationAvailable(['walk'], ['feed', 'walk']), true);
 });

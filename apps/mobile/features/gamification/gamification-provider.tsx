@@ -14,7 +14,12 @@ import { useAuth } from '@/features/auth';
 import { CallableError } from '@/features/firebase';
 import { useHousehold } from '@/features/household';
 import { AwayWeeksError } from './away-weeks-error';
-import { initialQueueState, queueReducer, type ActiveCelebration } from './celebration-queue';
+import {
+  ackRetryDelayMs,
+  initialQueueState,
+  queueReducer,
+  type ActiveCelebration,
+} from './celebration-queue';
 import {
   gamificationCalls,
   subscribeToInbox,
@@ -32,8 +37,10 @@ export type LoadStatus = 'loading' | 'ready' | 'error';
 export interface GamificationViewModel {
   /** `gamification_enabled` AND the household cohort is live. Everything below is inert when false. */
   visible: boolean;
-  /** Wallet and recent ledger rows (private to the owner). */
+  /** Wallet and recent ledger rows (private to the owner). Not affected by the inbox listener. */
   walletStatus: LoadStatus;
+  /** The celebration inbox listener; an error here only delays celebrations. */
+  inboxStatus: LoadStatus;
   wallet: Wallet | null;
   ledger: WalletLedgerRow[];
   /** Organizer projection of the household creator (members read it). */
@@ -66,6 +73,7 @@ const NO_LEDGER: WalletLedgerRow[] = [];
 export const INERT_GAMIFICATION: GamificationViewModel = {
   visible: false,
   walletStatus: 'loading',
+  inboxStatus: 'loading',
   wallet: null,
   ledger: NO_LEDGER,
   organizerStatus: 'loading',
@@ -111,24 +119,33 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
   const [attempt, setAttempt] = useState(0);
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [walletStatus, setWalletStatus] = useState<LoadStatus>('loading');
+  const [inboxStatus, setInboxStatus] = useState<LoadStatus>('loading');
   const [ledger, setLedger] = useState<WalletLedgerRow[]>(NO_LEDGER);
   const [organizer, setOrganizer] = useState<Organizer | null>(null);
   const [organizerStatus, setOrganizerStatus] = useState<LoadStatus>('loading');
   const [queue, dispatch] = useReducer(queueReducer, initialQueueState);
 
-  // Wallet, recent ledger rows and the inbox: only while the program is visible.
+  // The queue (what was shown, what still needs an acknowledgement) belongs to the signed-in user
+  // while the program is visible. A listener retry must not clear it, or inbox rows that are
+  // shown but not yet acknowledged would be celebrated again.
   useEffect(() => {
     dispatch({ type: 'reset' });
+  }, [visible, uid]);
+
+  // Wallet, recent ledger rows and the inbox: only while the program is visible. The wallet screen
+  // and the inbox fail independently, so each listener reports into its own status.
+  useEffect(() => {
     setWallet(null);
     setLedger(NO_LEDGER);
     setWalletStatus('loading');
+    setInboxStatus('loading');
     if (!visible || !uid) return undefined;
     let ledgerReady = false;
     let walletReady = false;
     const settle = () => {
       if (ledgerReady && walletReady) setWalletStatus('ready');
     };
-    const fail = () => setWalletStatus('error');
+    const failWallet = () => setWalletStatus('error');
     const unsubscribes = [
       subscribeToWallet(
         uid,
@@ -137,7 +154,7 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
           walletReady = true;
           settle();
         },
-        fail,
+        failWallet,
       ),
       subscribeToWalletLedger(
         uid,
@@ -146,11 +163,12 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
           ledgerReady = true;
           settle();
         },
-        fail,
+        failWallet,
       ),
       subscribeToInbox(
         uid,
         (rows) => {
+          setInboxStatus('ready');
           if (rows.length === 0) return;
           dispatch({
             type: 'receive',
@@ -160,7 +178,7 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
             createdAt: Object.fromEntries(rows.map((row) => [row.id, row.createdAt])),
           });
         },
-        fail,
+        () => setInboxStatus('error'),
       ),
     ];
     return () => unsubscribes.forEach((unsubscribe) => unsubscribe());
@@ -181,10 +199,19 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
     );
   }, [visible, householdId, creatorId, attempt]);
 
-  // Acknowledge inbox rows once they were shown. Acknowledging is idempotent. When it fails the ids
-  // stay queued and go out with the next batch (the next shown inbox celebration), never in a loop;
+  // Acknowledge inbox rows once they were shown. Acknowledging is idempotent. A failed call is
+  // retried with a bounded backoff (ackRetryDelayMs) and also goes out with the next batch;
   // meanwhile the queue dedupes by id, so nothing shows twice in this session.
   const acking = useRef(false);
+  const ackFailures = useRef(0);
+  const ackTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [ackTick, setAckTick] = useState(0);
+  useEffect(
+    () => () => {
+      if (ackTimer.current) clearTimeout(ackTimer.current);
+    },
+    [],
+  );
   useEffect(() => {
     if (queue.toAck.length === 0 || acking.current) return;
     const ids = queue.toAck.slice(0, ACK_BATCH);
@@ -192,13 +219,20 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
     gamificationCalls.ackCelebrations({ ids }).then(
       () => {
         acking.current = false;
+        ackFailures.current = 0;
         dispatch({ type: 'acked', ids });
       },
       () => {
         acking.current = false;
+        ackFailures.current += 1;
+        const delay = ackRetryDelayMs(ackFailures.current);
+        if (delay !== null) {
+          if (ackTimer.current) clearTimeout(ackTimer.current);
+          ackTimer.current = setTimeout(() => setAckTick((tick) => tick + 1), delay);
+        }
       },
     );
-  }, [queue.toAck]);
+  }, [queue.toAck, ackTick]);
 
   const [lastSeenBalance, setLastSeenBalance] = useState<number | null>(null);
   useEffect(() => {
@@ -247,7 +281,12 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
     (instanceId: string) => queue.completionBadges[instanceId] ?? NO_BADGES,
     [queue.completionBadges],
   );
-  const retry = useCallback(() => setAttempt((count) => count + 1), []);
+  const retry = useCallback(() => {
+    setAttempt((count) => count + 1);
+    // A manual retry also gives failed acknowledgements a fresh set of attempts.
+    ackFailures.current = 0;
+    setAckTick((tick) => tick + 1);
+  }, []);
 
   const setAwayWeeks = useCallback(
     async (weekStarts: string[]) => {
@@ -273,6 +312,7 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
         ? {
             visible,
             walletStatus,
+            inboxStatus,
             wallet,
             ledger,
             organizerStatus,
@@ -291,6 +331,7 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
     [
       visible,
       walletStatus,
+      inboxStatus,
       wallet,
       ledger,
       organizerStatus,

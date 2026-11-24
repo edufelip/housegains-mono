@@ -9,8 +9,9 @@ import {
   hasAdminRights,
   hasModerationConflict,
   moderatableSubtasks,
-  partialAvailable,
+  partialModerationAvailable,
   reportableSubtasks,
+  selectableForModeration,
 } from '@/features/household/moderation-rules';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { ReportSheet } from './household-safety';
@@ -216,9 +217,17 @@ export function ChoreDetailScreen({
   const moderatable = moderatableSubtasks(instance, now);
   const completedCount = new Set(instance.completions.map(({ subtaskId }) => subtaskId)).size;
   const canModerate = isAdmin && moderatable.length > 0 && onModerate !== undefined;
+  const roster = rosterMembers ?? members;
+  // "Not done" revokes every in-window step, so the caller's own completion blocks it. A partial
+  // verdict only targets the picked steps (the server checks the targets): the caller's own
+  // completions are not offered, everyone else's stay selectable.
   const conflicted = canModerate
-    ? hasModerationConflict(instance, moderatable, currentMember.id, rosterMembers ?? members)
+    ? hasModerationConflict(instance, moderatable, currentMember.id, roster)
     : false;
+  const selectable = canModerate
+    ? selectableForModeration(instance, moderatable, currentMember.id, roster)
+    : [];
+  const partialPossible = canModerate && partialModerationAvailable(selectable, moderatable);
   const canReport = canReportCompletion(currentMember, instance, openDispute, now);
   const alreadyReported =
     openDispute?.reports.some((report) => report.uid === currentMember.id) ?? false;
@@ -590,9 +599,9 @@ export function ChoreDetailScreen({
         </Card>
       ) : null}
 
-      {canModerate && !conflicted ? (
+      {canModerate && (!conflicted || partialPossible) ? (
         <Card style={{ gap: 10 }} testID="housegains.choreDetail.moderation">
-          {partialAvailable(completedCount) ? (
+          {partialPossible ? (
             <Button
               onPress={() => setPartialOpen(true)}
               testID="housegains.choreDetail.markPartial"
@@ -600,23 +609,25 @@ export function ChoreDetailScreen({
               variant="secondary"
             />
           ) : null}
-          <Button
-            onPress={() =>
-              setModerateConfirm({
-                title: t('housegains.screens.choreDetail.confirmNotDoneTitle'),
-                body: t('housegains.screens.choreDetail.confirmNotDoneBody', {
-                  steps: moderationStepsFor(moderatable, instance, members, t)
-                    .map((step) => step.label)
-                    .join(', '),
-                }),
-                confirmTitle: t('housegains.screens.choreDetail.markNotDone'),
-                onConfirm: () => onModerate(instance.id, 'not_done', moderatable),
-              })
-            }
-            testID="housegains.choreDetail.markNotDone"
-            title={t('housegains.screens.choreDetail.markNotDone')}
-            variant="secondary"
-          />
+          {!conflicted ? (
+            <Button
+              onPress={() =>
+                setModerateConfirm({
+                  title: t('housegains.screens.choreDetail.confirmNotDoneTitle'),
+                  body: t('housegains.screens.choreDetail.confirmNotDoneBody', {
+                    steps: moderationStepsFor(moderatable, instance, members, t)
+                      .map((step) => step.label)
+                      .join(', '),
+                  }),
+                  confirmTitle: t('housegains.screens.choreDetail.markNotDone'),
+                  onConfirm: () => onModerate(instance.id, 'not_done', moderatable),
+                })
+              }
+              testID="housegains.choreDetail.markNotDone"
+              title={t('housegains.screens.choreDetail.markNotDone')}
+              variant="secondary"
+            />
+          ) : null}
         </Card>
       ) : null}
 
@@ -663,10 +674,11 @@ export function ChoreDetailScreen({
       ) : null}
       {onModerate && partialOpen ? (
         <PartialPickerSheet
+          allowFullSelection={selectable.length < moderatable.length}
           confirmTitle={t('housegains.screens.choreDetail.markPartial')}
           onClose={() => setPartialOpen(false)}
           onSubmit={(subtaskIds) => onModerate(instance.id, 'partial', subtaskIds)}
-          steps={moderationStepsFor(moderatable, instance, members, t)}
+          steps={moderationStepsFor(selectable, instance, members, t)}
           testID="housegains.choreDetail.partialSheet"
           title={t('housegains.screens.moderation.pickTitle')}
           visible={partialOpen}

@@ -121,6 +121,7 @@ function visibleGamification(
     ...INERT_GAMIFICATION,
     visible: true,
     walletStatus: 'ready',
+    inboxStatus: 'ready',
     wallet: fakeWallet(),
     ledger: fakeLedger(),
     organizerStatus: 'ready',

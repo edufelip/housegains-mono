@@ -30,10 +30,11 @@ vi.mock('./api', async () => {
 
 import { App } from './App';
 import { api } from './api';
-import { signInWithPopup } from 'firebase/auth';
+import { signInWithPopup, signOut } from 'firebase/auth';
 
 const apiMock = vi.mocked(api);
 const popupMock = vi.mocked(signInWithPopup);
+const signOutMock = vi.mocked(signOut);
 
 function fakeUser(admin: boolean) {
   return {
@@ -85,5 +86,73 @@ describe('authorization gate', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in with Google' }));
     await act(async () => {});
     expect(popupMock).toHaveBeenCalled();
+  });
+});
+
+describe('claims read', () => {
+  it('falls back to the sign-in gate with the reason when the claims read fails', async () => {
+    render(<App />);
+    await act(async () => {
+      h.callback?.({
+        uid: 'admin-1',
+        getIdTokenResult: async () => {
+          throw new Error('network down');
+        },
+      });
+    });
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(screen.getByRole('alert')).toHaveTextContent('Could not verify admin access: network down');
+    expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rule sets' })).not.toBeInTheDocument();
+    expect(signOutMock).toHaveBeenCalled();
+  });
+
+  it('ignores a claims read that finishes after the user signed out', async () => {
+    let finish: (token: { claims: { admin: boolean } }) => void = () => {};
+    const slowUser = {
+      uid: 'admin-1',
+      getIdTokenResult: () =>
+        new Promise<{ claims: { admin: boolean } }>((resolve) => {
+          finish = resolve;
+        }),
+    };
+    render(<App />);
+    await act(async () => {
+      h.callback?.(slowUser);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+
+    await act(async () => {
+      h.callback?.(null);
+    });
+    await act(async () => {
+      finish({ claims: { admin: true } });
+    });
+
+    expect(screen.getByRole('button', { name: 'Sign in with Google' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Rule sets' })).not.toBeInTheDocument();
+  });
+
+  it('lets the newest account win when claims reads finish out of order', async () => {
+    let finishFirst: (token: { claims: { admin: boolean } }) => void = () => {};
+    const first = {
+      uid: 'first',
+      getIdTokenResult: () =>
+        new Promise<{ claims: { admin: boolean } }>((resolve) => {
+          finishFirst = resolve;
+        }),
+    };
+    render(<App />);
+    await act(async () => {
+      h.callback?.(first);
+    });
+    await act(async () => {
+      h.callback?.({ uid: 'second', getIdTokenResult: async () => ({ claims: {} }) });
+    });
+    await act(async () => {
+      finishFirst({ claims: { admin: true } });
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Not authorized');
+    expect(screen.queryByRole('button', { name: 'Rule sets' })).not.toBeInTheDocument();
   });
 });

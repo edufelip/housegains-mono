@@ -42,7 +42,13 @@ bun run build      # typecheck + production build into dist/
 ```
 
 Sign-in is Google via Firebase Auth; the app only works for accounts whose ID
-token carries the `admin: true` custom claim.
+token carries the `admin: true` custom claim. If the claims cannot be read
+(offline, token refresh failure) the app returns to the sign-in screen with the
+reason instead of opening the admin shell.
+
+The Ledger screen adjusts and rebuilds the wallet of the user that was last
+*looked up* (shown above the form), never the uid currently typed in the input:
+edit the input and both actions stay disabled until you look that uid up.
 
 ### Granting the admin claim
 

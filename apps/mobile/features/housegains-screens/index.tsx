@@ -533,6 +533,7 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
       );
     return (
       <AdminReportsScreen
+        currentMember={data.currentMember}
         disputes={data.disputes}
         members={[...data.household.members, ...(data.household.formerMembers ?? [])]}
         instances={data.instances}
@@ -542,6 +543,7 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
           data.resolveDispute(disputeId, verdict, subtaskIds)
         }
         onRetry={() => void data.retryHydration()}
+        rosterMembers={data.household.members}
       />
     );
   }

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+  ACK_RETRY_LIMIT,
+  ackRetryDelayMs,
   INBOX_STALE_MS,
   initialQueueState,
   queueReducer,
@@ -255,4 +257,13 @@ test('reset clears the queue but keeps the session full-screen slot', () => {
   assert.deepEqual(state.pending, []);
   assert.equal(state.fullScreenUsed, true);
   assert.deepEqual(state.known, []);
+});
+
+test('ackRetryDelayMs backs off, is bounded and stops after the retry limit', () => {
+  assert.deepEqual(
+    Array.from({ length: ACK_RETRY_LIMIT }, (_, index) => ackRetryDelayMs(index + 1)),
+    [2000, 4000, 8000, 16000, 30000],
+  );
+  assert.equal(ackRetryDelayMs(ACK_RETRY_LIMIT + 1), null);
+  assert.equal(ackRetryDelayMs(0), null);
 });

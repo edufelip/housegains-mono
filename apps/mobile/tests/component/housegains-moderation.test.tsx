@@ -304,6 +304,7 @@ describe('HouseGains admin verdict flow', () => {
     const onResolve = jest.fn().mockResolvedValue(undefined);
     await renderWithProviders(
       <AdminReportsScreen
+        currentMember={members[0]}
         disputes={[makeDispute()]}
         hasError={false}
         instances={[makeInstance()]}
@@ -345,6 +346,7 @@ describe('HouseGains admin verdict flow', () => {
     const onResolve = jest.fn().mockResolvedValue(undefined);
     await renderWithProviders(
       <AdminReportsScreen
+        currentMember={members[0]}
         disputes={[makeDispute()]}
         hasError={false}
         instances={[makeInstance()]}
@@ -384,6 +386,7 @@ describe('HouseGains admin verdict flow', () => {
   test('hides the partial verdict when a single subtask is disputed', async () => {
     await renderWithProviders(
       <AdminReportsScreen
+        currentMember={members[0]}
         disputes={[makeDispute({ subtaskIds: ['feed'] })]}
         hasError={false}
         instances={[makeInstance()]}
@@ -398,10 +401,95 @@ describe('HouseGains admin verdict flow', () => {
     expect(screen.getByTestId('housegains.reports.dispute.dog-care-today.notDone')).toBeTruthy();
   });
 
+  test('a conflicted admin sees a note instead of verdict buttons on a dispute they took part in', async () => {
+    // Edu (creator) completed 'feed'; Rafa is another admin, so Edu must not resolve this dispute.
+    const onResolve = jest.fn();
+    await renderWithProviders(
+      <AdminReportsScreen
+        currentMember={members[0]}
+        disputes={[makeDispute()]}
+        hasError={false}
+        instances={[
+          makeInstance({
+            completions: [completion('feed', 'edu', 60), completion('walk', 'bia', 30)],
+          }),
+        ]}
+        members={members}
+        onBack={jest.fn()}
+        onResolve={onResolve}
+        onRetry={jest.fn()}
+        rosterMembers={members}
+      />,
+    );
+    expect(
+      screen.getByTestId('housegains.reports.dispute.dog-care-today.conflict'),
+    ).toHaveTextContent(/another admin must review it/i);
+    expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.done')).toBeNull();
+    expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.partial')).toBeNull();
+    expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.notDone')).toBeNull();
+  });
+
+  describe('verdict buttons stay for a sole admin and for an admin outside the disputed steps', () => {
+    const baseProps = () => ({
+      disputes: [makeDispute()],
+      hasError: false,
+      instances: [
+        makeInstance({
+          completions: [completion('feed', 'edu', 60), completion('walk', 'bia', 30)],
+        }),
+      ],
+      members,
+      onBack: jest.fn(),
+      onResolve: jest.fn(),
+      onRetry: jest.fn(),
+    });
+
+    test('a sole admin may review their own completion', async () => {
+      // Edu alone holds admin rights over [creator Edu, member Bia].
+      await renderWithProviders(
+        <AdminReportsScreen
+          {...baseProps()}
+          currentMember={members[0]}
+          rosterMembers={[members[0], members[1]]}
+        />,
+      );
+      expect(screen.getByTestId('housegains.reports.dispute.dog-care-today.done')).toBeTruthy();
+      expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.conflict')).toBeNull();
+    });
+
+    test('an admin who completed none of the disputed steps is not conflicted', async () => {
+      // Rafa completed neither 'feed' nor 'walk' here.
+      await renderWithProviders(
+        <AdminReportsScreen {...baseProps()} currentMember={members[2]} rosterMembers={members} />,
+      );
+      expect(screen.getByTestId('housegains.reports.dispute.dog-care-today.notDone')).toBeTruthy();
+      expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.conflict')).toBeNull();
+    });
+  });
+
+  test('the back button uses the chevron icon, not a text glyph', async () => {
+    await renderWithProviders(
+      <AdminReportsScreen
+        currentMember={members[0]}
+        disputes={[]}
+        hasError={false}
+        instances={[]}
+        members={members}
+        onBack={jest.fn()}
+        onResolve={jest.fn()}
+        onRetry={jest.fn()}
+      />,
+    );
+    const back = screen.getByTestId('housegains.reports.back');
+    expect(back).toHaveTextContent('chevron-back');
+    expect(back).not.toHaveTextContent('‹');
+  });
+
   test('shows loading, empty, and error-with-retry states', async () => {
     const onRetry = jest.fn();
     const element = (disputes: Dispute[] | null, hasError: boolean) => (
       <AdminReportsScreen
+        currentMember={members[0]}
         disputes={disputes}
         hasError={hasError}
         instances={[]}
@@ -433,21 +521,91 @@ describe('HouseGains admin verdict flow', () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  test('blocks a conflicted admin from moderating their own completion', async () => {
-    // Edu (creator) completed 'feed'; Rafa is another admin, so Edu is conflicted.
+  test('a conflicted admin cannot mark everything not done and is only offered other members’ steps', async () => {
+    // Edu (creator) completed 'feed'; Rafa is another admin, so Edu is conflicted on 'feed' only.
+    const onModerate = jest.fn().mockResolvedValue(undefined);
     const conflictedInstance = makeInstance({
       completions: [completion('feed', 'edu', 60), completion('walk', 'rafa', 30)],
     });
     await renderWithProviders(
-      <ChoreDetailScreen
-        {...choreDetailProps({ instance: conflictedInstance, onModerate: jest.fn() })}
-      />,
+      <ChoreDetailScreen {...choreDetailProps({ instance: conflictedInstance, onModerate })} />,
     );
     expect(screen.queryByTestId('housegains.choreDetail.markNotDone')).toBeNull();
-    expect(screen.queryByTestId('housegains.choreDetail.markPartial')).toBeNull();
     expect(screen.getByTestId('housegains.choreDetail.conflict')).toHaveTextContent(
       /another admin must review it/i,
     );
+    // The server only checks the targets: Rafa's step stays selectable, Edu's own is not offered.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.markPartial'));
+    });
+    expect(screen.queryByTestId('housegains.choreDetail.partialSheet.step.feed')).toBeNull();
+    expect(isDisabled(screen.getByTestId('housegains.choreDetail.partialSheet.confirm'))).toBe(
+      true,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.partialSheet.step.walk'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.partialSheet.confirm'));
+    });
+    expect(onModerate).toHaveBeenCalledWith('dog-care-today', 'partial', ['walk']);
+  });
+
+  test('a conflicted admin may pick every step that is not their own', async () => {
+    const onModerate = jest.fn().mockResolvedValue(undefined);
+    const instanceOne = makeInstance({
+      completions: [
+        completion('feed', 'edu', 90),
+        completion('walk', 'rafa', 60),
+        completion('paws', 'bia', 30),
+      ],
+    });
+    await renderWithProviders(
+      <ChoreDetailScreen {...choreDetailProps({ instance: instanceOne, onModerate })} />,
+    );
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.markPartial'));
+    });
+    expect(screen.queryByTestId('housegains.choreDetail.partialSheet.step.feed')).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.partialSheet.step.walk'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.partialSheet.step.paws'));
+    });
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('housegains.choreDetail.partialSheet.confirm'));
+    });
+    expect(onModerate).toHaveBeenCalledWith('dog-care-today', 'partial', ['walk', 'paws']);
+  });
+
+  test('a conflicted admin with nothing else to pick sees the note only', async () => {
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          instance: makeInstance({ completions: [completion('feed', 'edu', 60)] }),
+          onModerate: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.conflict')).toBeTruthy();
+    expect(screen.queryByTestId('housegains.choreDetail.moderation')).toBeNull();
+  });
+
+  test('the partial verdict is offered only when the picker has two steps to split', async () => {
+    // 'walk' was completed 96 h ago: two completions, but only 'feed' can still be revoked.
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          instance: makeInstance({
+            completions: [completion('feed', 'bia', 60), completion('walk', 'rafa', 60 * 96)],
+          }),
+          onModerate: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.queryByTestId('housegains.choreDetail.markPartial')).toBeNull();
+    expect(screen.getByTestId('housegains.choreDetail.markNotDone')).toBeTruthy();
   });
 
   test('lets a sole admin moderate directly: not done through the confirm, partial through the picker', async () => {
@@ -599,6 +757,7 @@ describe('HouseGains moderation in all three themes', () => {
     mockTheme.id = themeId;
     const view = await renderWithProviders(
       <AdminReportsScreen
+        currentMember={members[0]}
         disputes={[makeDispute()]}
         hasError={false}
         instances={[makeInstance()]}

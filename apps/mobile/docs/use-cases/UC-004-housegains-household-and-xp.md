@@ -63,7 +63,7 @@
   2. The report opens a dispute; the chore detail shows an "Under review" state, and admins get a notification.
   3. An admin opens the reports screen, sees the chore, reporter names, reasons, and disputed steps with completers, and picks a verdict: Done, Partially done (a strict subset of steps to revoke), or Not done.
   4. Revoked steps lose their XP, appear on the chore detail as revocations naming the acting admin and the verdict, and the dispute closes.
-- **Alternate flows:** An admin who completed a disputed step (and is not the only admin) sees a conflict note instead of verdict actions; another admin reviews. Reports past the 72-hour window, on resolved or expired disputes, or duplicate reports by the same member are refused with the reason. A failed submission keeps the sheet open, shows the localized failure, and allows retry.
+- **Alternate flows:** An admin who completed a disputed step (and is not the only admin) sees a conflict note instead of verdict actions on the Reports screen; another admin reviews. On the chore detail the same admin has no "Mark as not done" (it would revoke their own step) but can still give a partial verdict on other members' steps; the partial action only appears when the picker (in-window steps they may select) has something to split. Reports past the 72-hour window, on resolved or expired disputes, or duplicate reports by the same member are refused with the reason. A failed submission keeps the sheet open, shows the localized failure, and allows retry.
 - **Postconditions:** The dispute status, verdict, and revocations come from the backend; the client never writes moderation paths directly.
 
 ## UC-004.6 Manage admin roles and view last week's standings
@@ -85,7 +85,7 @@
   1. The callable response (or the inbox) delivers celebrations; the app dedupes them by id.
   2. A toast shows the amount counting up; a level-up or streak milestone shows its moment; a silver or gold badge shows the full-screen unlock (once per session).
   3. When the same action finished the chore, a badge shows inside the S3 screen instead.
-  4. Inbox rows are acknowledged once shown.
+  4. Inbox rows are acknowledged once shown (failed acknowledgements are retried with a backoff). A level celebration at or below the member's level floor is acknowledged without being shown.
 - **Alternate flows:** Reduced motion shows the final numbers without particles or spin. Later full-screen badges and bronze badges are toasts. Control/shadow households and the flag-off app see nothing.
 - **Postconditions:** Balances, levels, streaks and badges are server-owned; the client only renders them.
 

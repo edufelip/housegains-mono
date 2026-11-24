@@ -10,6 +10,15 @@ import type { Celebration } from './types';
 /** Inbox rows older than this are acknowledged silently instead of shown. */
 export const INBOX_STALE_MS = 3 * 24 * 60 * 60 * 1000;
 
+/** A failed acknowledgement is retried this many times (then waits for the next shown celebration). */
+export const ACK_RETRY_LIMIT = 5;
+
+/** Backoff before retry number `failures` (1-based): 2 s, 4 s, 8 s, 16 s, 30 s; null when exhausted. */
+export function ackRetryDelayMs(failures: number): number | null {
+  if (failures < 1 || failures > ACK_RETRY_LIMIT) return null;
+  return Math.min(2000 * 2 ** (failures - 1), 30_000);
+}
+
 export type CelebrationSource = 'callable' | 'inbox';
 
 export type PresentationKind = 'toast' | 'unlock' | 'level' | 'streak';

@@ -3,7 +3,11 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Button, Card, Label, Screen, StatePanel } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
-import { isPartialSelection, partialAvailable } from '@/features/household/moderation-rules';
+import {
+  hasModerationConflict,
+  isPartialSelection,
+  partialAvailable,
+} from '@/features/household/moderation-rules';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { choreDisplayName, resolveInstanceChore, subtaskDisplayName } from './screen-model';
 import type { Dispute, Instance, Member, Subtask } from '@/features/household';
@@ -176,13 +180,15 @@ function StepRow({
 
 /**
  * The partial-verdict picker: pick the steps that were NOT done. The confirm stays
- * disabled until the selection is a non-empty strict subset of the pool (contract A2).
+ * disabled until the selection is a non-empty strict subset of the pool (contract A2), or a
+ * non-empty subset when `allowFullSelection` says a step outside the pool stays done.
  */
 export function PartialPickerSheet({
   visible,
   title,
   confirmTitle,
   steps,
+  allowFullSelection = false,
   onSubmit,
   onClose,
   testID,
@@ -191,6 +197,11 @@ export function PartialPickerSheet({
   title: string;
   confirmTitle: string;
   steps: ModerationStep[];
+  /**
+   * True when a step the caller cannot pick stays done, so picking every listed step is still a
+   * partial verdict (A2). Otherwise the selection must be a strict subset of the list.
+   */
+  allowFullSelection?: boolean;
   onSubmit(subtaskIds: string[]): Promise<void>;
   onClose(): void;
   testID: string;
@@ -212,7 +223,9 @@ export function PartialPickerSheet({
   }, [visible]);
 
   const pool = steps.map((step) => step.id);
-  const valid = isPartialSelection([...selected], pool);
+  const valid = allowFullSelection
+    ? selected.size > 0 && [...selected].every((subtaskId) => pool.includes(subtaskId))
+    : isPartialSelection([...selected], pool);
 
   const submit = async () => {
     if (!valid || busy) return;
@@ -438,6 +451,8 @@ export const VERDICT_LABEL_KEYS = {
 } as const;
 
 export function AdminReportsScreen({
+  currentMember,
+  rosterMembers,
   disputes,
   members,
   instances,
@@ -446,6 +461,10 @@ export function AdminReportsScreen({
   onBack,
   onResolve,
 }: {
+  /** The signed-in admin: a dispute they took part in is reviewed by another admin. */
+  currentMember: Member;
+  /** The live roster (admins counted for the sole-admin rule); defaults to `members`. */
+  rosterMembers?: Member[];
   /** Open disputes, or null while the listener has not delivered. */
   disputes: Dispute[] | null;
   members: Member[];
@@ -478,6 +497,16 @@ export function AdminReportsScreen({
     const reporterNames = dispute.reports.map((report) => memberName(report.uid)).join(', ');
     const steps = moderationStepsFor(dispute.subtaskIds, instance, members, t);
     const showPartial = partialAvailable(dispute.subtaskIds.length);
+    // Contract A2: the server rejects a verdict when any disputed step was completed by the
+    // caller, unless they are the only member with admin rights.
+    const conflicted = instance
+      ? hasModerationConflict(
+          instance,
+          dispute.subtaskIds,
+          currentMember.id,
+          rosterMembers ?? members,
+        )
+      : false;
     return (
       <Card
         key={dispute.id}
@@ -514,42 +543,59 @@ export function AdminReportsScreen({
               : step.label}
           </Label>
         ))}
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
-          <Button
-            onPress={() =>
-              setConfirm({
-                title: t('housegains.screens.reports.confirmDoneTitle'),
-                body: t('housegains.screens.reports.confirmDoneBody'),
-                confirmTitle: t(VERDICT_LABEL_KEYS.done),
-                onConfirm: () => onResolve(dispute.id, 'done'),
-              })
-            }
-            testID={`housegains.reports.dispute.${dispute.id}.done`}
-            title={t(VERDICT_LABEL_KEYS.done)}
-            variant="secondary"
-          />
-          {showPartial ? (
+        {conflicted ? (
+          <View
+            style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}
+            testID={`housegains.reports.dispute.${dispute.id}.conflict`}
+          >
+            <Ionicons
+              accessibilityElementsHidden
+              color={tokens.danger}
+              name="person-outline"
+              size={tokens.iconSize.md}
+            />
+            <Label style={{ color: tokens.danger, flex: 1, fontWeight: '700' }}>
+              {t('housegains.screens.choreDetail.conflictNote')}
+            </Label>
+          </View>
+        ) : (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
             <Button
-              onPress={() => setPartialFor(dispute)}
-              testID={`housegains.reports.dispute.${dispute.id}.partial`}
-              title={t(VERDICT_LABEL_KEYS.partial)}
+              onPress={() =>
+                setConfirm({
+                  title: t('housegains.screens.reports.confirmDoneTitle'),
+                  body: t('housegains.screens.reports.confirmDoneBody'),
+                  confirmTitle: t(VERDICT_LABEL_KEYS.done),
+                  onConfirm: () => onResolve(dispute.id, 'done'),
+                })
+              }
+              testID={`housegains.reports.dispute.${dispute.id}.done`}
+              title={t(VERDICT_LABEL_KEYS.done)}
               variant="secondary"
             />
-          ) : null}
-          <Button
-            onPress={() =>
-              setConfirm({
-                title: t('housegains.screens.reports.confirmNotDoneTitle'),
-                body: t('housegains.screens.reports.confirmNotDoneBody'),
-                confirmTitle: t(VERDICT_LABEL_KEYS.not_done),
-                onConfirm: () => onResolve(dispute.id, 'not_done'),
-              })
-            }
-            testID={`housegains.reports.dispute.${dispute.id}.notDone`}
-            title={t(VERDICT_LABEL_KEYS.not_done)}
-            variant="secondary"
-          />
-        </View>
+            {showPartial ? (
+              <Button
+                onPress={() => setPartialFor(dispute)}
+                testID={`housegains.reports.dispute.${dispute.id}.partial`}
+                title={t(VERDICT_LABEL_KEYS.partial)}
+                variant="secondary"
+              />
+            ) : null}
+            <Button
+              onPress={() =>
+                setConfirm({
+                  title: t('housegains.screens.reports.confirmNotDoneTitle'),
+                  body: t('housegains.screens.reports.confirmNotDoneBody'),
+                  confirmTitle: t(VERDICT_LABEL_KEYS.not_done),
+                  onConfirm: () => onResolve(dispute.id, 'not_done'),
+                })
+              }
+              testID={`housegains.reports.dispute.${dispute.id}.notDone`}
+              title={t(VERDICT_LABEL_KEYS.not_done)}
+              variant="secondary"
+            />
+          </View>
+        )}
       </Card>
     );
   };
@@ -576,7 +622,13 @@ export function AdminReportsScreen({
           }}
           testID="housegains.reports.back"
         >
-          <Label style={{ fontWeight: '700', lineHeight: 30 }}>‹</Label>
+          <Ionicons
+            accessibilityElementsHidden
+            color={tokens.text}
+            importantForAccessibility="no"
+            name="chevron-back"
+            size={tokens.iconSize.lg}
+          />
         </Pressable>
         <View style={{ flex: 1, gap: 2 }}>
           <Label variant="title">{t('housegains.screens.reports.title')}</Label>

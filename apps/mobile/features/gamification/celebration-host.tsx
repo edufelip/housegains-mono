@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { GanhosToast } from '@/components/housegains/gamification/ganhos-toast';
+import { useHousehold } from '@/features/household';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { AchievementUnlockScreen } from './achievement-unlock-screen';
 import {
@@ -12,6 +14,7 @@ import {
 } from './gamification-catalog';
 import { useGamification } from './gamification-provider';
 import { LevelUpMoment } from './level-up-moment';
+import { levelMoment } from './levels';
 import type { Celebration } from './types';
 
 /** Toast copy for one celebration: title, amount line, optional detail, announcement. */
@@ -110,7 +113,22 @@ function CelebrationToast({
  */
 export function CelebrationHost() {
   const { visible, active, dismissCelebration } = useGamification();
-  if (!visible || !active) return null;
+  const { currentMember } = useHousehold();
+  // A level celebration at or below the member's displayed level floor is not a level-up in the
+  // app (backfilled members keep their old-curve level): acknowledge it without showing it.
+  const moment =
+    active?.kind === 'level'
+      ? levelMoment(active.celebration.level, {
+          xp: currentMember.xp ?? 0,
+          xpPeak: currentMember.xpPeak,
+          levelFloor: currentMember.levelFloor,
+        })
+      : null;
+  const skipId = visible && active && moment && !moment.show ? active.celebration.id : null;
+  useEffect(() => {
+    if (skipId) dismissCelebration(skipId);
+  }, [skipId, dismissCelebration]);
+  if (!visible || !active || skipId) return null;
   const { celebration } = active;
   const dismiss = () => dismissCelebration(celebration.id);
 
@@ -125,7 +143,11 @@ export function CelebrationHost() {
       );
     case 'level':
       return (
-        <LevelUpMoment key={celebration.id} level={celebration.level ?? 1} onDismiss={dismiss} />
+        <LevelUpMoment
+          key={celebration.id}
+          level={moment?.level ?? celebration.level ?? 1}
+          onDismiss={dismiss}
+        />
       );
     default:
       return (

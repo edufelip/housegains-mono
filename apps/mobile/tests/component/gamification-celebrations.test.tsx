@@ -12,14 +12,20 @@ import { CelebrationScreen } from '@/features/housegains-screens/chore-completio
 import { HouseholdContext } from '@/features/household/household-provider';
 import { bia, fakeHousehold, me, metrics } from './gamification-support';
 import type { Celebration, InboxCelebration } from '@/features/gamification/types';
-import type { HouseholdViewModel, Instance, Chore } from '@/features/household';
+import type { HouseholdViewModel, Instance, Chore, Member } from '@/features/household';
 
 let mockReduced = false;
 let mockFlag = true;
 const mockClient = {
   inbox: undefined as ((rows: InboxCelebration[]) => void) | undefined,
+  inboxError: undefined as (() => void) | undefined,
+  walletError: undefined as (() => void) | undefined,
+  organizerError: undefined as (() => void) | undefined,
   subscriptions: 0,
+  inboxSubscriptions: 0,
   acks: [] as string[][],
+  /** Number of upcoming acknowledgement calls that reject. */
+  failAcks: 0,
 };
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -48,19 +54,38 @@ jest.mock('@/features/gamification/flag-source', () => ({
   loadActivatedGamificationFlag: async () => mockFlag,
 }));
 jest.mock('@/features/gamification/firebase-gamification-client', () => ({
-  subscribeToWallet: () => {
+  subscribeToWallet: (_uid: string, _onNext: unknown, onError: () => void) => {
     mockClient.subscriptions += 1;
+    mockClient.walletError = onError;
     return () => undefined;
   },
   subscribeToWalletLedger: () => () => undefined,
-  subscribeToOrganizer: () => () => undefined,
-  subscribeToInbox: (_uid: string, onNext: (rows: InboxCelebration[]) => void) => {
+  subscribeToOrganizer: (
+    _householdId: string,
+    _creatorId: string,
+    _onNext: unknown,
+    onError: () => void,
+  ) => {
+    mockClient.organizerError = onError;
+    return () => undefined;
+  },
+  subscribeToInbox: (
+    _uid: string,
+    onNext: (rows: InboxCelebration[]) => void,
+    onError: () => void,
+  ) => {
     mockClient.inbox = onNext;
+    mockClient.inboxError = onError;
+    mockClient.inboxSubscriptions += 1;
     return () => undefined;
   },
   gamificationCalls: {
     ackCelebrations: async ({ ids }: { ids: string[] }) => {
       mockClient.acks.push(ids);
+      if (mockClient.failAcks > 0) {
+        mockClient.failAcks -= 1;
+        throw new Error('ack failed');
+      }
       return { ok: true, acknowledged: ids.length };
     },
     setAwayWeeks: async ({ weekStarts }: { weekStarts: string[] }) => ({ weekStarts }),
@@ -108,13 +133,16 @@ const authValue = {
   signOut: async () => undefined,
 } as unknown as AuthValue;
 
-function householdModel(cohort: 'live' | 'control' | 'shadow' | undefined): HouseholdViewModel {
+function householdModel(
+  cohort: 'live' | 'control' | 'shadow' | undefined,
+  member: Member = me,
+): HouseholdViewModel {
   const noop = async () => undefined;
   const none = async () => ({ celebrations: [] });
   return {
     hydrated: true,
     household: fakeHousehold(cohort),
-    currentMember: me,
+    currentMember: member,
     chores: [],
     instances: [],
     error: null,
@@ -148,11 +176,14 @@ function householdModel(cohort: 'live' | 'control' | 'shadow' | undefined): Hous
 async function mount(
   cohort: 'live' | 'control' | 'shadow' | 'none' = 'live',
   extra: React.ReactNode = null,
+  member: Member = me,
 ) {
   await render(
     <SafeAreaProvider initialMetrics={metrics}>
       <AuthContext.Provider value={authValue}>
-        <HouseholdContext.Provider value={householdModel(cohort === 'none' ? undefined : cohort)}>
+        <HouseholdContext.Provider
+          value={householdModel(cohort === 'none' ? undefined : cohort, member)}
+        >
           <GamificationProvider>
             <Probe />
             <CelebrationHost />
@@ -172,8 +203,13 @@ beforeEach(() => {
   mockReduced = false;
   mockFlag = true;
   mockClient.inbox = undefined;
+  mockClient.inboxError = undefined;
+  mockClient.walletError = undefined;
+  mockClient.organizerError = undefined;
   mockClient.subscriptions = 0;
+  mockClient.inboxSubscriptions = 0;
   mockClient.acks = [];
+  mockClient.failAcks = 0;
   jest.useFakeTimers();
   jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
 });
@@ -329,6 +365,47 @@ describe('celebration queue on screen', () => {
     expect(screen.queryByTestId('housegains.gamification.level')).toBeNull();
   });
 
+  test('a level celebration at or below the displayed level floor is acknowledged silently', async () => {
+    // Backfilled member {xp:600, levelFloor:5}: the server sends new-curve level 4, the app shows 5.
+    await mount('live', null, { ...me, xp: 600, xpPeak: 600, levelFloor: 5 });
+    await act(async () => {
+      mockClient.inbox?.([
+        {
+          id: 'cel:level:4:me',
+          moment: 'level',
+          track: 'ganhos',
+          level: 4,
+          copyKey: 'gami.level.up',
+          seen: false,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('housegains.gamification.level')).toBeNull();
+    expect(screen.queryByText('Level 4!')).toBeNull();
+    expect(ctx.active).toBeNull();
+    expect(mockClient.acks).toEqual([['cel:level:4:me']]);
+  });
+
+  test('a level-up above the floor shows the level the app displays', async () => {
+    await mount('live', null, { ...me, xp: 1500, xpPeak: 1500, levelFloor: 5 });
+    await act(async () => {
+      ctx.receiveActionCelebrations([
+        {
+          id: 'cel:level:6:me',
+          moment: 'level',
+          track: 'ganhos',
+          level: 6,
+          copyKey: 'gami.level.up',
+        },
+      ]);
+    });
+    expect(screen.getByTestId('housegains.gamification.level.title')).toHaveTextContent('Level 6!');
+  });
+
   test('the level number flips from the old to the new level (800 ms)', async () => {
     const level8: InboxCelebration = {
       id: 'cel:level:8:me',
@@ -388,6 +465,92 @@ describe('celebration queue on screen', () => {
     expect(screen.getByTestId('housegains.gamification.toast.detail')).toHaveTextContent(
       'Week secured',
     );
+  });
+});
+
+describe('listener retry and acknowledgements', () => {
+  const inboxToast = (id: string): InboxCelebration => ({
+    ...toast(id, 25),
+    seen: false,
+    createdAt: new Date().toISOString(),
+  });
+
+  test('a retry keeps what was shown, so an unacknowledged inbox row is not celebrated again', async () => {
+    await mount();
+    mockClient.failAcks = 1;
+    await act(async () => {
+      mockClient.inbox?.([inboxToast('cel:toast:a')]);
+    });
+    expect(screen.getByTestId('housegains.gamification.toast')).toBeTruthy();
+    await act(async () => {
+      jest.advanceTimersByTime(3200);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByTestId('housegains.gamification.toast')).toBeNull();
+    expect(mockClient.acks).toEqual([['cel:toast:a']]); // rejected: still unacknowledged
+
+    // Retry from an error state: listeners re-subscribe and the inbox redelivers the same row.
+    await act(async () => {
+      mockClient.organizerError?.();
+      ctx.retry();
+    });
+    expect(mockClient.inboxSubscriptions).toBe(2);
+    await act(async () => {
+      mockClient.inbox?.([inboxToast('cel:toast:a')]);
+    });
+    expect(ctx.active).toBeNull();
+    expect(screen.queryByTestId('housegains.gamification.toast')).toBeNull();
+  });
+
+  test('an inbox listener failure leaves the wallet screen status alone; a wallet failure does not', async () => {
+    await mount();
+    await act(async () => {
+      mockClient.inboxError?.();
+    });
+    expect(ctx.inboxStatus).toBe('error');
+    expect(ctx.walletStatus).not.toBe('error');
+    await act(async () => {
+      mockClient.walletError?.();
+    });
+    expect(ctx.walletStatus).toBe('error');
+    expect(ctx.inboxStatus).toBe('error');
+  });
+
+  test('a failed acknowledgement is retried with a backoff until it goes through', async () => {
+    await mount();
+    mockClient.failAcks = 2;
+    await act(async () => {
+      mockClient.inbox?.([inboxToast('cel:toast:b')]);
+    });
+    await act(async () => {
+      jest.advanceTimersByTime(3200);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockClient.acks).toEqual([['cel:toast:b']]);
+    // 2 s later: second attempt (fails), then 4 s later: third attempt succeeds.
+    await act(async () => {
+      jest.advanceTimersByTime(2000);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockClient.acks).toHaveLength(2);
+    await act(async () => {
+      jest.advanceTimersByTime(4000);
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(mockClient.acks).toHaveLength(3);
+    // acknowledged: no further attempts
+    await act(async () => {
+      jest.advanceTimersByTime(60_000);
+    });
+    expect(mockClient.acks).toHaveLength(3);
   });
 });
 

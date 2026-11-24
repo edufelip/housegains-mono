@@ -93,6 +93,37 @@ export function hasModerationConflict(
   return conflicted && !soleAdminOf(members);
 }
 
+/**
+ * The subtasks the caller may pick for a verdict (A2): the server only checks the targets, so
+ * the caller's own completions are not selectable unless they are the only member with admin
+ * rights, while everyone else's completions stay selectable.
+ */
+export function selectableForModeration(
+  instance: Instance,
+  subtaskIds: readonly string[],
+  callerId: string,
+  members: readonly Member[],
+): string[] {
+  return subtaskIds.filter(
+    (subtaskId) => !hasModerationConflict(instance, [subtaskId], callerId, members),
+  );
+}
+
+/**
+ * Whether a partial verdict can be given from `selectable` out of the `moderatable` steps: it
+ * needs a selectable step, and either a step the caller cannot pick stays done anyway (A2: a
+ * partial must keep one completed subtask done) or at least two steps to split.
+ */
+export function partialModerationAvailable(
+  selectable: readonly string[],
+  moderatable: readonly string[],
+): boolean {
+  return (
+    selectable.length > 0 &&
+    (selectable.length < moderatable.length || partialAvailable(selectable.length))
+  );
+}
+
 /** A partial verdict needs at least two disputed (or completed) subtasks (A2). */
 export function partialAvailable(subtaskCount: number): boolean {
   return subtaskCount >= 2;

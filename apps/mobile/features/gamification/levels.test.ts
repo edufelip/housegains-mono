@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   displayedLevel,
   levelForXp,
+  levelMoment,
   levelProgress,
   memberTitleKey,
   organizerTitleKey,
@@ -87,4 +88,38 @@ test('organizer title thresholds', () => {
   assert.equal(organizerTitleKey(1500), 'sindicoMor');
   assert.equal(organizerTitleKey(3000), 'sindicoLendario');
   assert.equal(organizerTitleKey(99999), 'sindicoLendario');
+});
+
+test('levelMoment: a new-curve level at or below the level floor is not a level-up', () => {
+  // Backfilled {xp:450, levelFloor:5} crossing 600 XP: the server sends level 4, the app shows 5.
+  const member = { xp: 600, xpPeak: 600, levelFloor: 5 };
+  assert.equal(displayedLevel(member), 5);
+  assert.deepEqual(levelMoment(4, member), { show: false, level: 5 });
+  assert.equal(levelMoment(5, member).show, false);
+});
+
+test('levelMoment: a migrated member crossing a level shows it, even after the snapshot caught up', () => {
+  const member = { xp: 600, xpPeak: 600, levelFloor: 1 };
+  assert.deepEqual(levelMoment(4, member), { show: true, level: 4 });
+  // The member snapshot may lag the celebration: never show a lower level than the one sent.
+  assert.deepEqual(levelMoment(4, { xp: 450, xpPeak: 450, levelFloor: 1 }), {
+    show: true,
+    level: 4,
+  });
+});
+
+test('levelMoment: above the floor the shown level is the displayed level', () => {
+  const member = { xp: 1500, xpPeak: 1500, levelFloor: 5 };
+  assert.deepEqual(levelMoment(6, member), { show: true, level: 6 });
+  // Two level-ups queued: both show the level the rest of the app displays.
+  assert.deepEqual(levelMoment(5, { xp: 3000, xpPeak: 3000, levelFloor: 4 }), {
+    show: true,
+    level: 8,
+  });
+});
+
+test('levelMoment: before the backfill the old-curve level is the floor; a bad level is skipped', () => {
+  // {xp: 600} without levelFloor displays old-curve level 7: the new-curve level 4 is no level-up.
+  assert.deepEqual(levelMoment(4, { xp: 600 }), { show: false, level: 7 });
+  assert.equal(levelMoment(undefined, { xp: 600, levelFloor: 1 }).show, false);
 });

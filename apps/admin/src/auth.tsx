@@ -43,15 +43,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+    // Every auth change gets a ticket; a slower claims read of an older user must not overwrite
+    // what a newer change (sign-out, another account) already decided.
+    let latest = 0;
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      const ticket = ++latest;
       if (!user) {
         setUid(null);
         setState('signed-out');
         return;
       }
-      setUid(user.uid);
-      const token = await user.getIdTokenResult();
-      setState(token.claims.admin === true ? 'authorized' : 'unauthorized');
+      void (async () => {
+        try {
+          const token = await user.getIdTokenResult();
+          if (ticket !== latest) return;
+          setUid(user.uid);
+          setState(token.claims.admin === true ? 'authorized' : 'unauthorized');
+        } catch (e) {
+          if (ticket !== latest) return;
+          // Access could not be verified: never fall through to the admin shell. Back to the
+          // sign-in gate with the reason, and drop the session so signing in again re-checks.
+          setUid(null);
+          setError(`Could not verify admin access: ${errorMessage(e)}`);
+          setState('signed-out');
+          try {
+            await signOut(auth);
+          } catch (signOutError) {
+            if (ticket === latest) {
+              setError(
+                `Could not verify admin access: ${errorMessage(e)} (sign-out also failed: ${errorMessage(signOutError)})`,
+              );
+            }
+          }
+        }
+      })();
     });
     return unsubscribe;
   }, [auth]);
