@@ -250,7 +250,8 @@ Paths: `gamification/config` (the rule-set pointer, written by publish/rollback 
 ### Admin site (target `admin`)
 
 A second Firebase Hosting site serves the gamification admin app (contract Part C10):
-`firebase.json` maps hosting target `admin` to `apps/admin/dist` (a Vite + React +
+`firebase.json` maps hosting target `admin` to `apps/firebase/hosting/admin`, where the
+admin app's Vite build writes (Hosting only serves folders inside the Firebase project; a Vite + React +
 TypeScript SPA; every route rewrites to `/index.html`). The site ids are linked in
 `.firebaserc` (`housegains-admin-dev` / `housegains-admin-prod`; the main site is target
 `site`). The admin sites must be created in the Firebase console before the first
