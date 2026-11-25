@@ -16,6 +16,7 @@ import {
   memberWeekStats,
   pickTopMember,
   pickWallOfShame,
+  replayWindowStart,
   weekInstants,
   weekToClose,
   type WeekBounds,
@@ -81,6 +82,8 @@ export async function runReminders(now: Date): Promise<void> {
   const nowTs = Timestamp.fromDate(now);
 
   // Close overdue work. Batches of 400 keep under the 500-write limit; each pass removes its rows from the query.
+  // Retired instances (a deleted or paused chore's review record) are closed too, only so they
+  // leave the open query for good; `retiredAt` keeps them out of reminders and week stats.
   for (;;) {
     const overdue = await firestore
       .collectionGroup('instances')
@@ -106,7 +109,7 @@ export async function runReminders(now: Date): Promise<void> {
       .where('dueAt', '<=', horizon)
       .get();
     await mapWithConcurrency(due.docs, MAX_CONCURRENCY, async (doc) => {
-      if (doc.data().reminderSentAt) return;
+      if (doc.data().reminderSentAt || doc.data().retiredAt) return;
       try {
         await sendInstanceReminders(doc, now, householdTimeZones, profiles);
       } catch (error) {
@@ -221,6 +224,7 @@ async function closeHouseholdWeekDoc(
       assigneeIds: (doc.get('assigneeIds') as string[] | undefined) ?? [],
       dueAt: (doc.get('dueAt') as Timestamp).toDate(),
       status: doc.get('status') as string,
+      retired: doc.get('retiredAt') instanceof Timestamp,
     })),
     weekStart: instants.weekStart,
     weekEnd: instants.weekEnd,
@@ -347,6 +351,30 @@ async function expireDisputes(householdRef: DocumentReference, now: Date): Promi
   }
 }
 
+/**
+ * Replays the gamification of every closed week doc older than `latest` in the replay window
+ * (the last REPLAY_WINDOW_WEEKS weeks), oldest first, from each doc's stored stats, so a close
+ * whose gamification failed for more than a week is not later treated as a gap (counted:false)
+ * by the engine. Returns false when a week is still unprocessed afterwards (its hook logged a
+ * failure): later weeks must wait, or the engine would see them out of order.
+ */
+async function replayEarlierWeeks(householdRef: DocumentReference, latest: WeekBounds): Promise<boolean> {
+  const earlier = await householdRef
+    .collection('weeks')
+    .where('weekStart', '>=', replayWindowStart(latest.weekStart))
+    .where('weekStart', '<', latest.weekStart)
+    .orderBy('weekStart')
+    .get();
+  for (const weekDoc of earlier.docs) {
+    if (gamiWeekProcessed(weekDoc)) continue;
+    const context = weekContextFromDoc(householdRef.id, weekDoc);
+    if (!context) continue;
+    await afterWeekClosed(context);
+    if (!gamiWeekProcessed(await weekDoc.ref.get())) return false;
+  }
+  return true;
+}
+
 /** Localized standings pushes (Part B), only for the run that created the week doc. */
 async function notifyWeekClosed(closed: ClosedWeek, memberUids: string[]): Promise<void> {
   const nameOf = (uid: string) => closed.memberNames.get(uid) ?? 'Someone';
@@ -386,13 +414,19 @@ async function closeHouseholdWeek(household: QueryDocumentSnapshot, now: Date): 
 
   const week = weekToClose(now, timeZone);
   if (week) {
+    // Older closed weeks whose gamification did not finish are replayed first, oldest first.
+    let inOrder = false;
+    await step('gamification retry', async () => {
+      inOrder = await replayEarlierWeeks(household.ref, week);
+    });
     await step('week close', async () => {
       const outcome = await closeHouseholdWeekDoc(household.ref, household.id, timeZone, memberUids, week, now);
       if (outcome.status === 'created') {
         await step('notify', () => notifyWeekClosed(outcome.closed, memberUids));
-        // Part C hooks (gamiWeekClosedHook) run here; each logs its own failures.
-        await step('hooks', () => afterWeekClosed(outcome.closed.context));
-      } else if (outcome.status === 'existing' && !gamiWeekProcessed(outcome.snapshot)) {
+        // Part C hooks (gamiWeekClosedHook) run here; each logs its own failures. An earlier
+        // week still pending holds this one back: the next pass replays both, oldest first.
+        if (inOrder) await step('hooks', () => afterWeekClosed(outcome.closed.context));
+      } else if (outcome.status === 'existing' && !gamiWeekProcessed(outcome.snapshot) && inOrder) {
         // The close wrote the week doc but its gamification run did not finish (a crash after the
         // create, or a failed engine run): replay it for this, the latest closed week. The
         // engine's ledger keys and lastActionWeek keep a replay idempotent.

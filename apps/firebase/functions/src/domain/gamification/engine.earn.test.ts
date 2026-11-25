@@ -461,6 +461,15 @@ describe('level-ups', () => {
     expect(result.serverEvents.some((e) => e.name === 'gami_level_up')).toBe(true);
   });
 
+  it('gives the level-up event a fixed id per track, member and level', () => {
+    const result = evaluate(
+      subtaskEvent({ xpPeakAfter: 100 }),
+      input({ wallet: wallet({ xpPeak: 95, level: 1 }) }),
+    );
+    const levelUp = result.serverEvents.find((e) => e.name === 'gami_level_up');
+    expect(levelUp?.docId).toBe(`evt:gami_level_up:ganhos:${levelUp?.memberId}:2`);
+  });
+
   it('does not celebrate when no threshold is crossed', () => {
     const result = evaluate(subtaskEvent({ xpPeakAfter: 99 }), input({ wallet: wallet({ xpPeak: 95, level: 1 }) }));
     expect(result.celebrations.some((c) => c.moment === 'level')).toBe(false);

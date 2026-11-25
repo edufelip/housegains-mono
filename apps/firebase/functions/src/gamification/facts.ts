@@ -28,12 +28,18 @@ export async function recentSubtaskTimes(householdId: string, memberId: string, 
   }
 }
 
-/** An instance counts as on time when it is done and its last standing completion beat the due time. */
+/**
+ * An instance counts as on time when it is done and its last standing completion beat the due
+ * time. Retired instances (their chore was deleted or paused) are not due work and are skipped.
+ */
 export function onTimeCounts(
   instances: ReadonlyArray<{ get: (field: string) => unknown }>,
 ): { due: number; onTime: number } {
   let onTime = 0;
+  let due = 0;
   for (const instance of instances) {
+    if (instance.get('retiredAt') instanceof Timestamp) continue;
+    due += 1;
     if (instance.get('status') !== 'done') continue;
     const dueAt = instance.get('dueAt');
     if (!(dueAt instanceof Timestamp)) continue;
@@ -44,5 +50,5 @@ export function onTimeCounts(
     }, 0);
     if (lastCompletedAt <= dueAt.toMillis()) onTime += 1;
   }
-  return { due: instances.length, onTime };
+  return { due, onTime };
 }

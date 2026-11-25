@@ -273,6 +273,17 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
       for (const snap of await tx.getAll(...inboxRefs)) if (snap.exists) existingInbox.add(snap.ref.path);
     }
 
+    const derivedEvents = serverEvents.filter(({ event }) => event.docId === undefined);
+    const fixedEvents = new Map<string, ServerEventDraft>();
+    for (const { event } of serverEvents) {
+      if (event.docId !== undefined && !fixedEvents.has(event.docId)) fixedEvents.set(event.docId, event);
+    }
+    const existingFixedEvents = new Set<string>();
+    if (fixedEvents.size > 0) {
+      const refs = [...fixedEvents.keys()].map((id) => db().doc(`households/${ctx.householdId}/events/${id}`));
+      for (const snap of await tx.getAll(...refs)) if (snap.exists) existingFixedEvents.add(snap.id);
+    }
+
     // ---- writes ----
     const firestore = db();
     for (const row of walletRows) {
@@ -293,8 +304,12 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
     }
     // Server events and alerts are deterministic and idempotent: set(), never a
     // conflict that could abort the ledger writes above.
-    for (const [id, event] of dedupe(serverEvents, ({ event: e, sourceKey }) => `evt:${e.name}:${e.memberId ?? 'household'}:${sourceKey}`)) {
+    for (const [id, event] of dedupe(derivedEvents, ({ event: e, sourceKey }) => `evt:${e.name}:${e.memberId ?? 'household'}:${sourceKey}`)) {
       tx.set(firestore.doc(`households/${ctx.householdId}/events/${id}`), serverEventToDoc(event.event));
+    }
+    // Fixed-id events (level-ups) are written once: an existing doc keeps its first createdAt.
+    for (const [id, event] of fixedEvents) {
+      if (!existingFixedEvents.has(id)) tx.set(firestore.doc(`households/${ctx.householdId}/events/${id}`), serverEventToDoc(event));
     }
     for (const [id, entry] of dedupe(alerts, ({ alert, sourceKey }) => `alert:${alert.kind}:${alert.memberId ?? ctx.householdId}:${sourceKey}`)) {
       tx.set(firestore.doc(`${GAMI_ALERTS_PATH}/${id}`), alertToDoc(entry.alert));

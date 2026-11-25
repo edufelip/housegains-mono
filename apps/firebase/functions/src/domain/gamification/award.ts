@@ -171,6 +171,11 @@ export function applyReversalToWallet(
   }
 }
 
+/** The one `gami_level_up` event doc of a (track, member, level): a level crossed again writes nothing new. */
+export function levelUpEventId(track: 'ganhos' | 'zelo', memberId: string, level: number): string {
+  return `evt:gami_level_up:${track}:${memberId}:${level}`;
+}
+
 /**
  * Follows the member's xpPeak (max xp ever, C3) and celebrates level-ups.
  * Level-ups only fire for wallets that already existed: a brand-new wallet
@@ -199,6 +204,7 @@ export function bumpXpPeak(
     copyKey: LEVEL_UP_COPY_KEY,
   });
   res.serverEvents.push({
+    docId: levelUpEventId('ganhos', wallet.memberId, wallet.level),
     name: 'gami_level_up',
     householdId: res.householdId,
     memberId: wallet.memberId,

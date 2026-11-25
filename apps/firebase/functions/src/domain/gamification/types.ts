@@ -492,6 +492,12 @@ export type ServerEventName =
   | 'gami_reminder_sent';
 
 export interface ServerEventDraft {
+  /**
+   * A fixed event doc id for events that must exist once however often the trigger repeats
+   * (a level reached again after a clawback). The runner writes it only when it is absent;
+   * without it the id is derived from the event name, member and source key.
+   */
+  docId?: string;
   name: ServerEventName;
   householdId: string;
   memberId?: string;

@@ -2,7 +2,7 @@
 // balance/level helpers every engine module shares. The engine never mutates
 // caller objects; it clones at the entry point (engine.ts).
 
-import { LEVEL_UP_COPY_KEY } from './award';
+import { LEVEL_UP_COPY_KEY, levelUpEventId } from './award';
 import { organizerLevel } from './levels';
 import type {
   EarnRule,
@@ -182,6 +182,7 @@ export function applyAwardToOrganizer(
     copyKey: LEVEL_UP_COPY_KEY,
   });
   res.serverEvents.push({
+    docId: levelUpEventId('zelo', organizer.memberId, organizer.level),
     name: 'gami_level_up',
     householdId: res.householdId,
     memberId: organizer.memberId,

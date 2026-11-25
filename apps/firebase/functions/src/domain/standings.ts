@@ -22,6 +22,8 @@ export interface StandingInstance {
   assigneeIds: string[];
   dueAt: Date;
   status: string;
+  /** Retired review records (their chore was deleted or paused) are not assigned work. */
+  retired?: boolean;
 }
 
 export interface MemberWeekStats {
@@ -63,6 +65,14 @@ export function weekToClose(now: Date, timeZone: string): WeekBounds | null {
   return { weekStart, weekEnd: addDaysToDateKey(weekStart, 6) };
 }
 
+/** How many closed weeks (the latest one included) closeWeeks replays unprocessed gamification for. */
+export const REPLAY_WINDOW_WEEKS = 8;
+
+/** First Monday of the replay window that ends with the `latestWeekStart` week. */
+export function replayWindowStart(latestWeekStart: string): string {
+  return addDaysToDateKey(latestWeekStart, -7 * (REPLAY_WINDOW_WEEKS - 1));
+}
+
 /** Absolute instants for the week: Monday 00:00 local to the next Monday 00:00 (DST-correct). */
 export function weekInstants(week: WeekBounds, timeZone: string): { weekStart: Date; weekEnd: Date } {
   return {
@@ -97,6 +107,7 @@ export function memberWeekStats(input: {
     }
   }
   for (const instance of input.instances) {
+    if (instance.retired === true) continue;
     if (instance.dueAt < input.weekStart || instance.dueAt >= input.weekEnd) continue;
     for (const uid of instance.assigneeIds) {
       const member = stats.get(uid);

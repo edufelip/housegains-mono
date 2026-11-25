@@ -31,6 +31,7 @@ import {
   type InstanceRecord,
   generateChoreInstances,
   isEditableFuture,
+  isFutureReviewRecord,
   refreshedFields,
 } from './domain/instances';
 import { colorFor, completionReviewedBody, initialsFor, reportReviewBody } from './domain/people';
@@ -165,6 +166,7 @@ export function readInstance(snap: DocumentSnapshot): InstanceRecord {
         }
       : {}),
     ...(d.disputeStatus ? { disputeStatus: d.disputeStatus as InstanceRecord['disputeStatus'] } : {}),
+    ...(d.retiredAt instanceof Timestamp ? { retiredAt: d.retiredAt.toDate() } : {}),
   };
 }
 
@@ -183,6 +185,7 @@ function instanceDoc(instance: InstanceRecord) {
       ? { revocations: instance.revocations.map((r) => ({ ...r, at: ts(r.at) })) }
       : {}),
     ...(instance.disputeStatus ? { disputeStatus: instance.disputeStatus } : {}),
+    ...(instance.retiredAt ? { retiredAt: ts(instance.retiredAt) } : {}),
   };
 }
 
@@ -639,7 +642,9 @@ export async function deleteAccount(uid: string) {
  *   and restarts generation from today;
  * - a plain edit rewrites editable future instances in place;
  * - pausing drops editable future instances.
- * Earned or started instances are never touched.
+ * Earned or started instances are never touched. Future review records (an undo or verdict
+ * reopened them) cannot be dropped: pausing retires them (`retiredAt`), reactivation brings
+ * them back, and any edit re-points their assignees; their subtasks stay as recorded.
  */
 async function writeChore(
   tx: Transaction,
@@ -658,17 +663,19 @@ async function writeChore(
   const openSnap = await tx.get(
     householdRef(hid).collection('instances').where('choreId', '==', choreId).where('status', '==', 'open'),
   );
-  const editable = openSnap.docs.map(readInstance).filter((i) => isEditableFuture(i, now));
+  const openInstances = openSnap.docs.map(readInstance);
+  const editable = openInstances.filter((i) => isEditableFuture(i, now));
+  const reviewRecords = openInstances.filter((i) => isFutureReviewRecord(i, now));
 
   const removed = new Set<string>();
   const refreshed: InstanceRecord[] = [];
   let base = restart;
+  const reactivated = prev !== null && !prev.isActive && next.isActive;
   if (!prev) {
     // New chore: restart is the base.
   } else {
     const structural =
       recurrenceKey(prev.recurrence, prev.recurrenceAnchor) !== recurrenceKey(next.recurrence, prev.recurrenceAnchor);
-    const reactivated = !prev.isActive && next.isActive;
     if (structural || reactivated) {
       editable.forEach((i) => removed.add(i.id));
       base = restart;
@@ -718,6 +725,16 @@ async function writeChore(
   }
   for (const instance of refreshed) {
     tx.update(instanceRef(hid, instance.id), refreshedFields(instance, next, tz));
+  }
+  for (const record of reviewRecords) {
+    if (!next.isActive) {
+      if (!record.retiredAt) tx.update(instanceRef(hid, record.id), { retiredAt: ts(now) });
+    } else {
+      tx.update(instanceRef(hid, record.id), {
+        assigneeIds: next.assigneeIds,
+        ...(reactivated && record.retiredAt ? { retiredAt: FieldValue.delete() } : {}),
+      });
+    }
   }
   tx.set(choreRef(hid, choreId), {
     ...choreDoc(record),
@@ -789,10 +806,12 @@ export async function setAssignments(uid: string, raw: unknown) {
     const assigneeIds = parseAssigneeIds(input.assigneeIds, hh.memberUids as string[]);
 
     const openSnap = await tx.get(hRef.collection('instances').where('choreId', '==', choreId).where('status', '==', 'open'));
-    const editable = openSnap.docs.map(readInstance).filter((i) => isEditableFuture(i, now));
+    const openInstances = openSnap.docs.map(readInstance);
+    // Review records (kept on a chore edit) take the new assignees too; only subtasks stay as recorded.
+    const retargeted = openInstances.filter((i) => isEditableFuture(i, now) || isFutureReviewRecord(i, now));
 
     tx.update(choreRef(hid, choreId), { assigneeIds, updatedAt: ts(now) });
-    for (const instance of editable) {
+    for (const instance of retargeted) {
       tx.update(instanceRef(hid, instance.id), { assigneeIds });
     }
     return { choreId, assigneeIds };
@@ -831,8 +850,14 @@ export async function deleteChore(uid: string, raw: unknown) {
     if (!chore.exists) fail('not-found', 'Chore not found.');
     const record = readChore(chore);
     const openSnap = await tx.get(hRef.collection('instances').where('choreId', '==', choreId).where('status', '==', 'open'));
-    const editable = openSnap.docs.map(readInstance).filter((i) => isEditableFuture(i, now));
-    for (const instance of editable) tx.delete(instanceRef(hid, instance.id));
+    const openInstances = openSnap.docs.map(readInstance);
+    for (const instance of openInstances.filter((i) => isEditableFuture(i, now))) {
+      tx.delete(instanceRef(hid, instance.id));
+    }
+    // A review record outlives its chore, but out of play (no reminders, never missed work).
+    for (const record of openInstances.filter((i) => isFutureReviewRecord(i, now))) {
+      if (!record.retiredAt) tx.update(instanceRef(hid, record.id), { retiredAt: ts(now) });
+    }
     tx.delete(choreRef(hid, choreId));
     return { record, household: householdInfo(hh) };
   });
@@ -966,6 +991,7 @@ export async function completeSubtask(uid: string, raw: unknown) {
     if (!snap.exists) fail('not-found', 'Chore instance not found.');
     const instance = readInstance(snap);
 
+    if (instance.retiredAt) fail('failed-precondition', 'This chore was removed or paused.');
     const subtask = instance.subtasks.find((candidate) => candidate.id === subtaskId);
     if (!subtask) fail('not-found', 'That subtask is not part of this chore.');
     if (instance.completions.some((c) => c.subtaskId === subtaskId)) {

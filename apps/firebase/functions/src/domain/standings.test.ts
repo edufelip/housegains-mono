@@ -5,6 +5,8 @@ import {
   memberWeekStats,
   pickTopMember,
   pickWallOfShame,
+  REPLAY_WINDOW_WEEKS,
+  replayWindowStart,
   weekBounds,
   weekInstants,
   weekToClose,
@@ -130,8 +132,29 @@ describe('weekInstants', () => {
   });
 });
 
+describe('replayWindowStart', () => {
+  it('starts the window REPLAY_WINDOW_WEEKS - 1 weeks before the latest closed week', () => {
+    expect(REPLAY_WINDOW_WEEKS).toBe(8);
+    expect(replayWindowStart('2026-11-16')).toBe('2026-09-28');
+  });
+});
+
 describe('memberWeekStats', () => {
   const week = weekInstants({ weekStart: '2026-11-16', weekEnd: '2026-11-22' }, 'UTC');
+
+  it('ignores retired instances: they are neither assigned nor missed', () => {
+    const stats = memberWeekStats({
+      memberIds: ['a'],
+      weekStart: week.weekStart,
+      weekEnd: week.weekEnd,
+      rows: [],
+      instances: [
+        { assigneeIds: ['a'], status: 'open', dueAt: instant('2026-11-18T12:00:00Z'), retired: true },
+        { assigneeIds: ['a'], status: 'partial', dueAt: instant('2026-11-19T12:00:00Z') },
+      ],
+    });
+    expect(stats.a).toMatchObject({ assignedDue: 1, missed: 1 });
+  });
 
   it('sums every ledger source signed and nets subtasks against undo and revoke rows', () => {
     const stats = memberWeekStats({

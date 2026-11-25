@@ -2,6 +2,7 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { describe, expect, it } from 'vitest';
 import { createOrganizer, createWallet, type WalletProjection } from '../domain/gamification';
 import { onTimeCounts } from './facts';
+import { storedWeekAggregates } from './week-close';
 import { celebrationToDoc, organizerFromDoc, organizerToDoc, walletFromDoc, walletToDoc } from './serialize';
 
 // The Firestore round trip of the C3 projections: what the runner writes is what the next run reads.
@@ -92,5 +93,37 @@ describe('onTimeCounts', () => {
       instance({ status: 'partial', dueAt: at('2026-11-18T20:00:00Z'), completions: [] }),
     ]);
     expect(counts).toEqual({ due: 3, onTime: 1 });
+  });
+});
+
+describe('onTimeCounts retired instances', () => {
+  it('skips retired instances: they are not due work', () => {
+    const doc = (fields: Record<string, unknown>) => ({ get: (field: string) => fields[field] });
+    const counts = onTimeCounts([
+      doc({ status: 'done', dueAt: Timestamp.fromDate(NOW), completions: [] }),
+      doc({ status: 'partial', dueAt: Timestamp.fromDate(NOW), retiredAt: Timestamp.fromDate(NOW) }),
+    ]);
+    expect(counts).toEqual({ due: 1, onTime: 1 });
+  });
+});
+
+describe('storedWeekAggregates', () => {
+  it('reads the stored snapshot, and null when it is absent or malformed', () => {
+    expect(
+      storedWeekAggregates({ onTimeRate: 80, dueInstances: 5, doneOnTime: 4, goalReached: true, weeklyGoalXp: 400 }),
+    ).toEqual({ due: 5, onTime: 4, goalReached: true, weeklyGoalXp: 400 });
+    expect(storedWeekAggregates({ dueInstances: 5, doneOnTime: 4, goalReached: false, weeklyGoalXp: null })).toEqual({
+      due: 5,
+      onTime: 4,
+      goalReached: false,
+      weeklyGoalXp: null,
+    });
+    // A doc that predates weeklyGoalXp still reuses the rest.
+    expect(storedWeekAggregates({ dueInstances: 5, doneOnTime: 4, goalReached: false })).toMatchObject({
+      weeklyGoalXp: undefined,
+    });
+    expect(storedWeekAggregates(undefined)).toBeNull();
+    expect(storedWeekAggregates({ processedAt: 'x', skipped: 'off' })).toBeNull();
+    expect(storedWeekAggregates({ dueInstances: 5, doneOnTime: 4 })).toBeNull();
   });
 });

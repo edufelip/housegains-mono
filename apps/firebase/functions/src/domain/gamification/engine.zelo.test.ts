@@ -482,6 +482,13 @@ describe('organizer level-ups (G5)', () => {
     expect(result.serverEvents.some((e) => e.name === 'gami_level_up' && e.memberId === CREATOR)).toBe(true);
   });
 
+  it('gives the organizer level-up event a fixed id per track, member and level', () => {
+    const start = organizer({ zelo: 195, lifetimeZelo: 195, level: 1 });
+    const result = evaluate(subtaskEvent({ choreId: 'chore-2' }), input({ wallet: wallet('uidB'), organizer: start }));
+    const levelUp = result.serverEvents.find((e) => e.name === 'gami_level_up' && e.memberId === CREATOR);
+    expect(levelUp?.docId).toBe(`evt:gami_level_up:zelo:${CREATOR}:2`);
+  });
+
   it('keeps the member and organizer level ids distinct', () => {
     const member = evaluate(
       subtaskEvent({ memberId: 'uidB', xpPeakAfter: 100 }),

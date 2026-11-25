@@ -111,6 +111,7 @@ describe('closeAllWeeks with the engine live', () => {
       dueInstances: 5,
       doneOnTime: 5,
       goalReached: true,
+      weeklyGoalXp: expect.any(Number),
       processedAt: expect.any(Timestamp),
     });
     expect(week.topMember.memberId).toBe(a.uid);
@@ -196,7 +197,7 @@ describe('closeAllWeeks in shadow and off', () => {
     expect(await inboxOf(creator.uid)).toEqual([]);
   });
 
-  it('off closes the week as before and writes no gamification data', async () => {
+  it('off closes the week as before and writes no gamification data beyond the terminal marker', async () => {
     const { a, householdId } = await weekHousehold('wk-off');
     await seedCredits(householdId, [{ memberId: a.uid, amount: 400, at: '2026-11-16T12:00:00Z' }]);
     await seedWallet(a.uid, {});
@@ -204,7 +205,7 @@ describe('closeAllWeeks in shadow and off', () => {
 
     const week = (await adminDb().doc(`households/${householdId}/weeks/${WEEK}`).get()).data()!;
     expect(week.topMember.memberId).toBe(a.uid);
-    expect(week.gamification).toBeUndefined();
+    expect(week.gamification).toEqual({ processedAt: expect.any(Timestamp), skipped: 'off' });
     expect(await walletLedger(a.uid)).toEqual({});
     expect(await serverEvents(householdId)).toEqual([]);
   });

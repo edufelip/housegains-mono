@@ -86,6 +86,12 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   appended when an admin revokes a completion. An instance that carries a `disputeStatus` or a
   non-empty `revocations[]` is a review record: chore edits (`saveChore`, `setAssignments`,
   `setChoreActive`, `deleteChore`) never rewrite or delete it, even when undo left it `open` with no completions.
+  `retiredAt?: Timestamp` is set on such a record when it is still open in the future with no completions and its chore
+  is deleted or paused: the record stays but is out of play (no reminders; `completeSubtask` fails with
+  `failed-precondition`; not counted as assigned or missed in the week stats or the on-time counts). The overdue pass
+  still closes it (`partial`); reactivating the chore clears `retiredAt` on the ones still in the future. Edits apply
+  the new `assigneeIds` to a review record; its subtasks and due time stay as recorded. **Mobile type contract:** the
+  instance type gains `retiredAt?: Date | null`, and clients hide an instance that has it.
 - `ledger/{entryId}` — the `XpLedgerEntry` shape (`memberId` = uid). Sources are
   `subtask | bonus | undo-subtask | undo-bonus | revoke-subtask | revoke-bonus`; undo and
   revoke rows are signed reversals with `reversesEntryId`, and revoke rows also carry
@@ -107,9 +113,11 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
   members: { [uid]: { xp, subtasks, assignedDue, missed } },
   topMember: { memberId, xp, subtasks } | null,
   wallOfShame: { memberId, missed, assignedDue } | null,
-  gamification?: { onTimeRate, dueInstances, doneOnTime, goalReached, processedAt }` (the Part C aggregates, written by
-  the same close whenever the gamification engine is not `off`; `processedAt` is written only once the engine run
-  for the week committed, and its absence is what makes `closeWeeks` replay the week).
+  gamification?: { onTimeRate, dueInstances, doneOnTime, goalReached, weeklyGoalXp, processedAt, skipped? }` (the Part C
+  aggregates, a snapshot a replay reuses, written by the same close whenever the gamification engine is not `off`;
+  `processedAt` is written only once the engine run for the week committed, and its absence is what makes `closeWeeks`
+  replay the week, oldest first, within the last 8 weeks. A week closed while the program could not process it carries
+  only `{ processedAt, skipped: 'off'|'cohort'|'no-creator' }` and is never replayed).
 - `feed/{postId}` — `instanceId, memberId, createdAt`. Id `${instanceId}_${uid}`
   (one post per member per instance).
 - `meta/invite` — `code, expiresAt, uses, maxUses, revoked` (the current invite).
@@ -213,10 +221,11 @@ Paths: `gamification/config`, `gamification/ruleSets/items/{version}`, `gamifica
   into the exported `afterWeekClosed(context)` after a fresh close: `scheduled.ts` registers the
   `gamiWeekClosedHook`, which runs `household.week_closed` through the engine (goal, streak, Zelo, achievements,
   localized FCM for the week's earnings under live) and writes `weeks/{weekStart}.gamification`, with `processedAt`
-  once the engine run committed. A pass that finds the latest closed week without `processedAt` runs the hook again
-  from the stored week doc (same `closedAt`, same member stats); the engine's keys make that idempotent. A week closed
-  while the program was `off` therefore gets processed by the first pass after it is switched on, while it is still
-  the latest closed week.
+  once the engine run committed. A pass that finds closed week docs of the last 8 weeks without `processedAt` runs the
+  hook again, oldest first, from each stored week doc (same `closedAt`, same member stats, same stored aggregates); the
+  engine's keys make that idempotent, and weeks with a doc are never replayed as gap weeks. A week closed while the
+  program was `off` (or otherwise unprocessable) gets a terminal `skipped` marker, so switching the program on later
+  does not retro-process it.
 - `gamificationReminders` — every 60 minutes: streak-at-risk push on Sunday 18:00 local and house-running-late push on
   Saturday 10:00 local, `live` households only, once per household per week and kind (the claim doc
   `gamiReminders/{weekStart}:{kind}` is created first), localized in 6 languages, `remindersEnabled` respected, then a

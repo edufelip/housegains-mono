@@ -50,6 +50,13 @@ One dispute document per instance for its whole life (doc id = instanceId).
 `instances/{instanceId}.disputeStatus` mirrors `'open' | 'resolved' | 'expired'` (absent = never disputed).
 An instance with a `disputeStatus` or a non-empty `revocations[]` is a review record: chore edits never rewrite or
 delete it (`isEditableFuture`), even when undo left it `open` with no completions.
+A review record that sits `open` in the future with no completions (an undo or a `not_done` verdict reopened it) must
+not keep working once its chore is gone: `deleteChore` and `setChoreActive(false)` (or a `saveChore` that pauses) set
+`instances/{id}.retiredAt` on it instead of deleting it. A retired instance keeps its record, but is out of play: no
+reminders, `completeSubtask` refuses it (`failed-precondition`), and it is neither assigned nor missed work in the week
+stats and the on-time counts. The overdue pass still closes it (`partial`) so it leaves the open query; reactivating the
+chore clears `retiredAt` on the ones still in the future. Any chore edit (`saveChore`, `setAssignments`) applies the new
+`assigneeIds` to a review record; its subtasks, bonus and due time stay as recorded (structural edits do not rewrite them).
 A verdict covers the *completions a report named*, not the subtask ids alone: the disputed subtasks whose standing
 completion id is in `completionIds`. If the reported completer undoes and someone else completes the subtask, that
 completion is not covered and stands. A dispute without `completionIds` (written before the field) covers every
@@ -158,8 +165,9 @@ Both are `null` when the household has fewer than 2 active members.
 Later moderation does not rewrite a closed week (the doc is a snapshot).
 
 The close is a sequence of isolated steps (week doc, push, Part C hooks, dispute expiry): a failure in one is logged and
-never skips the others. A pass that finds the latest closed week without `gamification.processedAt` (written only once
-its engine run committed) replays the Part C hook from the stored week doc, so a failed run is not lost; see C8.
+never skips the others. A pass that finds a closed week doc of the last 8 weeks without `gamification.processedAt`
+(written once its engine run committed, or as a terminal skip marker) replays the Part C hook from the stored week doc,
+oldest first, so a failed run is not lost; see C8.
 
 After closing, FCM to members with `remindersEnabled !== false` (localized, 6 languages).
 Copy names: en "Top member of the week" / "Wall of shame"; pt-BR "Destaque da semana" /
@@ -397,8 +405,8 @@ Member weekly streak ("semanas seguidas"): a week counts with ≥3 net subtask c
 (subtask − undo-subtask − revoke-subtask). Missed week: an away week keeps the streak frozen;
 else a folga is consumed if held (`gami_folga_used`); else the streak breaks (record kept). Weeks between the last
 processed week (`streak.lastActionWeek`, else `lastCountedWeek`) and the week being closed never reached the engine
-(the close did not run, or the program was off); each of them is replayed first as a missed week (oldest first, at most
-the latest 52), so they spend folgas, break the streak or are frozen by an away week exactly like a close that ran. The
+(the close did not run, or no week doc was ever written for them); each of them is replayed first as a missed week (oldest
+first, at most the latest 52; a week that has a week doc is never one of them, it is processed from its doc, see C8), so they spend folgas, break the streak or are frozen by an away week exactly like a close that ran. The
 organizer streak treats them the same way, without knowing whether every member was away (none is paused).
 Folgas: +1 every 4 counted weeks, hold max 1 (2 from level 8). Away mode: callable
 `setAwayWeeks({ householdId?, weekStarts: string[] })` → `{ weekStarts }` (the stored list). The household supplies the
@@ -539,21 +547,27 @@ Decisions taken while wiring the engine (`functions/src/gamification/*`), where 
   abort the ledger writes.
 - **Level-ups.** Member level-ups are `cel:level:member:{level}:{memberId}` and organizer level-ups
   `cel:level:organizer:{level}:{creatorUid}` (the two used to share an id). Organizer level-ups are celebrated (toast and
-  `gami_level_up`) wherever Zelo is awarded: a subtask credit, setup or the week close.
+  `gami_level_up`) wherever Zelo is awarded: a subtask credit, setup or the week close. The `gami_level_up` event doc id is
+  fixed per track, member and level (`evt:gami_level_up:{ganhos|zelo}:{memberId}:{level}`) and written only when absent, so a
+  level crossed again after a clawback is recorded once.
 - **Multi-member events.** `instance.completed_on_time` and `household.week_closed` call the engine once per affected wallet,
   chaining the organizer projection and unioning the emitted keys. Undo/revoke call it for the completer and, when the
   instance reopens, for every assignee.
 - **Weekly close.** `afterWeekClosedHooks` runs the Part C hook on the run that created the week doc, and again on later
-  passes while the latest closed week has no `gamification.processedAt`. It builds
+  passes for every closed week doc of the last 8 weeks without `gamification.processedAt`, oldest first from its stored
+  stats (a week still failing holds the later ones back, so the engine never sees them out of order). It builds
   `household.week_closed` from the standings context plus the week's instances (on-time = done with the last completion
   before `dueAt`), the weekly goal (net week XP of the active members ≥ `weeklyGoalXp`), per-member undo/revoke counts and
   whether every member is away, and writes `weeks/{weekStart}.gamification = { onTimeRate (integer %), dueInstances,
-  doneOnTime, goalReached }` whenever the engine writes (any mode but `off`), then `processedAt` once the engine run
-  committed. The run uses the throwing variant of the runner (`runGamificationStrict`), so a failure leaves the week
-  without `processedAt`; the next hourly pass rebuilds the context from the week doc (same `closedAt` and member stats)
-  and runs it again. This covers the latest closed week only. A week closed while the program was `off` has no marker
-  either, so the first pass after the program is switched on processes it, if it is still the latest closed week.
-  Replays are safe: the ledger keys, the event ids and `lastActionWeek` make a second run a no-op.
+  doneOnTime, goalReached, weeklyGoalXp }` whenever the engine writes (any mode but `off`), then `processedAt` once the
+  engine run committed. The aggregates are a snapshot: a replay reuses the stored ones and only computes them (from the
+  instances as they are then) when the doc has none. The run uses the throwing variant of the runner
+  (`runGamificationStrict`), so a failure leaves the week without `processedAt`; the next hourly pass rebuilds the context
+  from the week doc (same `closedAt` and member stats) and runs it again. A week closed while the program could not
+  process it gets a terminal marker, `gamification = { processedAt, skipped: 'off' | 'cohort' | 'no-creator' }`, and is
+  never replayed: switching the program on does not retro-process an old week (and the first deploy replays nothing
+  for households whose engine is `off`). Weeks older than the 8-week window that never got a marker are not replayed
+  either. Replays are safe: the ledger keys, the event ids and `lastActionWeek` make a second run a no-op.
   FCM and inbox rows only under `live`.
 - **Cohort** is recomputed on every run and persisted when it differs (C1); the config is never cached in tests.
 - **Rules** (`firestore.rules`): the owner reads `wallets/{uid}`, `wallets/{uid}/ledger/*` and `users/{uid}/inbox/*`; members
