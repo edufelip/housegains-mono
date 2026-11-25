@@ -131,6 +131,9 @@ Decorative particles (`radial` for toasts, `fall` for the unlock confetti), dete
 ### Feature screens and cards *(features/gamification/)*
 `AchievementUnlockScreen` (full screen), `LevelUpMoment`, `CelebrationHost` (renders the active celebration from the queue; renders nothing when the program is not visible), `CompletionBadges` (section inside S3), `WalletScreen`, `WeeklyStreakScreen`, `OrganizerCard`, `GanhosChip`. They compose `Screen`, `Card`, `Label`, `Button` and `StatePanel`; loading, error-with-retry and empty states use `StatePanel`.
 
+### `RatingBanner` *(features/rating/rating-banner.tsx)*
+A `Card` on Today (all three dashboards, after the Ganhos chip slot) asking a signed-in user to rate the app: star icon (decorative), heading, one sentence, a primary "Rate HouseGains" `Button` and a ghost "Not now" `Button`, each with an accessible label. Renders nothing unless it is due (BR-413 rule 29) and while its state loads, so no loading or error state is shown; storage errors are logged. Static (no animation, so no reduced-motion path). Takes no reward styling and no reward copy.
+
 ## Adding a component
 
 1. Check this catalog and `screen-elements.tsx`. If something similar exists, extend it.

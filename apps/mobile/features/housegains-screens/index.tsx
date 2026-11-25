@@ -16,6 +16,7 @@ import { CATALOG, useHousehold } from '@/features/household';
 import { ReminderOffer } from '@/features/notifications/reminder-offer';
 import { useReminderTokenSync } from '@/features/notifications/reminders';
 import ThemePickerScreen from '@/features/onboarding/theme-picker-screen';
+import { RatingBanner } from '@/features/rating';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { DeleteAccountScreen } from './account-screens';
 import { CatalogScreen } from './catalog-screen';
@@ -429,6 +430,7 @@ function HouseGainsScreens({ onHouseholdReady }: { onHouseholdReady(): void }) {
           onPress={() => go({ name: 'wallet' })}
         />
       ) : undefined,
+      ratingBanner: <RatingBanner />,
     };
     if (appearance.themeId === 'arcade') return <ArcadeDashboard {...props} />;
     if (appearance.themeId === 'sticker') return <StickerDashboard {...props} />;

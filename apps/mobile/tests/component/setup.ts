@@ -52,6 +52,15 @@ jest.mock('expo-apple-authentication', () => ({
   signInAsync: async () => ({}),
 }));
 
+// Native store review: the OS dialog is never shown in tests. restoreMocks resets these
+// implementations between tests, so a test that cares sets them again in beforeEach.
+jest.mock('expo-store-review', () => ({
+  hasAction: jest.fn(async () => true),
+  isAvailableAsync: jest.fn(async () => true),
+  requestReview: jest.fn(async () => undefined),
+  storeUrl: jest.fn(() => 'https://example.test/store'),
+}));
+
 afterEach(() => {
   jest.useRealTimers();
 });
