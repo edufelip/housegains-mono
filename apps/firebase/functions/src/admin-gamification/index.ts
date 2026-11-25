@@ -1,13 +1,12 @@
 import { HttpsError, onCall, type CallableRequest } from 'firebase-functions/v2/https';
 import { DomainError } from '../domain/errors';
 import { adjust, approveAdjustment } from './adjust';
-import { getConfig, setConfig } from './config';
 import { lookupUser } from './lookup';
 import { backfillLevelFloors, listAlerts, rebuildWallet } from './maintenance';
 import { listRuleSets, publish, rollback, saveDraft } from './rule-sets';
 import { simulate } from './simulate';
 
-// The 13 admin callables of the gamification back office (contract C10), implementing
+// The 11 admin callables of the gamification back office (contract C10), implementing
 // apps/admin/src/api-types.ts. Each one requires the Auth custom claim `admin: true`; every mutation
 // writes a gamification/audit row inside the module it lives in.
 
@@ -36,8 +35,6 @@ function adminCallable(handler: (caller: AdminCaller, data: unknown) => Promise<
   });
 }
 
-export const adminGetConfig = adminCallable(() => getConfig());
-export const adminSetConfig = adminCallable((caller, data) => setConfig(caller.uid, data));
 export const adminListRuleSets = adminCallable(() => listRuleSets());
 export const adminSaveDraft = adminCallable((caller, data) => saveDraft(caller.uid, data));
 export const adminPublish = adminCallable((caller, data) => publish(caller.uid, data));

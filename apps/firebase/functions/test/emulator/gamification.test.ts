@@ -10,7 +10,6 @@ import {
   withProfile,
 } from './helpers';
 import {
-  LIVE,
   burnWelcome,
   gamiHousehold,
   inboxOf,
@@ -28,8 +27,8 @@ import {
 } from './gami-helpers';
 
 // The Part C wiring (contract C1-C9) end to end: Cloud Functions + Firestore emulators,
-// real callables, the real safety-net trigger. Every test sets its own gamification/config;
-// afterAll removes it so the other suites run with the engine off.
+// real callables, the real safety-net trigger. The program is always on; tests that need a
+// published rule set write gamification/config themselves and it is removed around every test.
 
 afterAll(resetGamiConfig);
 beforeEach(resetGamiConfig);
@@ -44,49 +43,9 @@ async function memberDoc(householdId: string, uid: string) {
   return (await adminDb().doc(`households/${householdId}/members/${uid}`).get()).data() as Record<string, any>;
 }
 
-describe('rollout modes and cohorts (C1)', () => {
-  it('mode off writes nothing and returns no celebrations', async () => {
-    const { member, householdId, creator, choreId } = await gamiHousehold('off');
-    const instance = await nextOpenInstance(householdId, choreId);
-    const result = await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
-    expect(result.celebrations).toEqual([]);
-    expect(await walletOf(member.uid)).toBeNull();
-    expect(await walletLedger(member.uid)).toEqual({});
-    expect(await organizerLedger(householdId)).toEqual({});
-    expect(await serverEvents(householdId)).toEqual([]);
-    expect(await inboxOf(member.uid)).toEqual([]);
-    expect(await inboxOf(creator.uid)).toEqual([]);
-  });
-
-  it('shadow writes ledgers and projections but shows nothing', async () => {
-    await setGamiConfig({ mode: 'shadow' });
-    const { member, creator, householdId, choreId } = await gamiHousehold('shadow');
-    const instance = await nextOpenInstance(householdId, choreId);
-    const result = await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
-    expect(result.celebrations).toEqual([]);
-
-    const rows = await xpRows(householdId, instance.id);
-    const rowId = rows[0].id;
-    const ledger = await walletLedger(member.uid);
-    expect(ledger[`earn.subtask:${rowId}:${member.uid}`]).toMatchObject({ amount: 10, track: 'ganhos', memberId: member.uid });
-    expect(ledger[`earn.welcome:${rowId}:${member.uid}`]).toMatchObject({ amount: 50 });
-    const wallet = (await walletOf(member.uid))!;
-    expect(wallet).toMatchObject({ balance: 60, lifetimeEarned: 60, xpPeak: 10 });
-    expect(wallet.stats).toMatchObject({ credits: 1, welcomePaid: true });
-
-    // Zelo: first completion by a non-creator on a chore the creator made.
-    const zelo = await organizerLedger(householdId);
-    expect(zelo[`zelo.chore_done:${choreId}:${creator.uid}`]).toMatchObject({ amount: 5, track: 'zelo' });
-    const organizer = (await adminDb().doc(`households/${householdId}/organizer/${creator.uid}`).get()).data()!;
-    expect(organizer).toMatchObject({ zelo: 5, lifetimeZelo: 5 });
-
-    expect((await serverEvents(householdId, 'gami_earned')).length).toBeGreaterThan(0);
-    expect(await inboxOf(member.uid)).toEqual([]);
-    expect(await inboxOf(creator.uid)).toEqual([]);
-  });
-
-  it('live + live cohort returns celebrations with parts; others go to the inbox', async () => {
-    await setGamiConfig(LIVE);
+describe('always on (C1)', () => {
+  it('with no gamification/config doc, a household is paid live: celebrations with parts, the rest in the inbox', async () => {
+    expect((await adminDb().doc('gamification/config').get()).exists).toBe(false);
     const { member, creator, householdId, choreId } = await gamiHousehold('live', {}, { assign: 'creator' });
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -107,44 +66,31 @@ describe('rollout modes and cohorts (C1)', () => {
     expect(inbox).toHaveLength(1);
     expect(inbox[0]).toMatchObject({ track: 'zelo', amount: 5, seen: false });
     expect(await inboxOf(member.uid)).toEqual([]);
+    expect((await serverEvents(householdId, 'gami_earned')).length).toBeGreaterThan(0);
   });
 
-  it('control and shadow households under live get no celebrations and no inbox rows', async () => {
-    for (const [label, config] of [
-      ['ctl', { mode: 'live', livePercent: 0, controlPercent: 100 }],
-      ['shd', { mode: 'live', livePercent: 0, controlPercent: 0 }],
-    ] as const) {
-      await setGamiConfig(config);
-      const { member, creator, householdId, choreId } = await gamiHousehold(label, {}, { assign: 'creator' });
-      await burnWelcome(member.uid);
-      const instance = await nextOpenInstance(householdId, choreId);
-      const result = await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
-      expect(result.celebrations, label).toEqual([]);
-      expect((await walletOf(member.uid))!.balance, label).toBe(15);
-      expect(await inboxOf(member.uid), label).toEqual([]);
-      expect(await inboxOf(creator.uid), label).toEqual([]);
-      const cohort = (await adminDb().doc(`households/${householdId}`).get()).get('gamificationCohort');
-      expect(cohort).toBe(label === 'ctl' ? 'control' : 'shadow');
-    }
-  });
+  it('writes ledgers, projections and the Zelo organizer without any cohort bookkeeping on the household', async () => {
+    const { member, creator, householdId, choreId } = await gamiHousehold('always');
+    const instance = await nextOpenInstance(householdId, choreId);
+    await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
 
-  it('persists the cohort on createHousehold and keeps it fresh when the config changes', async () => {
-    await setGamiConfig(LIVE);
-    const creator = await withProfile('cohort-c', 'Alex');
-    const { householdId } = await createHousehold(creator);
-    expect((await adminDb().doc(`households/${householdId}`).get()).get('gamificationCohort')).toBe('live');
+    const rows = await xpRows(householdId, instance.id);
+    const rowId = rows[0].id;
+    const ledger = await walletLedger(member.uid);
+    expect(ledger[`earn.subtask:${rowId}:${member.uid}`]).toMatchObject({ amount: 10, track: 'ganhos', memberId: member.uid });
+    expect(ledger[`earn.welcome:${rowId}:${member.uid}`]).toMatchObject({ amount: 50 });
+    expect(await walletOf(member.uid)).toMatchObject({ balance: 60, lifetimeEarned: 60, xpPeak: 10 });
 
-    // Ops move the household to control; the next engine run rewrites the persisted cohort.
-    await setGamiConfig({ mode: 'live', livePercent: 0, controlPercent: 100 });
-    const { choreId } = await must('saveChore', creator.token, { householdId, chore: choreInput(ONE_SUBTASK) });
-    await must('finishSetup', creator.token, { householdId });
-    expect((await adminDb().doc(`households/${householdId}`).get()).get('gamificationCohort')).toBe('control');
-    expect(choreId).toBeTruthy();
+    const zelo = await organizerLedger(householdId);
+    expect(zelo[`zelo.chore_done:${choreId}:${creator.uid}`]).toMatchObject({ amount: 5, track: 'zelo' });
+
+    const household = (await adminDb().doc(`households/${householdId}`).get()).data()!;
+    expect(household).not.toHaveProperty('gamificationCohort');
   });
 
   it('an invalid published rule set falls back to the built-in defaults', async () => {
     await adminDb().doc('gamification/ruleSets/items/7').set({ status: 'published', rules: { schemaVersion: 99 } });
-    await setGamiConfig({ ...LIVE, activeVersion: 7 });
+    await setGamiConfig({ activeVersion: 7 });
     const { member, householdId, choreId } = await gamiHousehold('badrules');
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -159,7 +105,6 @@ describe('rollout modes and cohorts (C1)', () => {
 
 describe('xpPeak and levelFloor (C3)', () => {
   it('new members start at xpPeak 0 / levelFloor 1; xpPeak rises with xp and never falls on undo', async () => {
-    await setGamiConfig({ mode: 'shadow' });
     const { member, creator, householdId, choreId } = await gamiHousehold('peak');
     expect(await memberDoc(householdId, member.uid)).toMatchObject({ xp: 0, xpPeak: 0, levelFloor: 1 });
     expect(await memberDoc(householdId, creator.uid)).toMatchObject({ xpPeak: 0, levelFloor: 1 });
@@ -176,7 +121,6 @@ describe('xpPeak and levelFloor (C3)', () => {
 
 describe('clawbacks (C4)', () => {
   it('undo claws back exactly what was paid, assist included', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('undo', {}, { assign: 'creator' });
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -196,7 +140,6 @@ describe('clawbacks (C4)', () => {
   });
 
   it('an admin verdict (moderateInstance partial) claws back only the revoked subtask', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('revoke');
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -219,7 +162,6 @@ describe('clawbacks (C4)', () => {
   });
 
   it('resolveDispute not_done claws back every disputed credit, bonus included', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('dispute', ONE_SUBTASK);
     const reporter = await withProfile('dispute-r', 'Bea');
     await must('joinHousehold', reporter.token, { code: (await adminDb().doc(`households/${householdId}/meta/invite`).get()).get('code') });
@@ -234,7 +176,6 @@ describe('clawbacks (C4)', () => {
   });
 
   it('revoking an on-time completion also reverses the on_time earn', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('ontime', ONE_SUBTASK, { assign: 'member' });
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -257,7 +198,6 @@ describe('clawbacks (C4)', () => {
   });
 
   it('undo of the finishing subtask reopens the instance and reverses on_time for every paid assignee', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('ontime2', ONE_SUBTASK, {});
     // Assign both: both must have contributed to be paid, so the member finishes alone and only they are paid.
     await must('saveChore', creator.token, {
@@ -278,7 +218,6 @@ describe('clawbacks (C4)', () => {
 
 describe('caps and idempotency (C4, C8)', () => {
   it('the 400 daily Ganhos cap holds across separate calls', async () => {
-    await setGamiConfig(LIVE);
     const big = { subtasks: [{ id: 'big', name: 'Big', xp: 100, position: 0 }], bonusXp: 0 };
     const { member, householdId, choreId } = await gamiHousehold('cap', big);
     await burnWelcome(member.uid);
@@ -299,7 +238,6 @@ describe('caps and idempotency (C4, C8)', () => {
   });
 
   it('the callable and the safety-net trigger never double-pay; replaying the trigger is a no-op', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('idem', ONE_SUBTASK);
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -330,7 +268,6 @@ describe('caps and idempotency (C4, C8)', () => {
   }, 30_000);
 
   it('two simultaneous completions by one member both land (no lost update on the wallet)', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('race');
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -346,7 +283,6 @@ describe('caps and idempotency (C4, C8)', () => {
   }, 60_000);
 
   it('the trigger pays a row whose callable run never happened, once', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('safety', ONE_SUBTASK);
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -380,7 +316,6 @@ describe('caps and idempotency (C4, C8)', () => {
   }, 40_000);
 
   it('does not pay a row for a completion that was undone before the trigger ran', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('undone', ONE_SUBTASK);
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -400,7 +335,6 @@ describe('caps and idempotency (C4, C8)', () => {
 
 describe('feed.post and the welcome bonus (C4)', () => {
   it('a share earns 2 once a day, and only once per post', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('feed', { ...ONE_SUBTASK, recurrence: 'daily' });
     await burnWelcome(member.uid);
     const [first, second] = await openInstances(householdId, choreId, 2);
@@ -424,7 +358,6 @@ describe('feed.post and the welcome bonus (C4)', () => {
   });
 
   it('the welcome bonus is paid once per user, even after leaving and joining another household', async () => {
-    await setGamiConfig(LIVE);
     const first = await gamiHousehold('welcome1', ONE_SUBTASK);
     const instance = await nextOpenInstance(first.householdId, first.choreId);
     const result = await must('completeSubtask', first.member.token, {
@@ -453,7 +386,6 @@ describe('feed.post and the welcome bonus (C4)', () => {
 
 describe('Zelo (C5)', () => {
   it('finishSetup pays the creator 50 once, queued in their inbox', async () => {
-    await setGamiConfig(LIVE);
     const creator = await withProfile('zelo-c', 'Alex');
     const { householdId } = await createHousehold(creator);
     const response = await must('finishSetup', creator.token, { householdId });
@@ -471,7 +403,6 @@ describe('Zelo (C5)', () => {
   });
 
   it('chore_done pays once per chore and is reversed when the chore is deleted', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('choredone', { ...ONE_SUBTASK, recurrence: 'daily' });
     const [first, second] = await openInstances(householdId, choreId, 2);
     await must('completeSubtask', member.token, { householdId, instanceId: first.id, subtaskId: 'wash' });
@@ -488,7 +419,6 @@ describe('Zelo (C5)', () => {
   });
 
   it('member_activated pays when a joined member credits 3 subtasks, reversed if they are removed', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('activated', {
       subtasks: [
         { id: 'a', name: 'A', xp: 5, position: 0 },
@@ -511,7 +441,6 @@ describe('Zelo (C5)', () => {
 
 describe('integrity alerts (C9)', () => {
   it('writes a velocity alert after more than 12 credits in 10 minutes, and never claws back', async () => {
-    await setGamiConfig(LIVE);
     const subtasks = Array.from({ length: 12 }, (_, index) => ({ id: `s${index}`, name: `S${index}`, xp: 1, position: index }));
     const { member, householdId, choreId } = await gamiHousehold('velocity', { subtasks, bonusXp: 0, recurrence: 'daily' });
     await burnWelcome(member.uid);
@@ -529,7 +458,6 @@ describe('integrity alerts (C9)', () => {
 
 describe('chore metadata (C4, C9)', () => {
   it('stamps createdAt/updatedAt/createdBy, keeps the catalog id, and marks XP raises', async () => {
-    await setGamiConfig(LIVE);
     const creator = await withProfile('meta-c', 'Alex');
     const { householdId } = await createHousehold(creator);
     const { choreId } = await must('saveChore', creator.token, {
@@ -568,7 +496,6 @@ describe('chore metadata (C4, C9)', () => {
 
 describe('ackCelebrations (C8)', () => {
   it('marks only the caller\'s inbox rows as seen and rejects bad input', async () => {
-    await setGamiConfig(LIVE);
     const creator = await withProfile('ack-c', 'Alex');
     const stranger = await withProfile('ack-s', 'Eve');
     const { householdId } = await createHousehold(creator);
@@ -640,7 +567,6 @@ describe('setAwayWeeks (C7)', () => {
 
 describe('deleteAccount (C9)', () => {
   it('removes the wallet, its ledger and the inbox; Zelo rows stay', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('del', ONE_SUBTASK);
     const instance = await nextOpenInstance(householdId, choreId);
     await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });

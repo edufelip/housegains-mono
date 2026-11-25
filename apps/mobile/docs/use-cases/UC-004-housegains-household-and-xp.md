@@ -79,7 +79,7 @@
 ## UC-004.7 Earn Ganhos and celebrate
 
 - **Primary actors:** Household member (also the creator, for Care)
-- **Preconditions:** The program is visible (flag on and live cohort, BR-413 rule 22).
+- **Preconditions:** The member is signed in to a household; the program is always on (BR-413 rule 22).
 - **Trigger:** The member completes a step, finishes a chore, shares a completion, or opens the app after a week closed.
 - **Main flow:**
   1. The callable response (or the inbox) delivers celebrations; the app dedupes them by id.

@@ -73,8 +73,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs the mobile, Firebase and admin 
 
 ## Admin app
 
-`apps/admin` is the gamification rules engine admin (contract Part C10): rollout config,
-rule-set drafts with a JSON diff, an earn-rule editor with a live toast preview, a
+`apps/admin` is the gamification rules engine admin (contract Part C10): rule-set drafts with a JSON diff, an earn-rule editor with a live toast preview, a
 simulator, wallet ledger lookup with signed adjustments, alerts and maintenance. It is a
 Vite + React + TypeScript workspace; sign-in is Firebase Auth (Google) and every write
 goes through the `admin*` callables.

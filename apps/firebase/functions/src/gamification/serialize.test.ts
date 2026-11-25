@@ -123,7 +123,7 @@ describe('storedWeekAggregates', () => {
       weeklyGoalXp: undefined,
     });
     expect(storedWeekAggregates(undefined)).toBeNull();
-    expect(storedWeekAggregates({ processedAt: 'x', skipped: 'off' })).toBeNull();
+    expect(storedWeekAggregates({ processedAt: 'x', skipped: 'no-creator' })).toBeNull();
     expect(storedWeekAggregates({ dueInstances: 5, doneOnTime: 4 })).toBeNull();
   });
 });

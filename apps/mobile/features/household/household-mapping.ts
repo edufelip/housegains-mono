@@ -1,4 +1,3 @@
-import { parseCohort } from '@/features/gamification/gating';
 import type {
   Chore,
   Completion,
@@ -232,14 +231,12 @@ export function mapHousehold(
   formerMembers: Member[],
   invite: Invite,
 ): Household {
-  const cohort = parseCohort(data.gamificationCohort);
   return {
     id,
     name: data.name,
     icon: data.icon,
     color: data.color,
     timeZone: data.timeZone,
-    ...(cohort ? { gamificationCohort: cohort } : {}),
     weeklyGoalXp: data.weeklyGoalXp ?? null,
     members,
     formerMembers,

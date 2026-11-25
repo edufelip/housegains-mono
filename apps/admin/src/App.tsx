@@ -3,12 +3,10 @@ import { AuthProvider, useAuth } from './auth';
 import { Alerts } from './screens/Alerts';
 import { Ledger } from './screens/Ledger';
 import { Maintenance } from './screens/Maintenance';
-import { Rollout } from './screens/Rollout';
 import { RuleSets } from './screens/RuleSets';
 import { Simulator } from './screens/Simulator';
 
 const SCREENS = [
-  { id: 'rollout', label: 'Rollout', component: Rollout },
   { id: 'rules', label: 'Rule sets', component: RuleSets },
   { id: 'simulator', label: 'Simulator', component: Simulator },
   { id: 'ledger', label: 'Ledger lookup', component: Ledger },
@@ -69,8 +67,8 @@ function Shell() {
 }
 
 function Main() {
-  const [screen, setScreen] = useState<ScreenId>('rollout');
-  const Active = SCREENS.find((s) => s.id === screen)?.component ?? Rollout;
+  const [screen, setScreen] = useState<ScreenId>('rules');
+  const Active = SCREENS.find((s) => s.id === screen)?.component ?? RuleSets;
   const { uid, signOut } = useAuth();
 
   return (

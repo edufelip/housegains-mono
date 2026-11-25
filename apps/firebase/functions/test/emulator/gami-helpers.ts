@@ -9,36 +9,18 @@ import {
   type TestUser,
 } from './helpers';
 
-// Shared setup for the gamification emulator suites (contract Part C). Every suite
-// resets gamification/config in afterAll so the other suites run with the engine off.
+// Shared setup for the gamification emulator suites (contract Part C). The program is always on:
+// a missing gamification/config doc means the built-in default rule set. Suites that need a
+// published rule set write the pointer with setGamiConfig and reset it in afterAll.
 
 export interface GamiConfigInput {
-  mode: 'off' | 'shadow' | 'live';
-  livePercent?: number;
-  controlPercent?: number;
-  cohortSalt?: string;
-  activeVersion?: number | null;
+  activeVersion: number | null;
 }
 
-/** `off` removes the config doc (missing doc = off); the other modes write it. */
+/** Writes the rule-set pointer (gamification/config); the program has no other setting. */
 export async function setGamiConfig(config: GamiConfigInput): Promise<void> {
-  const ref = adminDb().doc('gamification/config');
-  if (config.mode === 'off') {
-    await ref.delete();
-    return;
-  }
-  await ref.set({
-    mode: config.mode,
-    activeVersion: config.activeVersion ?? null,
-    previousVersion: null,
-    cohortSalt: config.cohortSalt ?? 'test-salt',
-    livePercent: config.livePercent ?? 0,
-    controlPercent: config.controlPercent ?? 0,
-  });
+  await adminDb().doc('gamification/config').set({ activeVersion: config.activeVersion, previousVersion: null });
 }
-
-/** Everyone in the live cohort: livePercent 100 makes every household 'live'. */
-export const LIVE = { mode: 'live', livePercent: 100, controlPercent: 0 } as const;
 
 export async function resetGamiConfig(): Promise<void> {
   await adminDb().doc('gamification/config').delete();

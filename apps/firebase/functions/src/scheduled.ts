@@ -23,7 +23,6 @@ import {
   type WeekClosedContext,
 } from './domain/standings';
 import { pushToMembers } from './notify';
-import { readGamiConfig } from './gamification/config';
 import { gamiWeekClosedHook, gamiWeekProcessed } from './gamification/week-close';
 import { generateChoreInstancesFor } from './store';
 
@@ -241,12 +240,8 @@ async function closeHouseholdWeekDoc(
   for (const [uid, stats] of Object.entries(members)) {
     membersOut[uid] = { xp: stats.xp, subtasks: stats.subtasks, assignedDue: stats.assignedDue, missed: stats.missed };
   }
-  // Uncached: eligibility is recorded for good, so a cached mode from before a kill-switch flip
-  // must not decide it. This runs once per household per week.
-  const gamiEligible = (await readGamiConfig()).mode !== 'off';
   try {
     await weekRef.create({
-      gamiEligible,
       weekStart: week.weekStart,
       weekEnd: week.weekEnd,
       timeZone,
@@ -272,7 +267,6 @@ async function closeHouseholdWeekDoc(
         members,
         topMember,
         wallOfShame,
-        gamiEligible,
       },
     },
   };
@@ -306,7 +300,6 @@ function weekContextFromDoc(householdId: string, snapshot: DocumentSnapshot): We
     members,
     topMember: (data.topMember ?? null) as WeekClosedContext['topMember'],
     wallOfShame: (data.wallOfShame ?? null) as WeekClosedContext['wallOfShame'],
-    gamiEligible: data.gamiEligible === true,
   };
 }
 

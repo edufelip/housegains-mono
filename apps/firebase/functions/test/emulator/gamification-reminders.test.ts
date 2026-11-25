@@ -2,13 +2,14 @@ import { Timestamp } from 'firebase-admin/firestore';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { runGamificationReminders } from '../../src/gamification/reminders';
 import { adminDb, createHousehold, must, withProfile, type TestUser } from './helpers';
-import { LIVE, resetGamiConfig, serverEvents, setGamiConfig } from './gami-helpers';
+import { resetGamiConfig, serverEvents } from './gami-helpers';
 
 // gamificationReminders (contract C7), called directly with fixed clock times. The week is
 // Mon 2026-11-16 .. Sun 2026-11-22 in the household's UTC time zone. Test members have no FCM
 // tokens, so no push leaves the emulator: the claimed marker and the gami_reminder_sent event
 // (with its recipient count) are what a run is judged by.
 
+// Other suites may leave a rule-set pointer behind; these run against the missing-config default.
 afterAll(resetGamiConfig);
 beforeEach(resetGamiConfig);
 
@@ -67,7 +68,6 @@ const marker = (householdId: string, kind: string) =>
 
 describe('Sunday 18:00 streak reminders', () => {
   it('reminds members under 3 credits with a streak, once per week', async () => {
-    await setGamiConfig(LIVE);
     const { a, b, creator, householdId } = await remindersHousehold('rem');
     await seedWallet(a.uid, 8); // 1 credit this week: at risk
     await seedWallet(b.uid, 5); // 3 credits: safe
@@ -90,7 +90,6 @@ describe('Sunday 18:00 streak reminders', () => {
   });
 
   it('nets undo and revoke rows against the credits, and skips away weeks', async () => {
-    await setGamiConfig(LIVE);
     const { a, b, householdId } = await remindersHousehold('rem-net');
     await seedWallet(a.uid, 4);
     await seedWallet(b.uid, 4, [WEEK]);
@@ -108,7 +107,6 @@ describe('Sunday 18:00 streak reminders', () => {
   });
 
   it('respects remindersEnabled', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await remindersHousehold('rem-opt');
     await seedWallet(a.uid, 6);
     await adminDb().doc(`users/${a.uid}`).update({ remindersEnabled: false });
@@ -116,24 +114,24 @@ describe('Sunday 18:00 streak reminders', () => {
     expect(await serverEvents(householdId, 'gami_reminder_sent')).toEqual([]);
   });
 
-  it('only runs at Sunday 18:00 local, and only for live households', async () => {
-    await setGamiConfig(LIVE);
+  it('only runs at Sunday 18:00 local', async () => {
     const { a, householdId } = await remindersHousehold('rem-time');
     await seedWallet(a.uid, 6);
     await runGamificationReminders(new Date('2026-11-22T17:59:00Z'));
     await runGamificationReminders(new Date('2026-11-22T19:00:00Z'));
     await runGamificationReminders(new Date('2026-11-21T18:30:00Z')); // Saturday
     expect((await marker(householdId, 'member')).exists).toBe(false);
+  });
 
-    for (const config of [{ mode: 'shadow' }, { mode: 'live', livePercent: 0, controlPercent: 100 }, { mode: 'off' }] as const) {
-      await setGamiConfig(config);
-      await runGamificationReminders(SUNDAY_18);
-      expect((await marker(householdId, 'member')).exists, JSON.stringify(config)).toBe(false);
-    }
+  it('reminds every household with no gamification/config doc present', async () => {
+    const { a, householdId } = await remindersHousehold('rem-always');
+    await seedWallet(a.uid, 6);
+    expect((await adminDb().doc('gamification/config').get()).exists).toBe(false);
+    await runGamificationReminders(SUNDAY_18);
+    expect((await marker(householdId, 'member')).exists).toBe(true);
   });
 
   it('works in the household time zone', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await remindersHousehold('rem-tz');
     await adminDb().doc(`households/${householdId}`).update({ timeZone: 'America/Sao_Paulo' });
     await seedWallet(a.uid, 6);
@@ -147,7 +145,6 @@ describe('Sunday 18:00 streak reminders', () => {
 
 describe('Saturday 10:00 house reminder', () => {
   it('reminds the creator when the on-time rate so far is under 60% with at least 5 due', async () => {
-    await setGamiConfig(LIVE);
     const { householdId } = await remindersHousehold('rem-house');
     await seedInstances(householdId, 5, 2); // 40%
     await runGamificationReminders(SATURDAY_10);
@@ -157,7 +154,6 @@ describe('Saturday 10:00 house reminder', () => {
   });
 
   it('stays quiet when the house is at 60% or better, or has fewer than 5 due', async () => {
-    await setGamiConfig(LIVE);
     const fine = await remindersHousehold('rem-fine');
     await seedInstances(fine.householdId, 5, 3); // exactly 60%
     const few = await remindersHousehold('rem-few');

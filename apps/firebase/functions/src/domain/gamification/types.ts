@@ -23,8 +23,6 @@ export type EventKind =
 
 export type Track = 'ganhos' | 'zelo';
 export type Tier = 'bronze' | 'silver' | 'gold';
-export type RolloutMode = 'off' | 'shadow' | 'live';
-export type Cohort = 'live' | 'control' | 'shadow';
 
 // ---- Rule set (C2) -------------------------------------------------------------
 

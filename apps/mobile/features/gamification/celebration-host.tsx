@@ -109,7 +109,7 @@ function CelebrationToast({
 /**
  * Renders what the celebration queue is showing right now: a toast, the streak milestone, the
  * level-up moment, or the one full-screen achievement unlock of the session. Renders nothing when
- * gamification is not visible, so the app is unchanged with the flag off.
+ * there is no signed-in household member yet.
  */
 export function CelebrationHost() {
   const { visible, active, dismissCelebration } = useGamification();

@@ -13,7 +13,7 @@ import type {
   RuleSetStatus,
 } from './api-types';
 import { writeAuditTx } from './audit';
-import { configFromDoc, newCohortSalt } from './config';
+import { configFromDoc } from './config';
 import { asObject, requirePositiveVersion, stringOr, toIso, toIsoOrEpoch } from './parse';
 
 // Rule set lifecycle (C2, C10): draft -> published -> archived. The config's activeVersion points at the
@@ -141,15 +141,7 @@ export async function publish(actorUid: string, raw: unknown): Promise<AdminPubl
     if (previousRef !== null && previousSnap !== null && previousSnap.exists) {
       tx.update(previousRef, { status: 'archived' });
     }
-    tx.set(
-      configRef,
-      {
-        activeVersion: version,
-        previousVersion: previous,
-        cohortSalt: config.cohortSalt !== '' ? config.cohortSalt : newCohortSalt(),
-      },
-      { merge: true },
-    );
+    tx.set(configRef, { activeVersion: version, previousVersion: previous }, { merge: true });
     writeAuditTx(tx, {
       action: 'ruleSet.publish',
       actorUid,

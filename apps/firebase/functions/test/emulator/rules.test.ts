@@ -159,7 +159,7 @@ describe('gamification access (contract C3, C1)', () => {
       await setDoc(doc(db, 'households/h1/organizer/alice'), { zelo: 50 });
       await setDoc(doc(db, 'households/h1/organizerLedger/zelo.setup:setup:alice'), { amount: 50 });
       await setDoc(doc(db, 'households/h1/events/evt1'), { name: 'gami_earned' });
-      await setDoc(doc(db, 'gamification/config'), { mode: 'live' });
+      await setDoc(doc(db, 'gamification/config'), { activeVersion: 1 });
       await setDoc(doc(db, 'gamification/ruleSets/items/1'), { status: 'published' });
       await setDoc(doc(db, 'gamification/alerts/items/a1'), { kind: 'velocity' });
     });
@@ -214,7 +214,7 @@ describe('gamification access (contract C3, C1)', () => {
     const alice = env.authenticatedContext('alice').firestore();
     for (const path of ['gamification/config', 'gamification/ruleSets/items/1', 'gamification/alerts/items/a1']) {
       await assertFails(getDoc(doc(alice, path)));
-      await assertFails(setDoc(doc(alice, path), { mode: 'live' }));
+      await assertFails(setDoc(doc(alice, path), { activeVersion: 2 }));
     }
     await assertFails(getDocs(collection(alice, 'gamification/alerts/items')));
   });

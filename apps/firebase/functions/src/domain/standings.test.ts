@@ -321,7 +321,6 @@ describe('afterWeekClosed (Part C extension point)', () => {
     members: {},
     topMember: null,
     wallOfShame: null,
-    gamiEligible: true,
   };
 
   it('is a no-op with no hooks registered and calls every registered hook', async () => {

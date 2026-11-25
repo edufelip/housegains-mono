@@ -8,10 +8,9 @@ import {
   gamiStreakReminderTitle,
 } from '../domain/people';
 import { dateKeyInTimeZone, localDateTimeToInstant, weekdayForDateKey } from '../domain/time';
-import { visibility, type ServerEventDraft } from '../domain/gamification';
+import type { ServerEventDraft } from '../domain/gamification';
 import { weekBounds } from '../domain/standings';
 import { pushToMembers } from '../notify';
-import { cohortOf, loadGamiConfig, type GamiConfig } from './config';
 import { onTimeCounts } from './facts';
 import { serverEventToDoc } from './serialize';
 
@@ -20,7 +19,7 @@ import { serverEventToDoc } from './serialize';
 //   streak is at least 1 ("Faltam 2 etapas para manter suas 8 semanas.");
 // - Saturday 10:00 local: the creator when the on-time rate so far is under
 //   60% with at least 5 instances due ("A casa está em 52% esta semana.").
-// Live households only (mode 'live' + cohort 'live'), remindersEnabled respected,
+// Every household (the program is always on), remindersEnabled respected,
 // at most one reminder of each kind per household per week: the marker doc
 // households/{hid}/gamiReminders/{weekStart}:{kind} is claimed with create()
 // BEFORE anything is sent, so a repeated run in the same hour is a no-op.
@@ -33,8 +32,6 @@ const HOUSE_RATE_THRESHOLD_PERCENT = 60;
 type ReminderKind = 'member' | 'creator';
 
 export async function runGamificationReminders(now: Date): Promise<void> {
-  const config = await loadGamiConfig();
-  if (config.mode !== 'live') return;
   const households = await db().collection('households').get();
   let next = 0;
   await Promise.all(
@@ -42,7 +39,7 @@ export async function runGamificationReminders(now: Date): Promise<void> {
       while (next < households.size) {
         const household = households.docs[next++];
         try {
-          await remindHousehold(household, now, config);
+          await remindHousehold(household, now);
         } catch (error) {
           console.error('gamificationReminders failed', { householdId: household.id }, error);
         }
@@ -71,14 +68,12 @@ async function claimMarker(household: QueryDocumentSnapshot, weekStart: string, 
   }
 }
 
-async function remindHousehold(household: QueryDocumentSnapshot, now: Date, config: GamiConfig): Promise<void> {
+async function remindHousehold(household: QueryDocumentSnapshot, now: Date): Promise<void> {
   const data = household.data();
   const timeZone = typeof data.timeZone === 'string' ? data.timeZone : 'UTC';
   const memberUids = Array.isArray(data.memberUids) ? (data.memberUids as string[]) : [];
   const creatorUid = typeof data.creatorUid === 'string' ? data.creatorUid : null;
   if (memberUids.length === 0 || creatorUid === null) return;
-  // Only 'live' households (mode live and cohort live) see reminders (C7).
-  if (!visibility(config.mode, cohortOf(household.id, config)).celebrate) return;
   const kind = reminderKindAt(now, timeZone);
   if (kind === null) return;
 

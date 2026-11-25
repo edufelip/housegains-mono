@@ -24,14 +24,13 @@ export const bia: Member = {
   role: 'member',
 };
 
-export function fakeHousehold(cohort?: 'live' | 'control' | 'shadow'): Household {
+export function fakeHousehold(): Household {
   return {
     id: 'home',
     name: 'Willow House',
     icon: '🏠',
     color: '#FFD33D',
     timeZone: 'UTC',
-    ...(cohort ? { gamificationCohort: cohort } : {}),
     members: [me, bia],
     invite: {
       code: 'HG7K2P',
