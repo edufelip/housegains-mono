@@ -27,15 +27,13 @@ import {
   subscribeToWallet,
   subscribeToWalletLedger,
 } from './firebase-gamification-client';
-import { loadActivatedGamificationFlag } from './flag-source';
-import { isGamificationVisible } from './gating';
 import { awayErrorKey } from './streak-rules';
 import type { Celebration, Organizer, Wallet, WalletLedgerRow } from './types';
 
 export type LoadStatus = 'loading' | 'ready' | 'error';
 
 export interface GamificationViewModel {
-  /** `gamification_enabled` AND the household cohort is live. Everything below is inert when false. */
+  /** True for a signed-in member of a household. Everything below is inert when false (no member yet). */
   visible: boolean;
   /** Wallet and recent ledger rows (private to the owner). Not affected by the inbox listener. */
   walletStatus: LoadStatus;
@@ -69,7 +67,7 @@ export interface GamificationViewModel {
 const NO_BADGES: Celebration[] = [];
 const NO_LEDGER: WalletLedgerRow[] = [];
 
-/** What the app sees when gamification is off, or outside the provider: nothing changes. */
+/** What the app sees before a signed-in household member exists, or outside the provider. */
 export const INERT_GAMIFICATION: GamificationViewModel = {
   visible: false,
   walletStatus: 'loading',
@@ -101,20 +99,8 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
   const householdId = household?.id ?? null;
   const creatorId = household?.members.find((member) => member.role === 'creator')?.id ?? null;
 
-  const [flag, setFlag] = useState<boolean | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void loadActivatedGamificationFlag().then((enabled) => {
-      if (!cancelled) setFlag(enabled);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-  const visible = isGamificationVisible({
-    flagEnabled: flag,
-    cohort: household?.gamificationCohort,
-  });
+  // The program is always on: no flag and no cohort, only a signed-in member of a household.
+  const visible = uid !== null && householdId !== null;
 
   const [attempt, setAttempt] = useState(0);
   const [wallet, setWallet] = useState<Wallet | null>(null);
@@ -126,13 +112,13 @@ export function GamificationProvider({ children }: PropsWithChildren): React.JSX
   const [queue, dispatch] = useReducer(queueReducer, initialQueueState);
 
   // The queue (what was shown, what still needs an acknowledgement) belongs to the signed-in user
-  // while the program is visible. A listener retry must not clear it, or inbox rows that are
+  // while a member is signed in. A listener retry must not clear it, or inbox rows that are
   // shown but not yet acknowledged would be celebrated again.
   useEffect(() => {
     dispatch({ type: 'reset' });
   }, [visible, uid]);
 
-  // Wallet, recent ledger rows and the inbox: only while the program is visible. The wallet screen
+  // Wallet, recent ledger rows and the inbox: only for a signed-in household member. The wallet screen
   // and the inbox fail independently, so each listener reports into its own status.
   useEffect(() => {
     setWallet(null);

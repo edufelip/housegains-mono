@@ -4,7 +4,7 @@ import { Label } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 
-/** The dashboard entry to the Ganhos wallet. Only rendered when gamification is visible. */
+/** The dashboard entry to the Ganhos wallet. Rendered once a household member is signed in. */
 export function GanhosChip({ balance, onPress }: { balance: number; onPress: () => void }) {
   const { tokens } = useAppearance();
   const { t } = useHouseGainsTranslation();

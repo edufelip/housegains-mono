@@ -72,10 +72,6 @@ const mockFirebase = {
   hangUpdates: false,
   failProfileRead: false,
   remoteConfigValue: '' as string,
-  /** Remote Config `gamification_enabled`; the bundled default is false. */
-  gamificationEnabled: false as boolean,
-  /** Makes Remote Config unavailable: ensureInitialized rejects. */
-  remoteConfigFails: false as boolean,
   remoteConfigFetches: 0,
   remoteConfigFetchedValue: null as string | null,
   authStateListener: undefined as
@@ -196,22 +192,14 @@ jest.mock('@react-native-firebase/remote-config', () => {
   const remoteConfig = () => ({
     // Loading activated values from disk takes a tick, like the native SDK.
     ensureInitialized: () =>
-      new Promise<void>((resolve, reject) =>
+      new Promise<void>((resolve) =>
         setTimeout(() => {
-          if (mockFirebase.remoteConfigFails) {
-            reject(new Error('remote config unavailable'));
-            return;
-          }
           mockRemoteConfigInitialized = true;
           resolve();
         }, 0),
       ),
-    getValue: (key: string) => ({
+    getValue: () => ({
       asString: () => (mockRemoteConfigInitialized ? mockFirebase.remoteConfigValue : ''),
-      asBoolean: () =>
-        key === 'gamification_enabled' &&
-        mockRemoteConfigInitialized &&
-        mockFirebase.gamificationEnabled,
     }),
     setConfigSettings: async () => undefined,
     fetchAndActivate: async () => {
