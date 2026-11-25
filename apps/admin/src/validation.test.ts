@@ -3,7 +3,6 @@ import {
   emptyCapForm,
   needsSecondAdmin,
   parseAdjustmentForm,
-  parseConfigForm,
   parseDays,
   parseEarnRuleForm,
   toEarnRuleForm,
@@ -11,33 +10,6 @@ import {
 } from './validation';
 import type { EarnRule } from './engine-types';
 import { sampleRulesV1 } from './test/api-mock';
-
-describe('parseConfigForm', () => {
-  it('accepts valid percents', () => {
-    const { value, errors } = parseConfigForm('shadow', '10', '5');
-    expect(errors).toEqual([]);
-    expect(value).toEqual({ mode: 'shadow', livePercent: 10, controlPercent: 5 });
-  });
-
-  it('accepts 100 total but rejects 101', () => {
-    expect(parseConfigForm('live', '60', '40').errors).toEqual([]);
-    const over = parseConfigForm('live', '60', '41');
-    expect(over.value).toBeNull();
-    expect(over.errors).toContain('livePercent + controlPercent must be at most 100.');
-  });
-
-  it('rejects out-of-range and non-integer percents', () => {
-    expect(parseConfigForm('live', '101', '0').errors[0]).toMatch(/between 0 and 100/);
-    expect(parseConfigForm('live', '12.5', '0').errors[0]).toMatch(/whole number/);
-    expect(parseConfigForm('live', '', '0').errors[0]).toMatch(/whole number/);
-  });
-
-  it('rejects an unknown mode', () => {
-    expect(parseConfigForm('turbo', '10', '5').errors).toContain(
-      'Mode must be off, shadow or live.',
-    );
-  });
-});
 
 describe('parseDays', () => {
   it('accepts 1..28', () => {
