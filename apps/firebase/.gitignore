@@ -1,1 +1,4 @@
 *-debug.log
+
+# Admin web app build output (apps/admin builds here for Firebase Hosting)
+/hosting/admin/

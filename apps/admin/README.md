@@ -87,12 +87,14 @@ The backend tests for every callable are `apps/firebase/functions/test/emulator/
 
 ## Deploy
 
-`dist/` is served by Firebase Hosting on the second site, target `admin`
-(`apps/firebase/firebase.json`, site links in `apps/firebase/.firebaserc`):
+`bun run build` writes the app to `apps/firebase/hosting/admin/` (git-ignored), because Firebase
+Hosting only serves folders inside the Firebase project. That folder is served on the second
+site, target `admin` (`apps/firebase/firebase.json`, site links in `apps/firebase/.firebaserc`).
+Build with the target project's web app config in `VITE_FIREBASE_*` (see `.env.example`), then:
 
 ```bash
 cd apps/firebase
-firebase deploy --only hosting:admin
+firebase deploy --only hosting:admin --project prod
 ```
 
 The admin Hosting sites must exist first (Firebase console → Hosting → Add site)
