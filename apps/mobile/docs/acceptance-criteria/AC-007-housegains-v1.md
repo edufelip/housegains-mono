@@ -43,6 +43,7 @@
 - **AC-645 — Away mode:** Given Away mode, when the member picks Mondays and saves, then `setAwayWeeks` is called with them; client validation (future Mondays only, at most 3 per calendar year including past weeks) and server errors are shown as localized text with an icon, and a successful save is confirmed.
 - **AC-646 — Organizer card and tabs:** Given a live household, then Ranks shows the organizer card (Care, organizer title, "Casa em dia" streak, recent on-time rate, organizer achievements) to every member; and each bottom dock shows and announces the real localized name of every tab (never a humanized key).
 - **AC-647 — Retired instances:** Given an instance with `retiredAt` (its chore was deleted or paused while still reviewable), then Today and the dashboards do not list it, and its chore detail stays readable with no complete, undo, report or moderate actions.
+- **AC-648 — Rate-the-app banner:** Given a signed-in user first seen less than 14 days ago, then Today shows no rating banner. Given 14 days or more since first seen (or since the last "Not now"), then Today shows a card with "Rate HouseGains" and "Not now" buttons that have accessible labels, and neither the title nor the body mentions points, Ganhos or any reward. When the user taps Rate, the native review dialog is requested (or the store page opens when the dialog is unavailable), the banner disappears and never returns, even after a restart or years later. When the user taps Not now, the banner disappears and returns only after 14 more days. A storage failure, corrupt stored state or a device clock set back never crashes Today and never shows the banner repeatedly.
 
 ## Traceability
 
@@ -50,4 +51,4 @@
 - Business rules: [BR-413](../business-rules/BR-413-housegains-domain.md)
 - Use cases: [UC-004](../use-cases/UC-004-housegains-household-and-xp.md)
 - Screens: [HouseGains v1 screen specification](../screens/housegains-v1.md)
-- Test cases: [TC-535–TC-568](../test-cases/TC-535-housegains-v1.md)
+- Test cases: [TC-535–TC-569](../test-cases/TC-535-housegains-v1.md)

@@ -113,5 +113,5 @@
 - [Screen specification](../screens/housegains-v1.md)
 - [FR-275](../functional-requirements/FR-275-housegains-v1.md)
 - [BR-413](../business-rules/BR-413-housegains-domain.md)
-- [AC-618–AC-646](../acceptance-criteria/AC-007-housegains-v1.md)
-- [TC-535–TC-568](../test-cases/TC-535-housegains-v1.md)
+- [AC-618–AC-648](../acceptance-criteria/AC-007-housegains-v1.md)
+- [TC-535–TC-569](../test-cases/TC-535-housegains-v1.md)

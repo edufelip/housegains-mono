@@ -40,11 +40,12 @@
 | TC-566 | Organizer card | Organizer with Care, a streak, order weeks and badges; no organizer yet; loading and error | Open Ranks as a member | Care, title, "Casa em dia" streak, on-time ring and bars, badges; start message; loading panel; error with retry. |
 | TC-567 | Dock labels | Each theme and each language | Open any tab screen | Every tab has its real localized visible name or accessibility label; no "Screens tabs" text. |
 | TC-568 | Celebration queue and inbox | Callable celebrations, inbox rows (fresh and older than three days), repeated ids | Receive them | Deduped by id; one at a time; inbox ids acknowledged only after being shown; stale rows acknowledged unseen; a level celebration at or below the level floor acknowledged unseen; a failed acknowledgement retried with a backoff; a listener retry does not re-show an unacknowledged row; an inbox listener error does not put the wallet in error; an organizer (Zelo) level-up is shown with the organizer title whatever the member level, never acknowledged unseen because of the member's level floor. |
+| TC-569 | Rate-the-app banner | Signed-in user with stored state: first seen today; first seen 14 days ago; dismissed 13 and 14 days ago; rated; corrupt text; timestamps in the future; storage that throws | Open Today in each state; press Rate (native dialog available, unavailable with a store URL, and neither); press Not now; reopen the app | Hidden on day 0 and 13 days after a dismissal; shown from day 14; Rate calls the native dialog or opens the store page, hides the banner and it never returns; with no store reachable Rate counts as Not now; Not now hides it for 14 more days; corrupt or future state restarts the 14 days; a storage error is logged and nothing shows; both buttons have accessible labels in all six languages and no copy mentions a reward. Automated by `features/rating/rating-prompt.test.ts` and `tests/component/housegains-rating-banner.test.tsx`. |
 
 ## Traceability
 
 - Requirements: [FR-275](../functional-requirements/FR-275-housegains-v1.md)
 - Rules: [BR-413](../business-rules/BR-413-housegains-domain.md)
 - Use cases: [UC-004](../use-cases/UC-004-housegains-household-and-xp.md)
-- Acceptance: [AC-618–AC-646](../acceptance-criteria/AC-007-housegains-v1.md)
+- Acceptance: [AC-618–AC-648](../acceptance-criteria/AC-007-housegains-v1.md)
 - Screens: [HouseGains v1 screen specification](../screens/housegains-v1.md)
