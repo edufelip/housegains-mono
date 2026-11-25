@@ -114,10 +114,11 @@ function CelebrationToast({
 export function CelebrationHost() {
   const { visible, active, dismissCelebration } = useGamification();
   const { currentMember } = useHousehold();
-  // A level celebration at or below the member's displayed level floor is not a level-up in the
-  // app (backfilled members keep their old-curve level): acknowledge it without showing it.
+  // A Ganhos level celebration at or below the member's displayed level floor is not a level-up in
+  // the app (backfilled members keep their old-curve level): acknowledge it without showing it.
+  // Organizer (Zelo) level-ups have their own curve and are never compared with the member level.
   const moment =
-    active?.kind === 'level'
+    active?.kind === 'level' && active.celebration.track === 'ganhos'
       ? levelMoment(active.celebration.level, {
           xp: currentMember.xp ?? 0,
           xpPeak: currentMember.xpPeak,
@@ -147,6 +148,7 @@ export function CelebrationHost() {
           key={celebration.id}
           level={moment?.level ?? celebration.level ?? 1}
           onDismiss={dismiss}
+          track={celebration.track}
         />
       );
     default:

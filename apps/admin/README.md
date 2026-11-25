@@ -45,6 +45,8 @@ Sign-in is Google via Firebase Auth; the app only works for accounts whose ID
 token carries the `admin: true` custom claim. If the claims cannot be read
 (offline, token refresh failure) the app returns to the sign-in screen with the
 reason instead of opening the admin shell.
+When another account signs in, the previous account's access is dropped at once and
+the app shows loading until the new account's claims are read.
 
 The Ledger screen adjusts and rebuilds the wallet of the user that was last
 *looked up* (shown above the form), never the uid currently typed in the input:

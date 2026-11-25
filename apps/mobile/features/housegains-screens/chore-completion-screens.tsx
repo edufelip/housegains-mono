@@ -24,7 +24,7 @@ import {
   type ConfirmRequest,
 } from './moderation-screens';
 import { MemberBadge } from './screen-elements';
-import { choreDisplayName, subtaskDisplayName } from './screen-model';
+import { choreDisplayName, isRetiredInstance, subtaskDisplayName } from './screen-model';
 import type { Celebration } from '@/features/gamification/types';
 import type { Dispute, Instance, Member } from '@/features/household';
 import type { Chore, Completion } from '@/features/household/types';
@@ -192,13 +192,15 @@ export function ChoreDetailScreen({
   const { pending, actionError, run } = usePendingActions();
   const progress = progressFor(instance);
   const isPastDue = instance.status !== 'done' && Date.parse(instance.dueAt) <= now;
+  // A retired instance (its chore was deleted or paused) is a read-only history record.
+  const retired = isRetiredInstance(instance);
   const isClosed = isPastDue;
   const ownCompletions = instance.completions.filter(
     (completion) => completion.memberId === currentMember.id,
   );
-  const hasUndoWindow = ownCompletions.some((completion) =>
-    isUndoAvailable(completion, currentMember.id, now),
-  );
+  const hasUndoWindow =
+    !retired &&
+    ownCompletions.some((completion) => isUndoAvailable(completion, currentMember.id, now));
   const memberById = new Map(members.map((member) => [member.id, member]));
   const completionBySubtask = new Map(
     instance.completions.map((completion) => [completion.subtaskId, completion]),
@@ -216,19 +218,21 @@ export function ChoreDetailScreen({
   const openDispute = disputes?.find((dispute) => dispute.instanceId === instance.id);
   const moderatable = moderatableSubtasks(instance, now);
   const completedCount = new Set(instance.completions.map(({ subtaskId }) => subtaskId)).size;
-  const canModerate = isAdmin && moderatable.length > 0 && onModerate !== undefined;
+  const canModerate = !retired && isAdmin && moderatable.length > 0 && onModerate !== undefined;
   const roster = rosterMembers ?? members;
   // "Not done" revokes every in-window step, so the caller's own completion blocks it. A partial
   // verdict only targets the picked steps (the server checks the targets): the caller's own
-  // completions are not offered, everyone else's stay selectable.
+  // completions are not offered, everyone else's stay selectable. A verdict also resolves the
+  // open dispute, so the completions it still covers count as judged too (the server checks
+  // targets plus those): when one is the caller's, neither action is offered.
   const conflicted = canModerate
-    ? hasModerationConflict(instance, moderatable, currentMember.id, roster)
+    ? hasModerationConflict(instance, moderatable, currentMember.id, roster, openDispute)
     : false;
   const selectable = canModerate
-    ? selectableForModeration(instance, moderatable, currentMember.id, roster)
+    ? selectableForModeration(instance, moderatable, currentMember.id, roster, openDispute)
     : [];
   const partialPossible = canModerate && partialModerationAvailable(selectable, moderatable);
-  const canReport = canReportCompletion(currentMember, instance, openDispute, now);
+  const canReport = !retired && canReportCompletion(currentMember, instance, openDispute, now);
   const alreadyReported =
     openDispute?.reports.some((report) => report.uid === currentMember.id) ?? false;
   const reportSteps = moderationStepsFor(
@@ -365,8 +369,9 @@ export function ChoreDetailScreen({
           const member = completion ? memberById.get(completion.memberId) : undefined;
           const isPending =
             pending.has(`undo:${subtask.id}`) || pending.has(`complete:${subtask.id}`);
-          const canUndo = completion ? isUndoAvailable(completion, currentMember.id, now) : false;
-          const undoExpired = completion?.memberId === currentMember.id && !canUndo;
+          const canUndo =
+            !retired && completion ? isUndoAvailable(completion, currentMember.id, now) : false;
+          const undoExpired = !retired && completion?.memberId === currentMember.id && !canUndo;
           const doneLabel = t('housegains.screens.choreDetail.doneButton', { xp: subtask.xp });
 
           return (
@@ -447,7 +452,7 @@ export function ChoreDetailScreen({
                       variant="secondary"
                     />
                   ) : null
-                ) : (
+                ) : retired ? null : (
                   <Pressable
                     accessibilityLabel={doneLabel}
                     accessibilityRole="button"
@@ -527,7 +532,7 @@ export function ChoreDetailScreen({
               {t('housegains.screens.choreDetail.bonusAwarded', { bonus: bonusTotal(instance) })}
             </Label>
           </Card>
-        ) : !isClosed ? (
+        ) : !isClosed && !retired ? (
           <Card
             style={{ backgroundColor: tokens.accent, borderStyle: 'dashed' }}
             testID="housegains.choreDetail.bonusLocked"
@@ -631,7 +636,7 @@ export function ChoreDetailScreen({
         </Card>
       ) : null}
 
-      {isAdmin && moderatable.length === 0 && completedCount > 0 ? (
+      {!retired && isAdmin && moderatable.length === 0 && completedCount > 0 ? (
         <Label variant="caption" testID="housegains.choreDetail.reviewWindowClosed">
           {t('housegains.screens.choreDetail.reviewWindowClosed')}
         </Label>

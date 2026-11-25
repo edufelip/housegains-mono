@@ -357,3 +357,36 @@ test('maps xpPeak, levelFloor and the gamification cohort when present, and omit
   const missing = mapHousehold('h', { name: 'H' }, [], [], mapInvite(undefined));
   assert.equal('gamificationCohort' in missing, false);
 });
+
+test('instances map retiredAt to an ISO string and omit it while the chore is live', () => {
+  const base = {
+    choreId: 'c1',
+    dueAt: new Date('2026-11-20T10:00:00.000Z'),
+    subtasks: [],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'done',
+    completions: [],
+    bonusAwards: {},
+  };
+  assert.equal(mapInstance('i1', base).retiredAt, undefined);
+  assert.equal(
+    mapInstance('i1', { ...base, retiredAt: new Date('2026-11-21T09:30:00.000Z') }).retiredAt,
+    '2026-11-21T09:30:00.000Z',
+  );
+});
+
+test('disputes map the reported completion ids and omit them on legacy disputes', () => {
+  const at = new Date('2026-11-22T08:00:00.000Z');
+  const base = {
+    choreName: 'Dog care',
+    status: 'open',
+    subtaskIds: ['feed'],
+    createdAt: at,
+    expiresAt: at,
+  };
+  assert.deepEqual(mapDispute('inst-1', { ...base, completionIds: ['c-feed'] }).completionIds, [
+    'c-feed',
+  ]);
+  assert.equal('completionIds' in mapDispute('inst-2', base), false);
+});

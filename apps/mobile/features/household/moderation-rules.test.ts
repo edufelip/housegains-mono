@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   canModerateInstance,
   canReportCompletion,
+  disputedSubtasks,
   hasAdminRights,
   hasModerationConflict,
   isPartialSelection,
@@ -201,4 +202,95 @@ test('partialModerationAvailable counts only selectable steps and keeps one step
   assert.equal(partialModerationAvailable(['feed', 'walk'], ['feed', 'walk']), true);
   // One step is the caller's own and stays done, so the other one is a valid partial.
   assert.equal(partialModerationAvailable(['walk'], ['feed', 'walk']), true);
+});
+
+function openDisputeOver(
+  subtaskIds: string[],
+  completionIds?: string[],
+  status: Dispute['status'] = 'open',
+): Dispute {
+  return {
+    id: 'inst-1',
+    instanceId: 'inst-1',
+    choreName: 'Dog care',
+    status,
+    subtaskIds,
+    ...(completionIds ? { completionIds } : {}),
+    completerIds: [],
+    reports: [],
+    createdAt: IN_WINDOW,
+    expiresAt: '2026-11-26T12:00:00.000Z',
+  };
+}
+
+test('disputedSubtasks keeps the steps whose standing completion a report named', () => {
+  const completions = [completion('feed', 'edu', IN_WINDOW), completion('walk', 'bia', IN_WINDOW)];
+  // A step undone and completed again by someone else is a new completion nobody reported.
+  assert.deepEqual(disputedSubtasks(openDisputeOver(['feed', 'walk'], ['c-walk']), completions), [
+    'walk',
+  ]);
+  assert.deepEqual(
+    disputedSubtasks(openDisputeOver(['feed', 'walk'], ['c-feed', 'c-walk']), completions),
+    ['feed', 'walk'],
+  );
+  assert.deepEqual(disputedSubtasks(openDisputeOver(['feed'], ['c-gone']), completions), []);
+  // Legacy disputes without completionIds cover every disputed subtask.
+  assert.deepEqual(disputedSubtasks(openDisputeOver(['feed', 'walk']), completions), [
+    'feed',
+    'walk',
+  ]);
+});
+
+test('an open dispute covering the caller’s own completion is a conflict even for other targets', () => {
+  const instanceOne = instance([
+    completion('feed', 'edu', IN_WINDOW),
+    completion('walk', 'bia', IN_WINDOW),
+  ]);
+  const dispute = openDisputeOver(['feed', 'walk'], ['c-feed', 'c-walk']);
+  // Without the dispute only the caller's own step conflicts.
+  assert.equal(hasModerationConflict(instanceOne, ['walk'], 'edu', members), false);
+  // With it, the verdict also resolves the dispute over edu's own 'feed'.
+  assert.equal(hasModerationConflict(instanceOne, ['walk'], 'edu', members, dispute), true);
+  assert.deepEqual(
+    selectableForModeration(instanceOne, ['feed', 'walk'], 'edu', members, dispute),
+    [],
+  );
+  // A sole admin may still judge their own completion.
+  const soleAdminHousehold = [member('edu', 'creator'), member('bia')];
+  assert.equal(
+    hasModerationConflict(instanceOne, ['walk'], 'edu', soleAdminHousehold, dispute),
+    false,
+  );
+  // A dispute whose covered completion is somebody else's, or that is no longer open, adds nothing.
+  assert.equal(
+    hasModerationConflict(
+      instanceOne,
+      ['walk'],
+      'edu',
+      members,
+      openDisputeOver(['walk'], ['c-walk']),
+    ),
+    false,
+  );
+  assert.equal(
+    hasModerationConflict(
+      instanceOne,
+      ['walk'],
+      'edu',
+      members,
+      openDisputeOver(['feed'], ['c-feed'], 'resolved'),
+    ),
+    false,
+  );
+  // The caller's completion no longer covered by the report (replaced) does not conflict.
+  assert.equal(
+    hasModerationConflict(
+      instanceOne,
+      ['walk'],
+      'edu',
+      members,
+      openDisputeOver(['feed', 'walk'], ['c-walk']),
+    ),
+    false,
+  );
 });

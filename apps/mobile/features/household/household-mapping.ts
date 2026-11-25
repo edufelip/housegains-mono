@@ -127,6 +127,7 @@ export function mapInstance(id: string, data: DocData): Instance {
     bonusAwards: data.bonusAwards ?? {},
     ...(data.choreSnapshot ? { choreSnapshot: data.choreSnapshot } : {}),
     ...(data.disputeStatus ? { disputeStatus: data.disputeStatus } : {}),
+    ...(data.retiredAt ? { retiredAt: isoOf(data.retiredAt) } : {}),
     ...(Array.isArray(data.revocations) && data.revocations.length > 0
       ? { revocations: data.revocations.map(mapRevocation) }
       : {}),
@@ -172,6 +173,7 @@ export function mapDispute(id: string, data: DocData): Dispute {
     choreName: data.choreName ?? '',
     status: data.status === 'resolved' || data.status === 'expired' ? data.status : 'open',
     subtaskIds: data.subtaskIds ?? [],
+    ...(Array.isArray(data.completionIds) ? { completionIds: data.completionIds } : {}),
     completerIds: data.completerIds ?? [],
     reports: (data.reports ?? []).map(mapDisputeReport),
     ...(data.verdict ? { verdict: data.verdict } : {}),

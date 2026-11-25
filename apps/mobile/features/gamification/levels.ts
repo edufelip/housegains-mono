@@ -145,3 +145,12 @@ export function organizerTitleKey(zelo: number): OrganizerTitleKey {
   for (const title of ORGANIZER_TITLES) if (value >= title.zelo) key = title.key;
   return key;
 }
+
+/** Organizer title of an organizer level (1-based, as the server sends it): level 1 is Zelo 0. */
+export function organizerTitleKeyForLevel(level: number): OrganizerTitleKey {
+  const index = Math.min(
+    ORGANIZER_TITLES.length - 1,
+    Math.max(0, Math.floor(finiteOrZero(level)) - 1),
+  );
+  return ORGANIZER_TITLES[index].key;
+}

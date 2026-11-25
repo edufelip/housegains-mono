@@ -13,10 +13,13 @@ import { ProgressRing } from '@/components/housegains/gamification/progress-ring
 import { Label } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
-import { memberTitleKey } from './levels';
+import { memberTitleKey, organizerTitleKeyForLevel } from './levels';
+import type { Track } from './types';
 
 export type LevelUpMomentProps = {
   level: number;
+  /** `zelo` frames the moment as the house organizer's level-up, with the organizer title. */
+  track?: Track;
   onDismiss: () => void;
   testID?: string;
 };
@@ -27,6 +30,7 @@ export type LevelUpMomentProps = {
  */
 export function LevelUpMoment({
   level,
+  track = 'ganhos',
   onDismiss,
   testID = 'housegains.gamification.level',
 }: LevelUpMomentProps) {
@@ -39,9 +43,15 @@ export function LevelUpMoment({
   const [shownLevel, setShownLevel] = useState(reduced ? level : Math.max(1, level - 1));
   const dismiss = useRef(onDismiss);
   dismiss.current = onDismiss;
-  const title = t(`housegains.screens.dashboard.title.${memberTitleKey(level)}`);
+  const organizer = track === 'zelo';
+  const title = organizer
+    ? t(`housegains.gamification.organizer.rank.${organizerTitleKeyForLevel(level)}`)
+    : t(`housegains.screens.dashboard.title.${memberTitleKey(level)}`);
   const headline = t('housegains.gamification.level.title', { level });
-  const announcement = t('housegains.gamification.level.announce', { level });
+  const levelAnnouncement = t('housegains.gamification.level.announce', { level });
+  const announcement = organizer
+    ? `${t('housegains.gamification.organizer.title')}. ${levelAnnouncement}`
+    : levelAnnouncement;
 
   useEffect(() => {
     void AccessibilityInfo.announceForAccessibility(announcement);
@@ -118,6 +128,11 @@ export function LevelUpMoment({
           </Animated.View>
         </ProgressRing>
         <View style={{ flex: 1, gap: tokens.spacing.xxs }}>
+          {organizer ? (
+            <Label testID={`${testID}.organizer`} variant="caption">
+              {t('housegains.gamification.organizer.title')}
+            </Label>
+          ) : null}
           <Label testID={`${testID}.title`} variant="heading">
             {headline}
           </Label>

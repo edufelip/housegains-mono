@@ -13,13 +13,22 @@ export type AssignableInstance = {
   assigneeIds: string[];
 };
 
-export function filterInstancesForHouseholdDate<T extends { dueAt: string }>(
+/**
+ * A retired instance is a review record of a chore that was deleted or paused: it stays in
+ * history (read-only) but is not work to do, so Today, dashboards and due lists leave it out.
+ */
+export function isRetiredInstance(instance: { retiredAt?: string }): boolean {
+  return instance.retiredAt !== undefined;
+}
+
+export function filterInstancesForHouseholdDate<T extends { dueAt: string; retiredAt?: string }>(
   instances: readonly T[],
   date: Date,
   timeZone: string,
 ): T[] {
   const targetDate = householdDateKey(date, timeZone);
   return instances.filter((instance) => {
+    if (isRetiredInstance(instance)) return false;
     const dueAt = new Date(instance.dueAt);
     return Number.isFinite(dueAt.getTime()) && householdDateKey(dueAt, timeZone) === targetDate;
   });
@@ -66,6 +75,7 @@ export function deriveInstanceProgress(instance: {
 
 export type DashboardInstance = AssignableInstance & {
   dueAt: string;
+  retiredAt?: string;
   subtasks: readonly { id: string; xp: number }[];
   completions: readonly { subtaskId: string; memberId: string; xp: number }[];
   bonusAwards: Readonly<Record<string, number>>;
@@ -80,7 +90,10 @@ export function deriveDashboardSummary<T extends DashboardInstance>(
   currentMemberId: string,
   now = new Date(),
 ) {
-  const orderedInstances = orderTodayInstances(instances, currentMemberId);
+  const orderedInstances = orderTodayInstances(
+    instances.filter((instance) => !isRetiredInstance(instance)),
+    currentMemberId,
+  );
   const score = deriveScoreSnapshot(members, weeklyTotals, currentMemberId);
   let completedSubtasks = 0;
   let totalSubtasks = 0;

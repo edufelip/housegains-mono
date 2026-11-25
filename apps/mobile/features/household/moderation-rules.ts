@@ -76,16 +76,41 @@ export function soleAdminOf(members: readonly Member[]): boolean {
 }
 
 /**
+ * The disputed subtasks whose standing completion is still one a report named (A2), mirroring
+ * the server's `disputedSubtaskIds`: a step the reported member undid and somebody else then
+ * completed is a different completion nobody reported. Legacy disputes without `completionIds`
+ * cover every disputed subtask.
+ */
+export function disputedSubtasks(
+  dispute: Pick<Dispute, 'subtaskIds' | 'completionIds'>,
+  completions: readonly Completion[],
+): string[] {
+  const reported = dispute.completionIds;
+  if (reported === undefined) return [...dispute.subtaskIds];
+  return dispute.subtaskIds.filter((subtaskId) => {
+    const completion = completions.find((candidate) => candidate.subtaskId === subtaskId);
+    return completion !== undefined && reported.includes(completion.id);
+  });
+}
+
+/**
  * Conflict of interest (A2): the caller completed one of the target subtasks and is
- * not the only member with admin rights, so another admin must review.
+ * not the only member with admin rights, so another admin must review. A direct moderation
+ * also resolves the instance's open dispute, so the caller is judging the completions that
+ * dispute still covers too: pass it as `openDispute` (resolved or expired disputes are ignored).
  */
 export function hasModerationConflict(
   instance: Instance,
   subtaskIds: readonly string[],
   callerId: string,
   members: readonly Member[],
+  openDispute?: Dispute,
 ): boolean {
-  const conflicted = subtaskIds.some((subtaskId) =>
+  const judged =
+    openDispute?.status === 'open'
+      ? [...subtaskIds, ...disputedSubtasks(openDispute, instance.completions)]
+      : subtaskIds;
+  const conflicted = judged.some((subtaskId) =>
     instance.completions.some(
       (completion) => completion.subtaskId === subtaskId && completion.memberId === callerId,
     ),
@@ -96,16 +121,18 @@ export function hasModerationConflict(
 /**
  * The subtasks the caller may pick for a verdict (A2): the server only checks the targets, so
  * the caller's own completions are not selectable unless they are the only member with admin
- * rights, while everyone else's completions stay selectable.
+ * rights, while everyone else's completions stay selectable. An open dispute that still covers
+ * one of the caller's completions blocks every pick, as the verdict resolves that dispute too.
  */
 export function selectableForModeration(
   instance: Instance,
   subtaskIds: readonly string[],
   callerId: string,
   members: readonly Member[],
+  openDispute?: Dispute,
 ): string[] {
   return subtaskIds.filter(
-    (subtaskId) => !hasModerationConflict(instance, [subtaskId], callerId, members),
+    (subtaskId) => !hasModerationConflict(instance, [subtaskId], callerId, members, openDispute),
   );
 }
 

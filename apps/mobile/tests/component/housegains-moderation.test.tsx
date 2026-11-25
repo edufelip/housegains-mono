@@ -467,6 +467,52 @@ describe('HouseGains admin verdict flow', () => {
     });
   });
 
+  test('the Reports conflict follows the completions the dispute still covers', async () => {
+    // Edu undid 'feed' earlier and completed it again: the report named the older completion
+    // (c-old), so Edu's current one is not under review and Edu may give the verdict.
+    const replaced = {
+      ...completion('feed', 'edu', 60),
+      id: 'c-new',
+    };
+    const instances = [makeInstance({ completions: [replaced, completion('walk', 'bia', 30)] })];
+    const props = {
+      currentMember: members[0],
+      hasError: false,
+      instances,
+      members,
+      onBack: jest.fn(),
+      onResolve: jest.fn(),
+      onRetry: jest.fn(),
+      rosterMembers: members,
+    };
+    const view = await renderWithProviders(
+      <AdminReportsScreen
+        {...props}
+        disputes={[
+          makeDispute({ subtaskIds: ['feed', 'walk'], completionIds: ['c-old', 'c-walk'] }),
+        ]}
+      />,
+    );
+    expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.conflict')).toBeNull();
+    expect(screen.getByTestId('housegains.reports.dispute.dog-care-today.notDone')).toBeTruthy();
+
+    // Same dispute reporting Edu's current completion: now it is a conflict.
+    await act(async () => {
+      view.rerender(
+        <SafeAreaProvider initialMetrics={metrics}>
+          <AdminReportsScreen
+            {...props}
+            disputes={[
+              makeDispute({ subtaskIds: ['feed', 'walk'], completionIds: ['c-new', 'c-walk'] }),
+            ]}
+          />
+        </SafeAreaProvider>,
+      );
+    });
+    expect(screen.getByTestId('housegains.reports.dispute.dog-care-today.conflict')).toBeTruthy();
+    expect(screen.queryByTestId('housegains.reports.dispute.dog-care-today.notDone')).toBeNull();
+  });
+
   test('the back button uses the chevron icon, not a text glyph', async () => {
     await renderWithProviders(
       <AdminReportsScreen
@@ -669,6 +715,161 @@ describe('HouseGains admin verdict flow', () => {
     expect(screen.getByTestId('housegains.choreDetail.reviewWindowClosed')).toHaveTextContent(
       /72 hours/i,
     );
+  });
+});
+
+describe('HouseGains moderation follows the open dispute (chore detail)', () => {
+  const ownFeedInstance = () =>
+    makeInstance({
+      completions: [
+        completion('feed', 'edu', 90),
+        completion('walk', 'rafa', 60),
+        completion('paws', 'bia', 30),
+      ],
+    });
+
+  test('an admin whose own completion an open dispute covers sees the conflict note, not Partial or Not done', async () => {
+    // Bia reported Edu's 'feed'. Any verdict resolves that dispute, so the server refuses Edu
+    // even for Rafa's 'walk' alone.
+    const onModerate = jest.fn().mockResolvedValue(undefined);
+    const dispute = makeDispute({
+      subtaskIds: ['feed'],
+      completionIds: ['c-feed'],
+      completerIds: ['edu'],
+    });
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({ instance: ownFeedInstance(), disputes: [dispute], onModerate })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.conflict')).toHaveTextContent(
+      /another admin must review it/i,
+    );
+    expect(screen.queryByTestId('housegains.choreDetail.moderation')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.markPartial')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.markNotDone')).toBeNull();
+  });
+
+  test('a legacy dispute without completionIds blocks through its subtaskIds', async () => {
+    const dispute = makeDispute({ subtaskIds: ['feed'], completerIds: ['edu'] });
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          instance: ownFeedInstance(),
+          disputes: [dispute],
+          onModerate: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.conflict')).toBeTruthy();
+    expect(screen.queryByTestId('housegains.choreDetail.markPartial')).toBeNull();
+  });
+
+  test('a dispute that covers only other members’ completions keeps Partial for the admin', async () => {
+    // Edu's 'feed' is not in the dispute (and the report named a completion that was replaced).
+    const dispute = makeDispute({
+      subtaskIds: ['feed', 'walk'],
+      completionIds: ['c-walk'],
+      completerIds: ['rafa'],
+    });
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          instance: ownFeedInstance(),
+          disputes: [dispute],
+          onModerate: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.markPartial')).toBeTruthy();
+    expect(screen.getByTestId('housegains.choreDetail.conflict')).toBeTruthy();
+  });
+
+  test('the sole admin keeps both actions while an open dispute covers their own completion', async () => {
+    const dispute = makeDispute({
+      subtaskIds: ['feed'],
+      completionIds: ['c-feed'],
+      completerIds: ['edu'],
+    });
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          instance: ownFeedInstance(),
+          disputes: [dispute],
+          onModerate: jest.fn(),
+          rosterMembers: [members[0], members[1]],
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.markPartial')).toBeTruthy();
+    expect(screen.getByTestId('housegains.choreDetail.markNotDone')).toBeTruthy();
+    expect(screen.queryByTestId('housegains.choreDetail.conflict')).toBeNull();
+  });
+});
+
+describe('HouseGains retired instances are read-only history (chore detail)', () => {
+  const retiredInstance = (overrides: Partial<Instance> = {}) =>
+    makeInstance({
+      retiredAt: '2026-11-24T11:00:00.000Z',
+      completions: [completion('feed', 'bia', 3), completion('walk', 'rafa', 30)],
+      ...overrides,
+    });
+
+  test('shows the history with no complete, undo, report or moderate actions for a member', async () => {
+    // Bia completed 'feed' three minutes ago (undo window still open on a live instance) and
+    // 'paws' is open; Rafa's 'walk' is reportable on a live instance.
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          currentMember: members[1],
+          instance: retiredInstance(),
+          onModerate: jest.fn(),
+          onReport: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.subtask.feed.receipt')).toBeTruthy();
+    expect(screen.getByTestId('housegains.choreDetail.subtask.walk.receipt')).toBeTruthy();
+    expect(screen.queryByTestId('housegains.choreDetail.done.paws')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.undo.feed')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.reportNotDone')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.bonusLocked')).toBeNull();
+  });
+
+  test('shows no moderation for an admin', async () => {
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          instance: retiredInstance({
+            completions: [completion('feed', 'bia', 60), completion('walk', 'rafa', 30)],
+          }),
+          onModerate: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.subtask.feed.receipt')).toBeTruthy();
+    expect(screen.queryByTestId('housegains.choreDetail.moderation')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.markNotDone')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.markPartial')).toBeNull();
+    expect(screen.queryByTestId('housegains.choreDetail.reviewWindowClosed')).toBeNull();
+  });
+
+  test('the same instance without retiredAt still offers the actions', async () => {
+    await renderWithProviders(
+      <ChoreDetailScreen
+        {...choreDetailProps({
+          currentMember: members[1],
+          instance: makeInstance({
+            completions: [completion('feed', 'bia', 3), completion('walk', 'rafa', 30)],
+          }),
+          onModerate: jest.fn(),
+          onReport: jest.fn(),
+        })}
+      />,
+    );
+    expect(screen.getByTestId('housegains.choreDetail.done.paws')).toBeTruthy();
+    expect(screen.getByTestId('housegains.choreDetail.undo.feed')).toBeTruthy();
+    expect(screen.getByTestId('housegains.choreDetail.reportNotDone')).toBeTruthy();
   });
 });
 

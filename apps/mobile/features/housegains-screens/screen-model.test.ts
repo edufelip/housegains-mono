@@ -312,3 +312,44 @@ test('catalog copies retain subtask translation origin and preserve user edits',
   );
   assert.equal(subtaskDisplayName({ ...copy.subtasks[0], name: 'My own step' }, t), 'My own step');
 });
+
+test('retired instances leave Today and the dashboard summary', () => {
+  const live = { id: 'live', dueAt: '2026-11-14T02:00:00.000Z' };
+  const retired = {
+    id: 'retired',
+    dueAt: '2026-11-14T02:00:00.000Z',
+    retiredAt: '2026-11-14T01:00:00.000Z',
+  };
+  assert.deepEqual(
+    filterInstancesForHouseholdDate(
+      [retired, live],
+      new Date('2026-11-14T02:30:00.000Z'),
+      'America/Sao_Paulo',
+    ).map(({ id }) => id),
+    ['live'],
+  );
+
+  const dashboardInstance = (id: string, retiredAt?: string) => ({
+    id,
+    assigneeIds: [],
+    dueAt: '2999-11-13T21:00:00.000Z',
+    ...(retiredAt ? { retiredAt } : {}),
+    subtasks: [{ id: `${id}-step`, xp: 10 }],
+    bonusXp: 0,
+    status: 'open' as const,
+    completions: [],
+    bonusAwards: {},
+  });
+  const summary = deriveDashboardSummary(
+    [dashboardInstance('live'), dashboardInstance('retired', '2026-11-14T01:00:00.000Z')],
+    [{ id: 'me', name: 'Me' }],
+    { me: 0 },
+    'me',
+  );
+  assert.deepEqual(
+    summary.orderedInstances.map(({ id }) => id),
+    ['live'],
+  );
+  assert.equal(summary.totalSubtasks, 1);
+  assert.equal(summary.remainingXp, 10);
+});

@@ -65,6 +65,11 @@ export interface Instance {
   disputeStatus?: 'open' | 'resolved' | 'expired';
   /** Moderation reversals: completions an admin revoked. */
   revocations?: InstanceRevocation[];
+  /**
+   * Set when the chore was deleted or paused while this review-record instance was still
+   * reviewable: it stays in history, read-only, and leaves Today, dashboards and due lists.
+   */
+  retiredAt?: string;
 }
 
 export interface InstanceRevocation {
@@ -99,6 +104,11 @@ export interface Dispute {
   choreName: string;
   status: 'open' | 'resolved' | 'expired';
   subtaskIds: string[];
+  /**
+   * Ids of the completions the reports named; absent on disputes written before the field
+   * existed, which cover every disputed subtask.
+   */
+  completionIds?: string[];
   completerIds: string[];
   reports: DisputeReport[];
   verdict?: 'done' | 'partial' | 'not_done';

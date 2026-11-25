@@ -406,6 +406,77 @@ describe('celebration queue on screen', () => {
     expect(screen.getByTestId('housegains.gamification.level.title')).toHaveTextContent('Level 6!');
   });
 
+  describe('organizer (Zelo) level-ups', () => {
+    const organizerLevel = (level: number): InboxCelebration => ({
+      id: `cel:level:organizer:${level}:me`,
+      moment: 'level',
+      track: 'zelo',
+      level,
+      copyKey: 'gami.level.up',
+      seen: false,
+      createdAt: new Date().toISOString(),
+    });
+
+    test('is shown with the organizer title even when the member level is higher', async () => {
+      // Member level 4 (levelFloor 4): the old check compared Zelo level 2 with it and acked it
+      // silently, so a creator crossing 200 Zelo never saw it.
+      await mount('live', null, { ...me, xp: 600, xpPeak: 600, levelFloor: 4 });
+      await act(async () => {
+        mockClient.inbox?.([organizerLevel(2)]);
+      });
+      expect(screen.getByTestId('housegains.gamification.level.title')).toHaveTextContent(
+        'Level 2!',
+      );
+      expect(screen.getByTestId('housegains.gamification.level.organizer')).toHaveTextContent(
+        'House organizer',
+      );
+      expect(screen.getByText('New title: House Manager')).toBeTruthy();
+      expect(screen.queryByText(/Tidy Titan|Helper|Rookie|Clean Master/)).toBeNull();
+      expect(mockClient.acks).toEqual([]);
+
+      await act(async () => {
+        jest.advanceTimersByTime(3100);
+      });
+      await act(async () => {
+        await Promise.resolve();
+      });
+      expect(mockClient.acks).toEqual([['cel:level:organizer:2:me']]);
+      expect(screen.queryByTestId('housegains.gamification.level')).toBeNull();
+    });
+
+    test('names the organizer rank of the level, not a member title', async () => {
+      // A new member (level 1) whose Zelo reaches level 5: the member curve would say "Tidy Titan".
+      await mount();
+      await act(async () => {
+        mockClient.inbox?.([organizerLevel(5)]);
+      });
+      expect(screen.getByTestId('housegains.gamification.level.title')).toHaveTextContent(
+        'Level 5!',
+      );
+      expect(screen.getByText('New title: Legendary Manager')).toBeTruthy();
+      expect(screen.queryByText('New title: Tidy Titan')).toBeNull();
+    });
+
+    test('a member level-up keeps no organizer framing', async () => {
+      await mount();
+      await act(async () => {
+        mockClient.inbox?.([
+          {
+            id: 'cel:level:member:8:me',
+            moment: 'level',
+            track: 'ganhos',
+            level: 8,
+            copyKey: 'gami.level.up',
+            seen: false,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      });
+      expect(screen.queryByTestId('housegains.gamification.level.organizer')).toBeNull();
+      expect(screen.getByText('New title: Clean Master')).toBeTruthy();
+    });
+  });
+
   test('the level number flips from the old to the new level (800 ms)', async () => {
     const level8: InboxCelebration = {
       id: 'cel:level:8:me',

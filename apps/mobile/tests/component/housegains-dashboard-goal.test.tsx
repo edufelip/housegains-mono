@@ -75,3 +75,41 @@ test('missing weekly target displays unavailable progress instead of a percentag
   expect(view.getAllByText('Weekly goal not set').length).toBeGreaterThan(0);
   expect(view.queryByText('80% there')).toBeNull();
 });
+
+test('a retired instance is not listed on the dashboard', async () => {
+  const dashboardInstance = (
+    id: string,
+    retiredAt?: string,
+  ): DashboardProps['instances'][number] => ({
+    id,
+    choreId: 'dishes',
+    dueAt: '2999-11-13T21:00:00.000Z',
+    subtasks: [{ id: `${id}-step`, name: 'Wipe', xp: 10, position: 0 }],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'open',
+    completions: [],
+    bonusAwards: {},
+    choreSnapshot: {
+      name: 'Dishes',
+      icon: '🍽️',
+      category: 'kitchen',
+      recurrence: 'daily',
+      dueTime: '21:00',
+    },
+    ...(retiredAt ? { retiredAt } : {}),
+  });
+  const view = await render(
+    <SafeAreaProvider initialMetrics={metrics}>
+      <SoftDashboard
+        {...props}
+        instances={[
+          dashboardInstance('live'),
+          dashboardInstance('retired', '2026-11-13T10:00:00.000Z'),
+        ]}
+      />
+    </SafeAreaProvider>,
+  );
+  expect(view.getByTestId('housegains.dashboard.chore.live')).toBeTruthy();
+  expect(view.queryByTestId('housegains.dashboard.chore.retired')).toBeNull();
+});

@@ -155,4 +155,34 @@ describe('claims read', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Not authorized');
     expect(screen.queryByRole('button', { name: 'Rule sets' })).not.toBeInTheDocument();
   });
+  it('drops the previous admin as soon as another account signs in, until its claims resolve', async () => {
+    let finishSecond: (token: { claims: { admin: boolean } }) => void = () => {};
+    const second = {
+      uid: 'second',
+      getIdTokenResult: () =>
+        new Promise<{ claims: { admin: boolean } }>((resolve) => {
+          finishSecond = resolve;
+        }),
+    };
+    render(<App />);
+    await act(async () => {
+      h.callback?.(fakeUser(true));
+    });
+    expect(screen.getByRole('button', { name: 'Rule sets' })).toBeInTheDocument();
+    expect(screen.getByText('admin-1')).toBeInTheDocument();
+
+    // Account B is signed in but its claims are still being read: A's access must be gone.
+    await act(async () => {
+      h.callback?.(second);
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Loading…');
+    expect(screen.queryByRole('button', { name: 'Rule sets' })).not.toBeInTheDocument();
+    expect(screen.queryByText('admin-1')).not.toBeInTheDocument();
+
+    await act(async () => {
+      finishSecond({ claims: { admin: false } });
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent('Not authorized');
+    expect(screen.queryByRole('button', { name: 'Rule sets' })).not.toBeInTheDocument();
+  });
 });

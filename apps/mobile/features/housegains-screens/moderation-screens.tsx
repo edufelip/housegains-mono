@@ -4,6 +4,7 @@ import { Modal, Pressable, ScrollView, TextInput, View } from 'react-native';
 import { Button, Card, Label, Screen, StatePanel } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
 import {
+  disputedSubtasks,
   hasModerationConflict,
   isPartialSelection,
   partialAvailable,
@@ -497,12 +498,12 @@ export function AdminReportsScreen({
     const reporterNames = dispute.reports.map((report) => memberName(report.uid)).join(', ');
     const steps = moderationStepsFor(dispute.subtaskIds, instance, members, t);
     const showPartial = partialAvailable(dispute.subtaskIds.length);
-    // Contract A2: the server rejects a verdict when any disputed step was completed by the
-    // caller, unless they are the only member with admin rights.
+    // Contract A2: the server rejects a verdict when any step the dispute still covers was
+    // completed by the caller, unless they are the only member with admin rights.
     const conflicted = instance
       ? hasModerationConflict(
           instance,
-          dispute.subtaskIds,
+          disputedSubtasks(dispute, instance.completions),
           currentMember.id,
           rosterMembers ?? members,
         )

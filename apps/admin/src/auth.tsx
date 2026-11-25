@@ -53,6 +53,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setState('signed-out');
         return;
       }
+      // A different user must not inherit the previous one's access while the claims read is
+      // pending: from this moment the gate shows B's uid as not (yet) authorized.
+      setUid(user.uid);
+      setState('loading');
       void (async () => {
         try {
           const token = await user.getIdTokenResult();
