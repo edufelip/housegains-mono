@@ -60,41 +60,63 @@ export function RatingBanner({ now = Date.now }: { now?: () => number }) {
     };
   }, [uid]);
 
+  // The uid currently on screen, and whether a Rate / Not now tap is still being handled.
+  const uidRef = useRef(uid);
+  uidRef.current = uid;
+  const inFlightRef = useRef(false);
+
+  // Applies a tap to the state of the user who tapped. If the signed-in user changed while the
+  // store request was pending, that user's state is still saved under their own key, and the new
+  // user's banner and state are left alone.
   const settle = useCallback(
-    async (next: (state: RatingPromptState, at: number) => RatingPromptState) => {
-      const current = stateRef.current;
-      if (current === null || uid === null) return;
-      const updated = next(current, nowRef.current());
-      stateRef.current = updated;
-      setVisibility('hidden');
+    async (
+      tapUid: string,
+      tapState: RatingPromptState,
+      next: (state: RatingPromptState, at: number) => RatingPromptState,
+    ) => {
+      const updated = next(tapState, nowRef.current());
+      if (uidRef.current === tapUid) {
+        stateRef.current = updated;
+        setVisibility('hidden');
+      }
       try {
-        await saveRatingPromptState(uid, updated);
+        await saveRatingPromptState(tapUid, updated);
       } catch (error) {
         console.warn('[rating] could not save the banner state', error);
       }
     },
-    [uid],
+    [],
   );
 
-  const rate = useCallback(async () => {
-    setBusy(true);
-    try {
-      let outcome: Awaited<ReturnType<typeof requestStoreRating>> = 'unavailable';
+  const handleTap = useCallback(
+    async (kind: 'rate' | 'notNow') => {
+      const tapState = stateRef.current;
+      if (inFlightRef.current || uid === null || tapState === null) return;
+      inFlightRef.current = true;
+      setBusy(true);
       try {
-        outcome = await requestStoreRating();
-      } catch (error) {
-        console.warn('[rating] the store review request failed', error);
+        if (kind === 'notNow') {
+          await settle(uid, tapState, onDismissed);
+          return;
+        }
+        let outcome: Awaited<ReturnType<typeof requestStoreRating>> = 'unavailable';
+        try {
+          outcome = await requestStoreRating();
+        } catch (error) {
+          console.warn('[rating] the store review request failed', error);
+        }
+        if (outcome === 'unavailable') {
+          console.warn('[rating] no review dialog or store page is reachable; asking again later');
+        }
+        // No store was reachable: treat it like "Not now" so the user is asked again in 14 days.
+        await settle(uid, tapState, outcome === 'unavailable' ? onDismissed : onRated);
+      } finally {
+        inFlightRef.current = false;
+        setBusy(false);
       }
-      // No store was reachable: treat it like "Not now" so the user is asked again in 14 days.
-      await settle(outcome === 'unavailable' ? onDismissed : onRated);
-    } finally {
-      setBusy(false);
-    }
-  }, [settle]);
-
-  const notNow = useCallback(() => {
-    void settle(onDismissed);
-  }, [settle]);
+    },
+    [settle, uid],
+  );
 
   if (visibility === 'hidden') return null;
   return (
@@ -115,14 +137,14 @@ export function RatingBanner({ now = Date.now }: { now?: () => number }) {
       <Button
         accessibilityLabel={t('housegains.rating.rateA11y')}
         disabled={busy}
-        onPress={() => void rate()}
+        onPress={() => void handleTap('rate')}
         testID="housegains.rating.rate"
         title={t('housegains.rating.rate')}
       />
       <Button
         accessibilityLabel={t('housegains.rating.notNowA11y')}
         disabled={busy}
-        onPress={notNow}
+        onPress={() => void handleTap('notNow')}
         testID="housegains.rating.notNow"
         title={t('housegains.rating.notNow')}
         variant="ghost"

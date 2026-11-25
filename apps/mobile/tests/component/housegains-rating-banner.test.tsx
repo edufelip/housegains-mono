@@ -235,4 +235,69 @@ describe('RatingBanner', () => {
     expect(screen.queryByTestId(bannerId)).toBeNull();
     expect(JSON.parse(mockStore.get(KEY) ?? 'null')).toMatchObject({ firstSeenAt: T0 + 40 * DAY });
   });
+
+  test('a Rate tap pending while another user signs in is saved for the user who tapped', async () => {
+    const OTHER = 'user-2';
+    seed({ firstSeenAt: T0, dismissedAt: null, ratedAt: null });
+    mockStore.set(
+      ratingPromptKey(OTHER),
+      JSON.stringify({ firstSeenAt: T0, dismissedAt: null, ratedAt: null }),
+    );
+    let finishReview: () => void = () => undefined;
+    jest.mocked(StoreReview.requestReview).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishReview = resolve;
+      }),
+    );
+    const at = T0 + 14 * DAY;
+    const view = await render(
+      <AuthContext.Provider value={authValue(UID)}>
+        <RatingBanner now={() => at} />
+      </AuthContext.Provider>,
+    );
+    await settle();
+    await fireEvent.press(screen.getByTestId('housegains.rating.rate'));
+    await settle();
+
+    await view.rerender(
+      <AuthContext.Provider value={authValue(OTHER)}>
+        <RatingBanner now={() => at} />
+      </AuthContext.Provider>,
+    );
+    await settle();
+    expect(screen.getByTestId(bannerId)).toBeTruthy();
+
+    await act(async () => {
+      finishReview();
+    });
+    await settle();
+
+    expect(JSON.parse(mockStore.get(KEY) ?? 'null').ratedAt).toBe(at);
+    expect(JSON.parse(mockStore.get(ratingPromptKey(OTHER)) ?? 'null').ratedAt).toBeNull();
+    expect(screen.getByTestId(bannerId)).toBeTruthy();
+  });
+
+  test('a second tap while Rate is still pending does nothing', async () => {
+    seed({ firstSeenAt: T0, dismissedAt: null, ratedAt: null });
+    let finishReview: () => void = () => undefined;
+    jest.mocked(StoreReview.requestReview).mockReturnValue(
+      new Promise<void>((resolve) => {
+        finishReview = resolve;
+      }),
+    );
+    await renderBanner(T0 + 14 * DAY);
+    await fireEvent.press(screen.getByTestId('housegains.rating.rate'));
+    await fireEvent.press(screen.getByTestId('housegains.rating.rate'));
+    await fireEvent.press(screen.getByTestId('housegains.rating.notNow'));
+    await act(async () => {
+      finishReview();
+    });
+    await settle();
+
+    expect(StoreReview.requestReview).toHaveBeenCalledTimes(1);
+    const stored = JSON.parse(mockStore.get(KEY) ?? 'null');
+    expect(stored.ratedAt).toBe(T0 + 14 * DAY);
+    expect(stored.dismissedAt).toBeNull();
+    expect(screen.queryByTestId(bannerId)).toBeNull();
+  });
 });
