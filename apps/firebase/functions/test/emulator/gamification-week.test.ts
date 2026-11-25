@@ -3,12 +3,13 @@ import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { gamiWeekClosedHook } from '../../src/gamification/week-close';
 import { closeAllWeeks } from '../../src/scheduled';
 import { adminDb, createHousehold, must, withProfile, type TestUser } from './helpers';
-import { LIVE, inboxOf, organizerLedger, resetGamiConfig, serverEvents, setGamiConfig, walletLedger, walletOf } from './gami-helpers';
+import { inboxOf, organizerLedger, resetGamiConfig, serverEvents, walletLedger, walletOf } from './gami-helpers';
 
 // Weekly close (contract C7/C8): closeAllWeeks runs the Part C hook, which builds the
 // household.week_closed events, pays goals/streaks/Zelo, and writes the week's gamification
 // aggregates. Reference week: Mon 2026-11-16 to Sun 2026-11-22, closed at Mon 03:00 UTC.
 
+// Other suites may leave a rule-set pointer behind; these run against the missing-config default.
 afterAll(resetGamiConfig);
 beforeEach(resetGamiConfig);
 
@@ -70,9 +71,8 @@ function seedWallet(uid: string, streak: Record<string, unknown>) {
   });
 }
 
-describe('closeAllWeeks with the engine live', () => {
+describe('closeAllWeeks', () => {
   it('pays the week goal, the streak milestone and Zelo, and writes the week aggregates', async () => {
-    await setGamiConfig(LIVE);
     const { creator, a, b, householdId } = await weekHousehold('wk');
     await seedCredits(householdId, [
       { memberId: a.uid, amount: 100, at: '2026-11-16T12:00:00Z' },
@@ -116,7 +116,7 @@ describe('closeAllWeeks with the engine live', () => {
     });
     expect(week.topMember.memberId).toBe(a.uid);
 
-    // Live: the celebrations wait in each earner's inbox (FCM covers the push, with no tokens here).
+    // The celebrations wait in each earner's inbox (FCM covers the push, with no tokens here).
     const inbox = await inboxOf(a.uid);
     expect(inbox.map((row) => row.id)).toContain(`cel:streak:${WEEK}:2:${a.uid}`);
     expect(inbox.every((row) => row.seen === false)).toBe(true);
@@ -125,7 +125,6 @@ describe('closeAllWeeks with the engine live', () => {
   });
 
   it('is idempotent: closing again and re-running the hook change nothing', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await weekHousehold('wk-idem');
     await seedCredits(householdId, [{ memberId: a.uid, amount: 400, at: '2026-11-16T12:00:00Z' }]);
     await seedWallet(a.uid, {});
@@ -149,14 +148,12 @@ describe('closeAllWeeks with the engine live', () => {
       ),
       topMember: week.topMember,
       wallOfShame: week.wallOfShame,
-      gamiEligible: true,
     });
     expect(await walletLedger(a.uid)).toEqual(ledger);
     expect(await walletOf(a.uid)).toEqual(wallet);
   });
 
   it('away weeks freeze a streak; the same week without away mode breaks it', async () => {
-    await setGamiConfig(LIVE);
     const { a, b, householdId } = await weekHousehold('wk-away');
     await seedCredits(householdId, [{ memberId: a.uid, amount: 10, at: '2026-11-16T12:00:00Z' }]);
     const base = { current: 3, record: 3, lastCountedWeek: PREVIOUS_WEEK, lastActionWeek: PREVIOUS_WEEK };
@@ -172,7 +169,6 @@ describe('closeAllWeeks with the engine live', () => {
   });
 
   it('uses folgas before breaking a streak', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await weekHousehold('wk-folga');
     await seedWallet(a.uid, { current: 5, record: 5, folgas: 1, lastCountedWeek: PREVIOUS_WEEK, lastActionWeek: PREVIOUS_WEEK });
     await closeAllWeeks(CLOSE_AT);
@@ -181,10 +177,10 @@ describe('closeAllWeeks with the engine live', () => {
   });
 });
 
-describe('closeAllWeeks in shadow and off', () => {
-  it('shadow writes ledgers, projections and aggregates but no inbox rows', async () => {
-    await setGamiConfig({ mode: 'shadow' });
-    const { creator, a, householdId } = await weekHousehold('wk-shadow');
+describe('closeAllWeeks always processes gamification', () => {
+  it('with no gamification/config doc, the week is processed live: no skip marker, no eligibility flag', async () => {
+    expect((await adminDb().doc('gamification/config').get()).exists).toBe(false);
+    const { creator, a, householdId } = await weekHousehold('wk-always');
     await seedCredits(householdId, [{ memberId: a.uid, amount: 400, at: '2026-11-16T12:00:00Z' }]);
     await seedInstances(householdId, a.uid, 5, 5);
     await seedWallet(a.uid, {});
@@ -194,20 +190,10 @@ describe('closeAllWeeks in shadow and off', () => {
     expect(Object.keys(await organizerLedger(householdId))).toContain(`zelo.on_time:${WEEK}:${creator.uid}`);
     const week = (await adminDb().doc(`households/${householdId}/weeks/${WEEK}`).get()).data()!;
     expect(week.gamification).toMatchObject({ goalReached: true, dueInstances: 5, doneOnTime: 5 });
-    expect(await inboxOf(a.uid)).toEqual([]);
-    expect(await inboxOf(creator.uid)).toEqual([]);
-  });
-
-  it('off closes the week as before and writes no gamification data beyond the terminal marker', async () => {
-    const { a, householdId } = await weekHousehold('wk-off');
-    await seedCredits(householdId, [{ memberId: a.uid, amount: 400, at: '2026-11-16T12:00:00Z' }]);
-    await seedWallet(a.uid, {});
-    await closeAllWeeks(CLOSE_AT);
-
-    const week = (await adminDb().doc(`households/${householdId}/weeks/${WEEK}`).get()).data()!;
-    expect(week.topMember.memberId).toBe(a.uid);
-    expect(week.gamification).toEqual({ processedAt: expect.any(Timestamp), skipped: 'off' });
-    expect(await walletLedger(a.uid)).toEqual({});
-    expect(await serverEvents(householdId)).toEqual([]);
+    expect(week.gamification.processedAt).toBeInstanceOf(Timestamp);
+    expect(week.gamification.skipped).toBeUndefined();
+    expect(week).not.toHaveProperty('gamiEligible');
+    expect((await inboxOf(a.uid)).length).toBeGreaterThan(0);
+    expect((await inboxOf(creator.uid)).some((row) => row.track === 'zelo')).toBe(true);
   });
 });

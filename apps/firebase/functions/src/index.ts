@@ -13,7 +13,6 @@ export {
   adminAdjust,
   adminApproveAdjustment,
   adminBackfillLevelFloors,
-  adminGetConfig,
   adminListAlerts,
   adminListRuleSets,
   adminLookupUser,
@@ -21,7 +20,6 @@ export {
   adminRebuildWallet,
   adminRollback,
   adminSaveDraft,
-  adminSetConfig,
   adminSimulate,
 } from './admin-gamification';
 

@@ -1,12 +1,7 @@
 import { FieldValue, Timestamp, type DocumentReference, type DocumentSnapshot } from 'firebase-admin/firestore';
 import { db } from '../admin';
 import { weekInstants, type WeekClosedContext } from '../domain/standings';
-import {
-  visibility,
-  type GamiEvent,
-  type WeekMemberStats as GamiWeekMemberStats,
-} from '../domain/gamification';
-import { cohortOf, loadGamiConfig } from './config';
+import type { GamiEvent, WeekMemberStats as GamiWeekMemberStats } from '../domain/gamification';
 import { onTimeCounts } from './facts';
 import { runGamificationStrict } from './runner';
 
@@ -20,8 +15,8 @@ import { runGamificationStrict } from './runner';
  * Runs the week's gamification. A failure is logged and the week doc is left without its
  * `gamification.processedAt` marker, which is what makes closeWeeks replay it on the next pass
  * (scheduled.ts); the engine's deterministic keys and `lastActionWeek` make a replay safe.
- * A week closed while the program could not process it (off, outside the write cohort, no
- * creator) gets a terminal marker with `gamification.skipped`, so it is never replayed later.
+ * A week of a household without a creator (nothing to run the engine for) gets a terminal marker
+ * with `gamification.skipped`, so it is never replayed later.
  */
 export async function gamiWeekClosedHook(context: WeekClosedContext): Promise<void> {
   try {
@@ -37,7 +32,7 @@ export function gamiWeekProcessed(week: DocumentSnapshot): boolean {
 }
 
 /** Why a closed week was marked processed without running the engine. */
-export type WeekSkipReason = 'off' | 'cohort' | 'no-creator';
+export type WeekSkipReason = 'no-creator';
 
 /** The week's snapshot aggregates (the contract's `gamification` map, minus the marker). */
 export interface WeekAggregates {
@@ -72,13 +67,8 @@ async function markSkipped(weekRef: DocumentReference, reason: WeekSkipReason): 
 }
 
 async function closeWeek(context: WeekClosedContext): Promise<void> {
-  const config = await loadGamiConfig();
   const householdRef = db().doc(`households/${context.householdId}`);
   const weekRef = householdRef.collection('weeks').doc(context.weekStart);
-  // A week that closed while the program was off is terminal; one that closed while it could run
-  // stays pending while ops has it switched off, and is processed once it is back on.
-  if (!context.gamiEligible) return markSkipped(weekRef, 'off');
-  if (config.mode === 'off') return;
   const householdSnap = await householdRef.get();
   if (!householdSnap.exists) return;
   const hh = householdSnap.data()!;
@@ -86,9 +76,6 @@ async function closeWeek(context: WeekClosedContext): Promise<void> {
   const creatorUid = hh.creatorUid as string | undefined;
   if (creatorUid === undefined) return markSkipped(weekRef, 'no-creator');
   const timeZone = context.timeZone;
-  const cohort = cohortOf(context.householdId, config);
-  const vis = visibility(config.mode, cohort);
-  if (!vis.write) return markSkipped(weekRef, 'cohort');
 
   const { weekStart: weekStartInstant, weekEnd: weekEndInstant } = weekInstants(context, timeZone);
   const [ledger, walletSnaps, weekSnap] = await Promise.all([
@@ -188,7 +175,6 @@ async function closeWeek(context: WeekClosedContext): Promise<void> {
       timeZone,
       creatorUid,
       memberCount: memberUids.length,
-      cohort: typeof hh.gamificationCohort === 'string' ? hh.gamificationCohort : null,
     },
     callerUid: creatorUid,
     now: context.closedAt,

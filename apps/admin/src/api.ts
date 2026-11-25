@@ -9,8 +9,6 @@ import type {
   AdminApproveAdjustmentRequest,
   AdminApproveAdjustmentResponse,
   AdminBackfillLevelFloorsResponse,
-  AdminConfig,
-  AdminGetConfigRequest,
   AdminListAlertsRequest,
   AdminListRuleSetsRequest,
   AdminListRuleSetsResponse,
@@ -24,15 +22,12 @@ import type {
   AdminRollbackResponse,
   AdminSaveDraftRequest,
   AdminSaveDraftResponse,
-  AdminSetConfigRequest,
   AdminSimulateRequest,
   AdminSimulateResponse,
 } from './api-types';
 import { getFirebase } from './firebase';
 
 export interface Api {
-  getConfig(): Promise<AdminConfig>;
-  setConfig(req: AdminSetConfigRequest): Promise<AdminConfig>;
   listRuleSets(): Promise<AdminListRuleSetsResponse['ruleSets']>;
   saveDraft(req: AdminSaveDraftRequest): Promise<AdminSaveDraftResponse>;
   publish(req: AdminPublishRequest): Promise<AdminPublishResponse>;
@@ -52,8 +47,6 @@ function call<Req, Res>(name: string, req: Req): Promise<Res> {
 }
 
 export const api: Api = {
-  getConfig: () => call<AdminGetConfigRequest, AdminConfig>('adminGetConfig', {}),
-  setConfig: (req) => call<AdminSetConfigRequest, AdminConfig>('adminSetConfig', req),
   listRuleSets: () =>
     call<AdminListRuleSetsRequest, AdminListRuleSetsResponse>('adminListRuleSets', {}).then(
       (r) => r.ruleSets,

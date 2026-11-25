@@ -4,17 +4,15 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_RULE_SET, type RuleSet } from '../../src/domain/gamification';
 import { adminAuth, adminDb, callFn, expectError, must, newUser, type TestUser } from './helpers';
 import {
-  LIVE,
   burnWelcome,
   gamiHousehold,
   nextOpenInstance,
   resetGamiConfig,
-  setGamiConfig,
   walletLedger,
   walletOf,
 } from './gami-helpers';
 
-// The 13 admin callables of the gamification back office (contract C10) against the Auth, Firestore and
+// The 11 admin callables of the gamification back office (contract C10) against the Auth, Firestore and
 // Functions emulators: real custom claims on real ID tokens, real engine runs.
 
 const AUTH_HOST = process.env.FIREBASE_AUTH_EMULATOR_HOST;
@@ -72,8 +70,6 @@ afterAll(resetAdminState);
 beforeEach(resetAdminState);
 
 const CALLABLES: Array<[string, unknown]> = [
-  ['adminGetConfig', {}],
-  ['adminSetConfig', { mode: 'shadow', livePercent: 10, controlPercent: 10 }],
   ['adminListRuleSets', {}],
   ['adminSaveDraft', { notes: 'x', rules: DEFAULT_RULE_SET }],
   ['adminPublish', { version: 1 }],
@@ -97,62 +93,20 @@ describe('access control', () => {
   });
 
   it('a denied mutation changes and audits nothing', async () => {
-    await expectError('adminSetConfig', plain.token, { mode: 'live', livePercent: 100, controlPercent: 0 }, 'permission-denied');
-    expect((await adminDb().doc('gamification/config').get()).exists).toBe(false);
+    await expectError('adminSaveDraft', plain.token, { notes: 'x', rules: DEFAULT_RULE_SET }, 'permission-denied');
+    expect((await adminDb().collection('gamification/ruleSets/items').get()).size).toBe(0);
     expect((await adminDb().collection('gamification/audit/items').get()).size).toBe(0);
   });
 });
 
 describe('config', () => {
-  it('reads a missing config as off', async () => {
-    expect(await must('adminGetConfig', admin.token, {})).toEqual({
-      mode: 'off',
-      activeVersion: null,
+  it('publish writes only the rule-set pointer and leaves nothing else on the config doc', async () => {
+    const draft = await must('adminSaveDraft', admin.token, { notes: 'pointer', rules: DEFAULT_RULE_SET });
+    await must('adminPublish', admin.token, { version: draft.version });
+    expect((await adminDb().doc('gamification/config').get()).data()).toEqual({
+      activeVersion: draft.version,
       previousVersion: null,
-      cohortSalt: '',
-      livePercent: 0,
-      controlPercent: 0,
     });
-  });
-
-  it('validates mode and percentages', async () => {
-    for (const bad of [
-      { mode: 'loud', livePercent: 10, controlPercent: 10 },
-      { mode: 'live', livePercent: 101, controlPercent: 0 },
-      { mode: 'live', livePercent: -1, controlPercent: 0 },
-      { mode: 'live', livePercent: 60, controlPercent: 41 },
-      { mode: 'live', livePercent: '10', controlPercent: 0 },
-      { mode: 'live', livePercent: 10 },
-    ]) {
-      await expectError('adminSetConfig', admin.token, bad, 'invalid-argument');
-    }
-    expect((await adminDb().doc('gamification/config').get()).exists).toBe(false);
-  });
-
-  it('creates the cohort salt once and never changes it', async () => {
-    const first = await must('adminSetConfig', admin.token, { mode: 'shadow', livePercent: 20, controlPercent: 10 });
-    expect(first).toMatchObject({ mode: 'shadow', livePercent: 20, controlPercent: 10, activeVersion: null });
-    expect(first.cohortSalt).toMatch(/^[0-9a-f]{32}$/);
-    const second = await must('adminSetConfig', admin.token, { mode: 'live', livePercent: 60, controlPercent: 40 });
-    expect(second).toMatchObject({ mode: 'live', livePercent: 60, controlPercent: 40, cohortSalt: first.cohortSalt });
-    expect(await must('adminGetConfig', admin.token, {})).toEqual(second);
-    const rows = await auditRows('config.set');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({ actorUid: admin.uid });
-    expect(rows[0].at).toBeInstanceOf(Timestamp);
-  });
-
-  it('keeps an existing salt and the published pointers when it sets the rollout', async () => {
-    await adminDb().doc('gamification/config').set({
-      mode: 'off',
-      activeVersion: 4,
-      previousVersion: 3,
-      cohortSalt: 'ops-salt',
-      livePercent: 0,
-      controlPercent: 0,
-    });
-    const result = await must('adminSetConfig', admin.token, { mode: 'shadow', livePercent: 5, controlPercent: 5 });
-    expect(result).toMatchObject({ cohortSalt: 'ops-salt', activeVersion: 4, previousVersion: 3, mode: 'shadow' });
   });
 });
 
@@ -189,7 +143,6 @@ describe('rule sets', () => {
   });
 
   it('publishes, archives the previous set, rolls back and forth, and the engine picks the rules up', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('lifecycle');
     await burnWelcome(member.uid);
     const instance = await nextOpenInstance(householdId, choreId);
@@ -215,7 +168,7 @@ describe('rule sets', () => {
     const d2 = await must('adminSaveDraft', admin.token, { notes: 'x3', rules: rulesWithSubtaskRate(3) });
     const published2 = await must('adminPublish', admin.token, { version: d2.version });
     expect(published2).toMatchObject({ activeVersion: d2.version, previousVersion: d1.version });
-    expect(await must('adminGetConfig', admin.token, {})).toMatchObject({ activeVersion: d2.version, previousVersion: d1.version });
+    expect((await adminDb().doc('gamification/config').get()).data()).toEqual({ activeVersion: d2.version, previousVersion: d1.version });
     const statuses = async () =>
       Object.fromEntries(
         (await must('adminListRuleSets', admin.token, {})).ruleSets.map((entry: { version: number; status: string }) => [entry.version, entry.status]),
@@ -261,7 +214,6 @@ describe('simulate', () => {
   });
 
   it('returns different totals for a draft that changes an amount, and writes nothing', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('sim', {}, { assign: 'creator' });
     const instance = await nextOpenInstance(householdId, choreId);
     await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
@@ -306,7 +258,6 @@ describe('simulate', () => {
 
 describe('lookup', () => {
   it('returns the wallet, newest-first ledger rows with explanations and pending adjustments', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('lookup', {}, { assign: 'creator' });
     const instance = await nextOpenInstance(householdId, choreId);
     await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });
@@ -360,7 +311,6 @@ describe('lookup', () => {
 
 describe('adjustments', () => {
   async function earner(label: string) {
-    await setGamiConfig(LIVE);
     const home = await gamiHousehold(label, {}, { assign: 'creator' });
     await burnWelcome(home.member.uid);
     const instance = await nextOpenInstance(home.householdId, home.choreId);
@@ -510,7 +460,6 @@ describe('alerts', () => {
 
 describe('rebuild wallet', () => {
   it('restores a tampered projection from the ledger and keeps what the ledger cannot derive', async () => {
-    await setGamiConfig(LIVE);
     const { member, householdId, choreId } = await gamiHousehold('rebuild', {}, { assign: 'creator' });
     const instance = await nextOpenInstance(householdId, choreId);
     await must('completeSubtask', member.token, { householdId, instanceId: instance.id, subtaskId: 'wash' });

@@ -4,6 +4,7 @@ import { ThemeProvider } from '@/features/appearance';
 import { AuthContext, type AuthValue } from '@/features/auth';
 import {
   GamificationContext,
+  GamificationProvider,
   INERT_GAMIFICATION,
   type GamificationViewModel,
 } from '@/features/gamification/gamification-provider';
@@ -29,6 +30,27 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
     ),
     setItem: jest.fn(async () => undefined),
     removeItem: jest.fn(async () => undefined),
+  },
+}));
+// The real provider runs in the "always on" test; its Firestore listeners are stubbed here.
+jest.mock('@/features/gamification/firebase-gamification-client', () => ({
+  subscribeToWallet: (_uid: string, onNext: (wallet: unknown) => void) => {
+    const { fakeWallet: wallet } = jest.requireActual('./gamification-support');
+    onNext(wallet());
+    return () => undefined;
+  },
+  subscribeToWalletLedger: (_uid: string, onNext: (rows: unknown[]) => void) => {
+    onNext([]);
+    return () => undefined;
+  },
+  subscribeToOrganizer: () => () => undefined,
+  subscribeToInbox: (_uid: string, onNext: (rows: unknown[]) => void) => {
+    onNext([]);
+    return () => undefined;
+  },
+  gamificationCalls: {
+    ackCelebrations: async ({ ids }: { ids: string[] }) => ({ ok: true, acknowledged: ids.length }),
+    setAwayWeeks: async ({ weekStarts }: { weekStarts: string[] }) => ({ weekStarts }),
   },
 }));
 jest.mock('expo-router', () => ({ useLocalSearchParams: () => ({}) }));
@@ -68,7 +90,7 @@ function model(overrides: Partial<HouseholdViewModel> = {}): HouseholdViewModel 
   const none = async () => ({ celebrations: [] as Celebration[] });
   return {
     hydrated: true,
-    household: fakeHousehold('live'),
+    household: fakeHousehold(),
     currentMember: me,
     chores: [chore],
     instances: [instance],
@@ -147,19 +169,28 @@ function visibleGamification(
   };
 }
 
-async function renderApp(householdModel: HouseholdViewModel, gamification?: GamificationViewModel) {
+const signedIn = { ...auth, user: { uid: 'me' } } as unknown as AuthValue;
+
+/** With a view model the context is fixed; without one the real GamificationProvider runs. */
+async function renderApp(
+  householdModel: HouseholdViewModel,
+  gamification?: GamificationViewModel,
+  authValue: AuthValue = auth,
+) {
   const app = (
     <SafeAreaProvider initialMetrics={metrics}>
       <LocaleProvider>
         <ThemeProvider>
-          <AuthContext.Provider value={auth}>
+          <AuthContext.Provider value={authValue}>
             <HouseholdContext.Provider value={householdModel}>
               {gamification ? (
                 <GamificationContext.Provider value={gamification}>
                   <HouseGainsApp />
                 </GamificationContext.Provider>
               ) : (
-                <HouseGainsApp />
+                <GamificationProvider>
+                  <HouseGainsApp />
+                </GamificationProvider>
               )}
             </HouseholdContext.Provider>
           </AuthContext.Provider>
@@ -198,50 +229,15 @@ beforeEach(() => {
 });
 afterEach(() => jest.useRealTimers());
 
-describe('gamification off (flag off, control or shadow cohort)', () => {
-  test.each(['arcade', 'sticker', 'soft'])(
-    '%s: the dashboard shows no Ganhos chip and no gamification UI',
-    async (themeId) => {
-      mockThemeId = themeId;
-      const view = await renderApp(model());
-      await findByTestId(view, /^housegains\.dashboard\.chore\./);
-      expect(view.queryByTestId('housegains.ganhosChip')).toBeNull();
-      expect(view.queryByText(/Gains/)).toBeNull();
-      expect(view.queryByTestId(/^housegains\.gamification/)).toBeNull();
-    },
-  );
-
-  test('Ranks has no organizer card', async () => {
-    const view = await renderApp(model());
-    await findByTestId(view, /^housegains\.dashboard\.chore\./);
-    await fireEvent.press(await findByTestId(view, 'housegains.dock.arcade.ranks'));
-    await findByTestId(view, 'housegains.tab.ranks');
-    expect(view.queryByTestId('housegains.organizer.card')).toBeNull();
-    expect(view.queryByText(/Care/)).toBeNull();
+describe('gamification is always on', () => {
+  test('the real provider shows the Ganhos chip with no flag and no cohort on the household', async () => {
+    const view = await renderApp(model(), undefined, signedIn);
+    const chip = await findByTestId(view, 'housegains.ganhosChip');
+    expect(view.getByTestId('housegains.ganhosChip.label')).toHaveTextContent('120 Gains');
+    await fireEvent.press(chip);
+    await findByTestId(view, 'housegains.wallet');
   });
 
-  test('celebrations in a response are ignored and a finished chore still opens the plain S3 screen', async () => {
-    const completeSubtask = jest.fn(async () => ({
-      celebrations: [
-        {
-          id: 'cel:toast:x',
-          moment: 'toast',
-          track: 'ganhos',
-          amount: 25,
-          copyKey: 'gami.earn.chore',
-        },
-      ] as Celebration[],
-    }));
-    const view = await renderApp(model({ completeSubtask }));
-    await fireEvent.press(await findByTestId(view, /^housegains\.dashboard\.chore\./));
-    await fireEvent.press(await findByTestId(view, `housegains.choreDetail.done.${lastStep.id}`));
-    await findByTestId(view, 'housegains.celebration');
-    expect(view.queryByTestId('housegains.celebration.badges')).toBeNull();
-    expect(view.queryByTestId('housegains.gamification.toast')).toBeNull();
-  });
-});
-
-describe('gamification on (flag on and live cohort)', () => {
   test.each(['arcade', 'sticker', 'soft'])(
     '%s: a Ganhos chip opens the wallet, the wallet opens the streak',
     async (themeId) => {

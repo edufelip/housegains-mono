@@ -73,11 +73,13 @@ describe('authorization gate', () => {
     await act(async () => {
       h.callback?.(fakeUser(true));
     });
-    for (const label of ['Rollout', 'Rule sets', 'Simulator', 'Ledger lookup', 'Alerts', 'Maintenance']) {
+    for (const label of ['Rule sets', 'Simulator', 'Ledger lookup', 'Alerts', 'Maintenance']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
-    // The active screen loads its data (mocked pending) and shows a loading state.
-    expect(apiMock.getConfig).toHaveBeenCalled();
+    // The program has no rollout switch, so there is no Rollout screen.
+    expect(screen.queryByRole('button', { name: 'Rollout' })).not.toBeInTheDocument();
+    // The active screen (rule sets) loads its data (mocked pending) and shows a loading state.
+    expect(apiMock.listRuleSets).toHaveBeenCalled();
 
     // Back to signed-out and sign in through the popup provider.
     await act(async () => {

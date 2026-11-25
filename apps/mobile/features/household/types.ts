@@ -143,8 +143,6 @@ export interface Household {
   color: string;
   /** Captured at creation and used for recurrence and due-time calendar rules. */
   timeZone?: string;
-  /** Rollout cohort written by the backend; the program shows only for 'live' (contract C1). */
-  gamificationCohort?: 'live' | 'control' | 'shadow';
   members: Member[];
   /** Tombstoned members: left out of the roster, still named in history. */
   formerMembers?: Member[];

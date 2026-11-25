@@ -6,7 +6,6 @@ import { vi, type Mock } from 'vitest';
 import type { Api } from '../api';
 import type {
   AdminAlert,
-  AdminConfig,
   AdminLookupUserResponse,
   AdminRuleSet,
   AdminSimulateResponse,
@@ -17,8 +16,6 @@ export type ApiMock = { [K in keyof Api]: Mock };
 
 export function createApiMock(): ApiMock {
   return {
-    getConfig: vi.fn(),
-    setConfig: vi.fn(),
     listRuleSets: vi.fn(),
     saveDraft: vi.fn(),
     publish: vi.fn(),
@@ -31,17 +28,6 @@ export function createApiMock(): ApiMock {
     rebuildWallet: vi.fn(),
     backfillLevelFloors: vi.fn(),
   } as ApiMock;
-}
-
-export function sampleConfig(): AdminConfig {
-  return {
-    mode: 'shadow',
-    activeVersion: 1,
-    previousVersion: null,
-    cohortSalt: 'salt-123',
-    livePercent: 10,
-    controlPercent: 5,
-  };
 }
 
 export function sampleRulesV1(): RuleSet {

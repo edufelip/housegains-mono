@@ -189,20 +189,23 @@ Product decisions (taken from the plan's recommendations):
 - Haptics are **out of scope** (needs a native dependency and store build).
 - Client analytics are **out of scope**; metrics are server-side events only.
 
-### C1. Configuration and rollout
+### C1. Configuration (the program is always on)
 
-`gamification/config` (no client access; all of `gamification/**` is Cloud Functions / admin callables only):
+The Ganhos/Zelo program has **no switch**: it is always on and live for every household. There is no rollout mode,
+no cohort, no control group and no kill switch, on the server or on the client. Every engine run pays rewards and
+writes celebrations, inbox rows and FCM exactly as a `live` household did under the earlier rollout design.
+
+`gamification/config` (no client access; all of `gamification/**` is Cloud Functions / admin callables only) holds only
+the rule-set pointer:
 ```
-mode: 'off' | 'shadow' | 'live'
 activeVersion: number | null      // published rule set; null → built-in DEFAULT_RULE_SET
-previousVersion: number | null
-cohortSalt: string
-livePercent: number (0..100)      // households shown the program
-controlPercent: number (0..100)   // explicit control group, sees nothing
+previousVersion: number | null    // for rollback
 ```
-Missing doc ⇒ `mode: 'off'`. A `mode` that is not `shadow` or `live` reads as `off`; percentages are
-clamped to 0..100. The runner reads the config and the published rule set per call with a cache of at most
-60 s (no cache under the emulator, so tests can flip it between calls).
+Missing doc ⇒ the program runs live with the built-in `DEFAULT_RULE_SET`. `activeVersion` is a positive integer or it
+reads as `null`. The runner reads the config and the published rule set per call with a cache of at most 60 s (no cache
+under the emulator, so tests can flip it between calls). Only publish and rollback write the document. Fields left on an
+existing document by the earlier rollout design (`mode`, `cohortSalt`, `livePercent`, `controlPercent`) are ignored and
+may be deleted by hand; the code never reads or writes them, and no longer writes `households/{hid}.gamificationCohort`.
 
 **Firestore paths.** `gamification/ruleSets/{version}` and the other `gamification/{name}/{id}` locations written
 below are not valid *document* paths (a document path has an even number of segments). The real locations, used
@@ -212,22 +215,10 @@ by the wiring and by the admin callables, are `gamification/{ruleSets|alerts|aud
 `gamification/config` is a plain document and is unchanged. Everywhere below, "`gamification/alerts`" means
 `gamification/alerts/items`.
 
-Cohort of a household: `h = fnv1a32(householdId + cohortSalt) % 100`;
-`h < livePercent` → `'live'`; `h < livePercent + controlPercent` → `'control'`; else `'shadow'`.
-Written to `households/{hid}.gamificationCohort` on `createHousehold` (whatever the mode: under `off` it is
-computed from the config's percentages, so a missing config yields `'shadow'`) and whenever an engine run finds
-that it changed. It is always recomputed from the current config, so ops can move a household by editing the
-config; a hand-written value is treated as a stale projection. Under `off` the engine does not run and the field
-is left as it is.
-
-- `off`: the engine does nothing.
-- `shadow` (or a `shadow`/`control` household under `live`): ledgers and projections are written;
-  no `celebrations` returned; no inbox rows; no FCM.
-- `live` + household cohort `'live'`: everything, including celebrations, inbox and FCM.
-
-Client kill switch: Remote Config boolean `gamification_enabled` (default `false` in the bundled
-defaults). The app shows gamification UI only when `gamification_enabled === true` AND
-`households/{hid}.gamificationCohort === 'live'`.
+**Client.** The mobile app no longer reads a Remote Config flag (`gamification_enabled`) or a household cohort
+(`gamificationCohort`): the Ganhos/Zelo UI is shown to every household, driven only by the data the server writes
+(wallets, inbox, the `celebrations` in callable responses). The client change ships separately from the backend/admin
+change.
 
 ### C2. Rule sets
 
@@ -422,8 +413,7 @@ Folga +1 every 6 counted weeks, hold 1. A week where every member is away pauses
 Reminders (`gamificationReminders`, every 60 minutes): Sunday 18:00 local, members with <3 net credits this week and a
 current streak ≥1 and no away week ("Faltam 2 etapas para manter suas 8 semanas."); Saturday 10:00 local, the creator
 if the on-time rate so far is <60% with ≥5 instances due ("A casa está em 52% esta semana."). Through the existing FCM
-send path, respecting `remindersEnabled`, localized in the 6 locales. Only for `live` households (mode `live` and cohort
-`live`). Idempotent per household per week and kind: the `households/{hid}/gamiReminders/{weekStart}:{kind}` marker is
+send path, respecting `remindersEnabled`, localized in the 6 locales. For every household. Idempotent per household per week and kind: the `households/{hid}/gamiReminders/{weekStart}:{kind}` marker is
 claimed with `create()` **before** anything is sent, so a repeated or concurrent run does nothing; the
 `gami_reminder_sent` event (with the recipient count) is written only when someone was reminded.
 
@@ -449,7 +439,7 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
   | `undoSubtask` | `ledger.undo-subtask` + `ledger.undo-bonus` per reversed bonus row | none |
   | `resolveDispute`, `moderateInstance` | `ledger.revoke-subtask` per revoked completion + `ledger.revoke-bonus` per reversed bonus row; when the instance reopens, every assignee's on-time row is reversed too | none |
   | `postCompletion` | `feed.post` (only when the post was created) | returned |
-  | `joinHousehold`, `saveChore` (new chores) | `member.joined`, `chore.created`: informational (they refresh the cohort) | none |
+  | `joinHousehold`, `saveChore` (new chores) | `member.joined`, `chore.created`: informational (the engine does nothing with them) | none |
   | `finishSetup` | `household.setup_finished` | none (the Zelo toast goes to the creator's inbox) |
   | `deleteChore`, `removeMember` | `chore.deleted`, `member.removed` (Zelo clawbacks) | none |
   | `closeWeeks` | one `household.week_closed`, evaluated once per active member, chaining the organizer; replayed on the next pass if the run did not commit (C11) | inbox + FCM |
@@ -460,7 +450,7 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
   same wallet serialise instead of overwriting each other. FCM is sent after the commit.
 - **Never fails the action.** Any error is logged (`runGamification failed` with the household and event kinds) and the
   XP action stands; `completeSubtask`/`postCompletion` then return `celebrations: []`.
-- **Mode off** is a no-op. **Shadow / control / shadow-under-live** write ledgers, projections, events and alerts only.
+- **Always on.** Every run writes ledgers, projections, events, alerts and inbox rows; nothing is gated by a mode or a cohort.
 - **Safety net.** `onDocumentCreated('households/{hid}/ledger/{entryId}')` (`replayGamiLedgerRowTrigger`) rebuilds the
   event for a row the callable did not mark in `gamiProcessed/{rowId}`, after a 3 s grace so the callable normally wins
   (and a client waiting on `celebrations` gets them in the response). Callable and trigger never double-pay: ledger keys
@@ -469,11 +459,11 @@ Active achievements toggle `active` and pay only on first unlock. Organizer achi
   `isFinalCompleter` for reversals. Celebrations the trigger earns go to the inbox.
 - **`completeSubtask` response**: `{ instanceId, subtaskId, status, completionId, celebrations: Celebration[] }`.
   **`postCompletion` response**: `{ postId, created, celebrations: Celebration[] }`. `celebrations` holds only the
-  *caller's* celebrations and only under `live` + cohort `live` (`[]` otherwise). A celebration owned by someone else
+  *caller's* celebrations (`[]` when the run earned the caller nothing, or failed). A celebration owned by someone else
   (the creator's Zelo toast when a member completes a subtask) is written to that user's inbox instead.
-  A `live` run caller-side may return several toasts (the credit, the on-time earn) and level/badge celebrations.
+  A run caller-side may return several toasts (the credit, the on-time earn) and level/badge celebrations.
 - **Inbox**: async earns (undo, week close, safety-net, other members') are written to `users/{uid}/inbox/{id}` as
-  `Celebration & { seen: false, createdAt }` under `live` + cohort `live` only. FCM goes out for week-close earns only.
+  `Celebration & { seen: false, createdAt }`. FCM goes out for week-close earns only.
 - Callable `ackCelebrations({ ids: string[] })` → `{ ok: true, acknowledged: number }` marks the caller's inbox rows
   seen (1..50 ids, `invalid-argument` otherwise; unknown ids and other users' rows are ignored, never touched).
 - Callable `getWallet({})` is NOT needed: the owner reads `wallets/{uid}` directly.
@@ -498,9 +488,6 @@ Auth custom claim `admin: true` (`permission-denied` otherwise, `unauthenticated
 for every mutation, in the transaction that makes the change. The full table of inputs, errors and effects is in
 `docs/implementation/firebase-contract.md` ("Admin callables"). Final shapes:
 
-- `adminGetConfig()` → `{ mode, activeVersion, previousVersion, cohortSalt, livePercent, controlPercent }`.
-- `adminSetConfig({ mode, livePercent, controlPercent })` → the config. Percentages 0..100, sum ≤ 100; the salt is created
-  once and never changed.
 - `adminListRuleSets()` → `{ ruleSets: { version, status, notes, createdBy, createdAt, publishedAt, rules }[] }` newest first.
 - `adminSaveDraft({ version?, notes, rules })` → `{ version, status: 'draft', createdAt }`; validation errors →
   `invalid-argument` whose message lists them.
@@ -522,11 +509,11 @@ for every mutation, in the transaction that makes the change. The full table of 
 - `adminListAlerts()` → `{ alerts }` (200 newest first); `adminRebuildWallet({ uid })` → `{ uid, rows, balance }`;
   `adminBackfillLevelFloors()` → `{ updatedMembers }`.
 
-Publishing, rolling back and changing the config drop the config cache of the instance that served the call; other
+Publishing and rolling back drop the config cache of the instance that served the call; other
 instances read the new rule set within the 60 s cache window (C1).
 
 `apps/admin`: Vite + React + TypeScript web app on a second Firebase Hosting site (target `admin`),
-Firebase Auth Google sign-in, all writes through the callables. Screens: rollout/config, rule sets
+Firebase Auth Google sign-in, all writes through the callables. Screens: rule sets
 (list, diff vs published, publish, roll back), earn-rule form with live toast preview, simulator,
 ledger lookup with signed adjustments, alerts.
 
@@ -559,19 +546,20 @@ Decisions taken while wiring the engine (`functions/src/gamification/*`), where 
   `household.week_closed` from the standings context plus the week's instances (on-time = done with the last completion
   before `dueAt`), the weekly goal (net week XP of the active members ≥ `weeklyGoalXp`), per-member undo/revoke counts and
   whether every member is away, and writes `weeks/{weekStart}.gamification = { onTimeRate (integer %), dueInstances,
-  doneOnTime, goalReached, weeklyGoalXp }` whenever the engine writes (any mode but `off`), then `processedAt` once the
+  doneOnTime, goalReached, weeklyGoalXp }` on every close, then `processedAt` once the
   engine run committed. The aggregates are a snapshot: a replay reuses the stored ones and only computes them (from the
   instances as they are then) when the doc has none. The run uses the throwing variant of the runner
   (`runGamificationStrict`), so a failure leaves the week without `processedAt`; the next hourly pass rebuilds the context
-  from the week doc (same `closedAt` and member stats) and runs it again. The week doc records `gamiEligible` (the mode
-  was not `off`) when it is created. A week that closed while the program was `off` (`gamiEligible` false, or absent on
-  docs written before the field existed), or whose household has no creator, gets a terminal marker,
-  `gamification = { processedAt, skipped: 'off' | 'cohort' | 'no-creator' }`, and is never replayed: switching the
-  program on does not retro-process an old week, and the first deploy replays nothing. A week that closed while the
-  program could run stays pending (no marker) while ops has the kill switch at `off`, and is processed when it is back on. Weeks older than the 8-week window that never got a marker are not replayed
-  either. Replays are safe: the ledger keys, the event ids and `lastActionWeek` make a second run a no-op.
-  FCM and inbox rows only under `live`.
-- **Cohort** is recomputed on every run and persisted when it differs (C1); the config is never cached in tests.
+  from the week doc (same `closedAt` and member stats) and runs it again. A week of a household
+  without a creator (nothing to run the engine for) gets a terminal marker, `gamification = { processedAt, skipped:
+  'no-creator' }`, and is never replayed. Every other week is always processed: there is no eligibility flag on the week
+  doc and no `'off'`/`'cohort'` skip marker any more. Week docs that earlier code already stamped `skipped: 'off'` or
+  `'cohort'` keep that terminal marker and are not replayed. A closed week of the last 8 that has *no* marker is
+  replayed, so a week doc from before the eligibility flag existed (written while the program was off) would now be paid
+  retroactively: stamp such docs with `gamification.processedAt` before deploying if that is not wanted. Weeks older
+  than the 8-week window that never got a marker are not replayed. Replays are safe: the ledger keys, the event ids and
+  `lastActionWeek` make a second run a no-op. FCM and inbox rows are always written.
+- **Config in tests.** The config is never cached under the emulator (C1).
 - **Rules** (`firestore.rules`): the owner reads `wallets/{uid}`, `wallets/{uid}/ledger/*` and `users/{uid}/inbox/*`; members
   read the household subcollections (organizer, organizerLedger, events, weeks, ...); nobody writes any of it from the
   client; `gamification/**` has no client access.

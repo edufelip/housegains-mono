@@ -13,7 +13,6 @@ import type {
   ClawbackRule,
   EarnRule,
   EventKind,
-  RolloutMode,
   Tier,
   Track,
 } from './engine-types';
@@ -25,15 +24,7 @@ export const ADJUST_REASON_CODES: readonly AdjustReasonCode[] = [
   'support-goodwill',
 ];
 
-// ---- Rollout config (C1) -------------------------------------------------------
-
-export interface ConfigFormValue {
-  mode: RolloutMode;
-  livePercent: number;
-  controlPercent: number;
-}
-
-const ROLLOUT_MODES: readonly RolloutMode[] = ['off', 'shadow', 'live'];
+// ---- Whole-number inputs --------------------------------------------------------
 
 function parseWholeNumber(label: string, raw: string, min: number, max: number): { value: number | null; error: string | null } {
   const trimmed = raw.trim();
@@ -45,33 +36,6 @@ function parseWholeNumber(label: string, raw: string, min: number, max: number):
     return { value: null, error: `${label} must be between ${min} and ${max}.` };
   }
   return { value, error: null };
-}
-
-export function parseConfigForm(
-  mode: string,
-  livePercent: string,
-  controlPercent: string,
-): { value: ConfigFormValue | null; errors: string[] } {
-  const errors: string[] = [];
-  if (!ROLLOUT_MODES.includes(mode as RolloutMode)) {
-    errors.push('Mode must be off, shadow or live.');
-  }
-  const live = parseWholeNumber('livePercent', livePercent, 0, 100);
-  if (live.error) errors.push(live.error);
-  const control = parseWholeNumber('controlPercent', controlPercent, 0, 100);
-  if (control.error) errors.push(control.error);
-  if (live.value !== null && control.value !== null && live.value + control.value > 100) {
-    errors.push('livePercent + controlPercent must be at most 100.');
-  }
-  if (errors.length > 0) return { value: null, errors };
-  return {
-    value: {
-      mode: mode as RolloutMode,
-      livePercent: live.value as number,
-      controlPercent: control.value as number,
-    },
-    errors: [],
-  };
 }
 
 // ---- Simulator days ------------------------------------------------------------

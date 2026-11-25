@@ -15,7 +15,6 @@ import type { Celebration, InboxCelebration } from '@/features/gamification/type
 import type { HouseholdViewModel, Instance, Chore, Member } from '@/features/household';
 
 let mockReduced = false;
-let mockFlag = true;
 const mockClient = {
   inbox: undefined as ((rows: InboxCelebration[]) => void) | undefined,
   inboxError: undefined as (() => void) | undefined,
@@ -50,9 +49,6 @@ jest.mock('react-native-reanimated', () => {
       property === 'useReducedMotion' ? () => mockReduced : target[property],
   });
 });
-jest.mock('@/features/gamification/flag-source', () => ({
-  loadActivatedGamificationFlag: async () => mockFlag,
-}));
 jest.mock('@/features/gamification/firebase-gamification-client', () => ({
   subscribeToWallet: (_uid: string, _onNext: unknown, onError: () => void) => {
     mockClient.subscriptions += 1;
@@ -134,14 +130,14 @@ const authValue = {
 } as unknown as AuthValue;
 
 function householdModel(
-  cohort: 'live' | 'control' | 'shadow' | undefined,
   member: Member = me,
+  household: HouseholdViewModel['household'] = fakeHousehold(),
 ): HouseholdViewModel {
   const noop = async () => undefined;
   const none = async () => ({ celebrations: [] });
   return {
     hydrated: true,
-    household: fakeHousehold(cohort),
+    household,
     currentMember: member,
     chores: [],
     instances: [],
@@ -174,16 +170,14 @@ function householdModel(
 }
 
 async function mount(
-  cohort: 'live' | 'control' | 'shadow' | 'none' = 'live',
   extra: React.ReactNode = null,
   member: Member = me,
+  household: HouseholdViewModel['household'] = fakeHousehold(),
 ) {
   await render(
     <SafeAreaProvider initialMetrics={metrics}>
       <AuthContext.Provider value={authValue}>
-        <HouseholdContext.Provider
-          value={householdModel(cohort === 'none' ? undefined : cohort, member)}
-        >
+        <HouseholdContext.Provider value={householdModel(member, household)}>
           <GamificationProvider>
             <Probe />
             <CelebrationHost />
@@ -193,7 +187,7 @@ async function mount(
       </AuthContext.Provider>
     </SafeAreaProvider>,
   );
-  // let the Remote Config read resolve
+  // let the first subscriptions settle
   await act(async () => {
     await Promise.resolve();
   });
@@ -201,7 +195,6 @@ async function mount(
 
 beforeEach(() => {
   mockReduced = false;
-  mockFlag = true;
   mockClient.inbox = undefined;
   mockClient.inboxError = undefined;
   mockClient.walletError = undefined;
@@ -214,27 +207,9 @@ beforeEach(() => {
   jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => undefined);
 });
 
-describe('gamification visibility gate', () => {
-  test.each([
-    ['flag off', false, 'live'],
-    ['control cohort', true, 'control'],
-    ['shadow cohort', true, 'shadow'],
-    ['no cohort yet', true, 'none'],
-  ] as const)('%s: nothing is subscribed, ingested or rendered', async (_name, flag, cohort) => {
-    mockFlag = flag;
-    await mount(cohort);
-    expect(ctx.visible).toBe(false);
-    expect(mockClient.subscriptions).toBe(0);
-    expect(mockClient.inbox).toBeUndefined();
-    await act(async () => {
-      ctx.receiveActionCelebrations([toast('a', 25)]);
-    });
-    expect(ctx.active).toBeNull();
-    expect(screen.queryByTestId('housegains.gamification.toast')).toBeNull();
-  });
-
-  test('flag on and cohort live: listeners start and toasts show', async () => {
-    await mount('live');
+describe('gamification is always on', () => {
+  test('with no flag and no cohort, listeners start and toasts show', async () => {
+    await mount();
     expect(ctx.visible).toBe(true);
     expect(mockClient.subscriptions).toBe(1);
     await act(async () => {
@@ -242,6 +217,17 @@ describe('gamification visibility gate', () => {
     });
     expect(screen.getByTestId('housegains.gamification.toast')).toBeTruthy();
     expect(AccessibilityInfo.announceForAccessibility).toHaveBeenCalledWith('Step done. +25 Gains');
+  });
+
+  test('before the member has a household nothing is subscribed or rendered', async () => {
+    await mount(null, me, null);
+    expect(ctx.visible).toBe(false);
+    expect(mockClient.subscriptions).toBe(0);
+    await act(async () => {
+      ctx.receiveActionCelebrations([toast('a', 25)]);
+    });
+    expect(ctx.active).toBeNull();
+    expect(screen.queryByTestId('housegains.gamification.toast')).toBeNull();
   });
 });
 
@@ -367,7 +353,7 @@ describe('celebration queue on screen', () => {
 
   test('a level celebration at or below the displayed level floor is acknowledged silently', async () => {
     // Backfilled member {xp:600, levelFloor:5}: the server sends new-curve level 4, the app shows 5.
-    await mount('live', null, { ...me, xp: 600, xpPeak: 600, levelFloor: 5 });
+    await mount(null, { ...me, xp: 600, xpPeak: 600, levelFloor: 5 });
     await act(async () => {
       mockClient.inbox?.([
         {
@@ -391,7 +377,7 @@ describe('celebration queue on screen', () => {
   });
 
   test('a level-up above the floor shows the level the app displays', async () => {
-    await mount('live', null, { ...me, xp: 1500, xpPeak: 1500, levelFloor: 5 });
+    await mount(null, { ...me, xp: 1500, xpPeak: 1500, levelFloor: 5 });
     await act(async () => {
       ctx.receiveActionCelebrations([
         {
@@ -420,7 +406,7 @@ describe('celebration queue on screen', () => {
     test('is shown with the organizer title even when the member level is higher', async () => {
       // Member level 4 (levelFloor 4): the old check compared Zelo level 2 with it and acked it
       // silently, so a creator crossing 200 Zelo never saw it.
-      await mount('live', null, { ...me, xp: 600, xpPeak: 600, levelFloor: 4 });
+      await mount(null, { ...me, xp: 600, xpPeak: 600, levelFloor: 4 });
       await act(async () => {
         mockClient.inbox?.([organizerLevel(2)]);
       });
@@ -677,7 +663,7 @@ function CompletionScreenHarness() {
 
 describe('S3 completion screen with a badge', () => {
   test('a badge earned by the action that completed the chore shows inside S3, not as a second full screen', async () => {
-    await mount('live', <CompletionScreenHarness />);
+    await mount(<CompletionScreenHarness />);
     expect(screen.queryByTestId('housegains.celebration.badges')).toBeNull();
     await act(async () => {
       ctx.receiveActionCelebrations(
@@ -707,7 +693,7 @@ describe('S3 completion screen with a badge', () => {
   });
 
   test('S3 without badges has no badge section', async () => {
-    await mount('live', <CompletionScreenHarness />);
+    await mount(<CompletionScreenHarness />);
     expect(screen.queryByTestId('housegains.celebration.badges')).toBeNull();
     expect(screen.getByTestId('housegains.celebration')).toBeTruthy();
   });
