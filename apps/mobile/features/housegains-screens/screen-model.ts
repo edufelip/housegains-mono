@@ -1,3 +1,10 @@
+import {
+  displayedLevel,
+  levelForXp,
+  levelProgress,
+  memberTitleKey,
+  type MemberTitleKey,
+} from '@/features/gamification/levels';
 import { CATALOG } from '@/features/household/catalog';
 import type { Chore, Instance } from '@/features/household/types';
 
@@ -6,13 +13,22 @@ export type AssignableInstance = {
   assigneeIds: string[];
 };
 
-export function filterInstancesForHouseholdDate<T extends { dueAt: string }>(
+/**
+ * A retired instance is a review record of a chore that was deleted or paused: it stays in
+ * history (read-only) but is not work to do, so Today, dashboards and due lists leave it out.
+ */
+export function isRetiredInstance(instance: { retiredAt?: string }): boolean {
+  return instance.retiredAt !== undefined;
+}
+
+export function filterInstancesForHouseholdDate<T extends { dueAt: string; retiredAt?: string }>(
   instances: readonly T[],
   date: Date,
   timeZone: string,
 ): T[] {
   const targetDate = householdDateKey(date, timeZone);
   return instances.filter((instance) => {
+    if (isRetiredInstance(instance)) return false;
     const dueAt = new Date(instance.dueAt);
     return Number.isFinite(dueAt.getTime()) && householdDateKey(dueAt, timeZone) === targetDate;
   });
@@ -59,6 +75,7 @@ export function deriveInstanceProgress(instance: {
 
 export type DashboardInstance = AssignableInstance & {
   dueAt: string;
+  retiredAt?: string;
   subtasks: readonly { id: string; xp: number }[];
   completions: readonly { subtaskId: string; memberId: string; xp: number }[];
   bonusAwards: Readonly<Record<string, number>>;
@@ -73,7 +90,10 @@ export function deriveDashboardSummary<T extends DashboardInstance>(
   currentMemberId: string,
   now = new Date(),
 ) {
-  const orderedInstances = orderTodayInstances(instances, currentMemberId);
+  const orderedInstances = orderTodayInstances(
+    instances.filter((instance) => !isRetiredInstance(instance)),
+    currentMemberId,
+  );
   const score = deriveScoreSnapshot(members, weeklyTotals, currentMemberId);
   let completedSubtasks = 0;
   let totalSubtasks = 0;
@@ -157,17 +177,32 @@ export function totalXpForMember(
   return typeof member.xp === 'number' ? Math.max(0, member.xp) : deriveTotalXp(entries, memberId);
 }
 
-export function deriveProgression(totalXp: number): {
+/**
+ * Displayed member level and title (contract C6): max(levelFloor ?? floor(xp/100)+1, levelForXp(xpPeak ?? xp)).
+ * Applies whether or not gamification is visible. A document without `levelFloor` keeps its
+ * old-curve level so nobody drops before the backfill has run.
+ */
+export function deriveProgression(
+  totalXp: number,
+  member: { xpPeak?: number; levelFloor?: number } = {},
+): {
   level: number;
-  titleKey: 'rookie' | 'tidyTitan';
+  titleKey: MemberTitleKey;
   xpIntoLevel: number;
 } {
   const earnedXp = Math.max(0, Math.floor(totalXp));
-  const level = Math.floor(earnedXp / 100) + 1;
+  const level = displayedLevel({
+    xp: earnedXp,
+    xpPeak: member.xpPeak,
+    levelFloor: member.levelFloor,
+  });
+  const peak = typeof member.xpPeak === 'number' ? member.xpPeak : earnedXp;
+  const onCurve = level <= levelForXp(peak);
   return {
     level,
-    titleKey: level >= 5 ? 'tidyTitan' : 'rookie',
-    xpIntoLevel: earnedXp % 100,
+    titleKey: memberTitleKey(level),
+    // A level carried over from the old curve (floor(xp/100)+1) progresses in hundreds.
+    xpIntoLevel: onCurve ? levelProgress(level, peak).xpIntoLevel : earnedXp % 100,
   };
 }
 

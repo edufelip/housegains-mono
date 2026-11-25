@@ -1,12 +1,33 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useEffect, useRef, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Button, Card, Label, Screen } from '@/components/housegains/ui';
 import { useAppearance } from '@/features/appearance';
+import { CompletionBadges } from '@/features/gamification/completion-badges';
+import {
+  canReportCompletion,
+  hasAdminRights,
+  hasModerationConflict,
+  moderatableSubtasks,
+  partialModerationAvailable,
+  reportableSubtasks,
+  selectableForModeration,
+} from '@/features/household/moderation-rules';
 import { useHouseGainsTranslation } from '@/localization/housegains';
 import { ReportSheet } from './household-safety';
+import {
+  ConfirmSheet,
+  PartialPickerSheet,
+  ReportCompletionSheet,
+  VERDICT_LABEL_KEYS,
+  moderationStepsFor,
+  type ConfirmRequest,
+} from './moderation-screens';
 import { MemberBadge } from './screen-elements';
-import { choreDisplayName, subtaskDisplayName } from './screen-model';
-import type { Chore, Completion, Instance, Member } from '@/features/household';
+import { choreDisplayName, isRetiredInstance, subtaskDisplayName } from './screen-model';
+import type { Celebration } from '@/features/gamification/types';
+import type { Dispute, Instance, Member } from '@/features/household';
+import type { Chore, Completion } from '@/features/household/types';
 
 const UNDO_WINDOW_MS = 5 * 60 * 1000;
 const MAX_TIMEOUT_MS = 2_000_000_000;
@@ -20,6 +41,16 @@ type ChoreDetailScreenProps = {
   onBack: () => void;
   onComplete: (instanceId: string, subtaskId: string) => Promise<void>;
   onUndo: (instanceId: string, subtaskId: string) => Promise<void>;
+  /** Open disputes, or null while the listener has not delivered. */
+  disputes?: Dispute[] | null;
+  /** The live roster (admins counted for the conflict rule); defaults to `members`. */
+  rosterMembers?: Member[];
+  onReport?: (instanceId: string, subtaskIds: string[], reason: string) => Promise<void>;
+  onModerate?: (
+    instanceId: string,
+    verdict: 'partial' | 'not_done',
+    subtaskIds?: string[],
+  ) => Promise<void>;
   hasError: boolean;
 };
 
@@ -31,6 +62,8 @@ type CelebrationScreenProps = {
   onBack: () => void;
   onPostToFeed: (instanceId: string) => Promise<void>;
   hasError: boolean;
+  /** Achievements earned by the action that completed the instance (gamification only). */
+  badges?: Celebration[];
 };
 
 function getUndoDeadline(completion: Completion): number {
@@ -147,6 +180,10 @@ export function ChoreDetailScreen({
   onBack,
   onComplete,
   onUndo,
+  disputes,
+  rosterMembers,
+  onReport,
+  onModerate,
   hasError,
 }: ChoreDetailScreenProps) {
   const { themeId, tokens } = useAppearance();
@@ -155,13 +192,15 @@ export function ChoreDetailScreen({
   const { pending, actionError, run } = usePendingActions();
   const progress = progressFor(instance);
   const isPastDue = instance.status !== 'done' && Date.parse(instance.dueAt) <= now;
+  // A retired instance (its chore was deleted or paused) is a read-only history record.
+  const retired = isRetiredInstance(instance);
   const isClosed = isPastDue;
   const ownCompletions = instance.completions.filter(
     (completion) => completion.memberId === currentMember.id,
   );
-  const hasUndoWindow = ownCompletions.some((completion) =>
-    isUndoAvailable(completion, currentMember.id, now),
-  );
+  const hasUndoWindow =
+    !retired &&
+    ownCompletions.some((completion) => isUndoAvailable(completion, currentMember.id, now));
   const memberById = new Map(members.map((member) => [member.id, member]));
   const completionBySubtask = new Map(
     instance.completions.map((completion) => [completion.subtaskId, completion]),
@@ -169,6 +208,39 @@ export function ChoreDetailScreen({
   const shouldShowError = hasError || actionError;
   const sticker = themeId === 'sticker';
   const [reportingChore, setReportingChore] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [partialOpen, setPartialOpen] = useState(false);
+  const [moderateConfirm, setModerateConfirm] = useState<ConfirmRequest>(null);
+
+  // Moderation eligibility (contract A2): the 72-hour window, the caller's rights,
+  // the open dispute state, and the conflict-of-interest rule.
+  const isAdmin = hasAdminRights(currentMember.role);
+  const openDispute = disputes?.find((dispute) => dispute.instanceId === instance.id);
+  const moderatable = moderatableSubtasks(instance, now);
+  const completedCount = new Set(instance.completions.map(({ subtaskId }) => subtaskId)).size;
+  const canModerate = !retired && isAdmin && moderatable.length > 0 && onModerate !== undefined;
+  const roster = rosterMembers ?? members;
+  // "Not done" revokes every in-window step, so the caller's own completion blocks it. A partial
+  // verdict only targets the picked steps (the server checks the targets): the caller's own
+  // completions are not offered, everyone else's stay selectable. A verdict also resolves the
+  // open dispute, so the completions it still covers count as judged too (the server checks
+  // targets plus those): when one is the caller's, neither action is offered.
+  const conflicted = canModerate
+    ? hasModerationConflict(instance, moderatable, currentMember.id, roster, openDispute)
+    : false;
+  const selectable = canModerate
+    ? selectableForModeration(instance, moderatable, currentMember.id, roster, openDispute)
+    : [];
+  const partialPossible = canModerate && partialModerationAvailable(selectable, moderatable);
+  const canReport = !retired && canReportCompletion(currentMember, instance, openDispute, now);
+  const alreadyReported =
+    openDispute?.reports.some((report) => report.uid === currentMember.id) ?? false;
+  const reportSteps = moderationStepsFor(
+    reportableSubtasks(instance, currentMember.id, now),
+    instance,
+    members,
+    t,
+  );
 
   return (
     <Screen
@@ -192,7 +264,13 @@ export function ChoreDetailScreen({
           }}
           testID="housegains.choreDetail.back"
         >
-          <Label style={{ fontSize: 29, fontWeight: '700', lineHeight: 32 }}>‹</Label>
+          <Ionicons
+            accessibilityElementsHidden
+            color={tokens.text}
+            importantForAccessibility="no"
+            name="chevron-back"
+            size={tokens.iconSize.lg}
+          />
         </Pressable>
         <View style={{ flex: 1, gap: 2 }}>
           <Label variant="caption">
@@ -270,8 +348,12 @@ export function ChoreDetailScreen({
       </Card>
 
       {shouldShowError ? (
-        <Card style={{ backgroundColor: tokens.danger }} testID="housegains.choreDetail.error">
-          <Label style={{ color: '#FFFFFF', fontWeight: '700' }}>
+        <Card
+          style={{ alignItems: 'center', borderColor: tokens.danger, flexDirection: 'row', gap: 8 }}
+          testID="housegains.choreDetail.error"
+        >
+          <Ionicons color={tokens.danger} name="alert-circle-outline" size={tokens.iconSize.md} />
+          <Label style={{ flex: 1, fontWeight: '700' }}>
             {t('housegains.screens.choreDetail.error')}
           </Label>
         </Card>
@@ -287,8 +369,9 @@ export function ChoreDetailScreen({
           const member = completion ? memberById.get(completion.memberId) : undefined;
           const isPending =
             pending.has(`undo:${subtask.id}`) || pending.has(`complete:${subtask.id}`);
-          const canUndo = completion ? isUndoAvailable(completion, currentMember.id, now) : false;
-          const undoExpired = completion?.memberId === currentMember.id && !canUndo;
+          const canUndo =
+            !retired && completion ? isUndoAvailable(completion, currentMember.id, now) : false;
+          const undoExpired = !retired && completion?.memberId === currentMember.id && !canUndo;
           const doneLabel = t('housegains.screens.choreDetail.doneButton', { xp: subtask.xp });
 
           return (
@@ -369,7 +452,7 @@ export function ChoreDetailScreen({
                       variant="secondary"
                     />
                   ) : null
-                ) : (
+                ) : retired ? null : (
                   <Pressable
                     accessibilityLabel={doneLabel}
                     accessibilityRole="button"
@@ -449,7 +532,7 @@ export function ChoreDetailScreen({
               {t('housegains.screens.choreDetail.bonusAwarded', { bonus: bonusTotal(instance) })}
             </Label>
           </Card>
-        ) : !isClosed ? (
+        ) : !isClosed && !retired ? (
           <Card
             style={{ backgroundColor: tokens.accent, borderStyle: 'dashed' }}
             testID="housegains.choreDetail.bonusLocked"
@@ -464,6 +547,116 @@ export function ChoreDetailScreen({
           </Card>
         ) : null
       ) : null}
+      {instance.disputeStatus === 'open' ? (
+        <Card style={{ gap: 8 }} testID="housegains.choreDetail.underReview">
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}>
+            <Ionicons
+              accessibilityElementsHidden
+              color={tokens.accent}
+              name="hourglass-outline"
+              size={tokens.iconSize.lg}
+            />
+            <Label style={{ fontWeight: '700' }}>
+              {t('housegains.screens.choreDetail.underReview')}
+            </Label>
+          </View>
+        </Card>
+      ) : null}
+
+      {instance.revocations && instance.revocations.length > 0 ? (
+        <Card style={{ gap: 8 }} testID="housegains.choreDetail.revocations">
+          <Label variant="heading">{t('housegains.screens.choreDetail.revocationsTitle')}</Label>
+          {instance.revocations.map((revocation) => {
+            const subtask = instance.subtasks.find(({ id }) => id === revocation.subtaskId);
+            return (
+              <Label
+                key={`${revocation.subtaskId}-${revocation.at}`}
+                variant="caption"
+                testID={`housegains.choreDetail.revocation.${revocation.subtaskId}`}
+              >
+                {t('housegains.screens.choreDetail.revocationNote', {
+                  actor:
+                    memberById.get(revocation.actorUid)?.name ??
+                    t('housegains.screens.choreDetail.unknownContributor'),
+                  subtask: subtask ? subtaskDisplayName(subtask, t) : revocation.subtaskId,
+                  verdict: t(VERDICT_LABEL_KEYS[revocation.verdict]),
+                  xp: revocation.xp,
+                })}
+              </Label>
+            );
+          })}
+        </Card>
+      ) : null}
+
+      {canModerate && conflicted ? (
+        <Card style={{ gap: 8 }} testID="housegains.choreDetail.conflict">
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: 10 }}>
+            <Ionicons
+              accessibilityElementsHidden
+              color={tokens.danger}
+              name="person-outline"
+              size={tokens.iconSize.md}
+            />
+            <Label style={{ color: tokens.danger, fontWeight: '700' }}>
+              {t('housegains.screens.choreDetail.conflictNote')}
+            </Label>
+          </View>
+        </Card>
+      ) : null}
+
+      {canModerate && (!conflicted || partialPossible) ? (
+        <Card style={{ gap: 10 }} testID="housegains.choreDetail.moderation">
+          {partialPossible ? (
+            <Button
+              onPress={() => setPartialOpen(true)}
+              testID="housegains.choreDetail.markPartial"
+              title={t('housegains.screens.choreDetail.markPartial')}
+              variant="secondary"
+            />
+          ) : null}
+          {!conflicted ? (
+            <Button
+              onPress={() =>
+                setModerateConfirm({
+                  title: t('housegains.screens.choreDetail.confirmNotDoneTitle'),
+                  body: t('housegains.screens.choreDetail.confirmNotDoneBody', {
+                    steps: moderationStepsFor(moderatable, instance, members, t)
+                      .map((step) => step.label)
+                      .join(', '),
+                  }),
+                  confirmTitle: t('housegains.screens.choreDetail.markNotDone'),
+                  onConfirm: () => onModerate(instance.id, 'not_done', moderatable),
+                })
+              }
+              testID="housegains.choreDetail.markNotDone"
+              title={t('housegains.screens.choreDetail.markNotDone')}
+              variant="secondary"
+            />
+          ) : null}
+        </Card>
+      ) : null}
+
+      {!retired && isAdmin && moderatable.length === 0 && completedCount > 0 ? (
+        <Label variant="caption" testID="housegains.choreDetail.reviewWindowClosed">
+          {t('housegains.screens.choreDetail.reviewWindowClosed')}
+        </Label>
+      ) : null}
+
+      {canReport && onReport ? (
+        <Button
+          onPress={() => setReportOpen(true)}
+          testID="housegains.choreDetail.reportNotDone"
+          title={t('housegains.screens.choreDetail.reportNotDone')}
+          variant="secondary"
+        />
+      ) : null}
+
+      {!isAdmin && alreadyReported ? (
+        <Label variant="caption" testID="housegains.choreDetail.alreadyReported">
+          {t('housegains.screens.choreDetail.alreadyReported')}
+        </Label>
+      ) : null}
+
       <Button
         onPress={() => setReportingChore(true)}
         testID="housegains.choreDetail.report"
@@ -474,6 +667,32 @@ export function ChoreDetailScreen({
         householdId={householdId}
         onClose={() => setReportingChore(false)}
         target={reportingChore ? { kind: 'chore', targetId: chore.id } : null}
+      />
+      {onReport ? (
+        <ReportCompletionSheet
+          onClose={() => setReportOpen(false)}
+          onSubmit={(subtaskIds, reason) => onReport(instance.id, subtaskIds, reason)}
+          steps={reportSteps}
+          testID="housegains.choreDetail.reportSheet"
+          visible={reportOpen}
+        />
+      ) : null}
+      {onModerate && partialOpen ? (
+        <PartialPickerSheet
+          allowFullSelection={selectable.length < moderatable.length}
+          confirmTitle={t('housegains.screens.choreDetail.markPartial')}
+          onClose={() => setPartialOpen(false)}
+          onSubmit={(subtaskIds) => onModerate(instance.id, 'partial', subtaskIds)}
+          steps={moderationStepsFor(selectable, instance, members, t)}
+          testID="housegains.choreDetail.partialSheet"
+          title={t('housegains.screens.moderation.pickTitle')}
+          visible={partialOpen}
+        />
+      ) : null}
+      <ConfirmSheet
+        onClose={() => setModerateConfirm(null)}
+        request={moderateConfirm}
+        testID="housegains.choreDetail.confirmSheet"
       />
     </Screen>
   );
@@ -522,9 +741,10 @@ function deriveContributorBreakdown(
 }
 
 function DecorativeConfetti({ sticker }: { sticker: boolean }) {
+  const { tokens } = useAppearance();
   const colors = sticker
-    ? ['#FBBF24', '#F87171', '#10B981', '#FFFFFF']
-    : ['#FF8A4C', '#76FF03', '#FFFFFF', '#6366F1'];
+    ? [tokens.accent, tokens.danger, tokens.success, tokens.onPrimary]
+    : [tokens.accent, tokens.primary, tokens.text, tokens.success];
   return (
     <View
       accessibilityElementsHidden
@@ -536,7 +756,7 @@ function DecorativeConfetti({ sticker }: { sticker: boolean }) {
           key={`${color}-${index}`}
           style={{
             backgroundColor: color,
-            borderColor: '#111111',
+            borderColor: tokens.border,
             borderRadius: index % 2 === 0 ? 2 : 99,
             borderWidth: index % 2 === 0 ? 1 : 0,
             height: index % 2 === 0 ? 14 : 11,
@@ -560,6 +780,7 @@ export function CelebrationScreen({
   onBack,
   onPostToFeed,
   hasError,
+  badges = [],
 }: CelebrationScreenProps) {
   const { themeId, tokens } = useAppearance();
   const { t } = useHouseGainsTranslation();
@@ -600,7 +821,11 @@ export function CelebrationScreen({
     >
       <DecorativeConfetti sticker={sticker} />
       <View style={{ alignItems: 'center', gap: 10 }}>
+        {/* The disc grows with its text (minWidth/minHeight, no fixed size) so "100%" and its word
+            fit at the largest text size in every language; the bonus sentence sits below it. */}
         <View
+          accessible
+          accessibilityLabel={t('housegains.screens.celebration.percent', { percent: 100 })}
           style={{
             alignItems: 'center',
             alignSelf: 'center',
@@ -608,42 +833,60 @@ export function CelebrationScreen({
             borderColor: tokens.border,
             borderRadius: 999,
             borderWidth: sticker ? tokens.borderWidth : Math.max(1, tokens.borderWidth),
-            height: sticker ? 148 : 132,
+            gap: tokens.spacing.xxs,
             justifyContent: 'center',
-            width: sticker ? 148 : 132,
+            maxWidth: '100%',
+            minHeight: sticker ? 148 : 132,
+            minWidth: sticker ? 148 : 132,
+            paddingHorizontal: tokens.spacing.lg,
+            paddingVertical: tokens.spacing.md,
             shadowColor: tokens.shadow.color,
             shadowOffset: tokens.shadow.offset,
             shadowOpacity: tokens.shadow.opacity,
             shadowRadius: tokens.shadow.radius,
             elevation: tokens.shadow.elevation,
           }}
+          testID="housegains.celebration.disc"
         >
           <Label
+            adjustsFontSizeToFit
+            numberOfLines={1}
             style={{
               color: sticker ? tokens.text : tokens.onPrimary,
-              fontFamily: soft ? tokens.typography.heading : tokens.typography.bold,
-              fontSize: 39,
-              fontWeight: '900',
-              lineHeight: 45,
+              textAlign: 'center',
               transform: sticker ? [{ rotate: '-8deg' }] : undefined,
             }}
+            testID="housegains.celebration.percentValue"
+            variant="display"
           >
-            {t('housegains.screens.celebration.percent', { percent: 100 })}
+            {t('housegains.screens.celebration.percentValue', { percent: 100 })}
           </Label>
           <Label
+            adjustsFontSizeToFit
+            numberOfLines={1}
             style={{
               color: sticker ? tokens.text : tokens.onPrimary,
-              fontWeight: '800',
               textAlign: 'center',
             }}
+            testID="housegains.celebration.percentWord"
           >
-            {t('housegains.screens.celebration.bonusEarned', { bonus: allocatedBonus })}
+            {t('housegains.screens.celebration.percentWord')}
           </Label>
         </View>
         <Label
+          style={{
+            color: sticker ? tokens.onPrimary : tokens.text,
+            fontWeight: '800',
+            textAlign: 'center',
+          }}
+          testID="housegains.celebration.bonus"
+        >
+          {t('housegains.screens.celebration.bonusEarned', { bonus: allocatedBonus })}
+        </Label>
+        <Label
           variant="title"
           style={{
-            color: sticker ? '#FFFFFF' : tokens.text,
+            color: sticker ? tokens.onPrimary : tokens.text,
             fontFamily: soft ? tokens.typography.heading : tokens.typography.bold,
             textAlign: 'center',
           }}
@@ -655,7 +898,7 @@ export function CelebrationScreen({
         <Label
           variant="body"
           style={{
-            color: sticker ? '#FFFFFF' : tokens.muted,
+            color: sticker ? tokens.onPrimary : tokens.muted,
             fontWeight: '600',
             textAlign: 'center',
           }}
@@ -663,6 +906,8 @@ export function CelebrationScreen({
           {t('housegains.screens.celebration.contributors', { count: breakdown.length })}
         </Label>
       </View>
+
+      <CompletionBadges badges={badges} />
 
       <Card
         style={{ gap: 0, paddingHorizontal: 16, paddingVertical: 8 }}
@@ -745,8 +990,12 @@ export function CelebrationScreen({
       </Card>
 
       {shouldShowError ? (
-        <Card style={{ backgroundColor: tokens.danger }} testID="housegains.celebration.postError">
-          <Label style={{ color: '#FFFFFF', fontWeight: '700' }}>
+        <Card
+          style={{ alignItems: 'center', borderColor: tokens.danger, flexDirection: 'row', gap: 8 }}
+          testID="housegains.celebration.postError"
+        >
+          <Ionicons color={tokens.danger} name="alert-circle-outline" size={tokens.iconSize.md} />
+          <Label style={{ flex: 1, fontWeight: '700' }}>
             {t(
               postState === 'error'
                 ? 'housegains.screens.celebration.postError'
@@ -761,7 +1010,7 @@ export function CelebrationScreen({
           <View accessibilityLiveRegion="polite" testID="housegains.celebration.posted">
             <Label
               style={{
-                color: sticker ? '#FFFFFF' : tokens.success,
+                color: sticker ? tokens.onPrimary : tokens.success,
                 fontWeight: '800',
                 textAlign: 'center',
               }}
@@ -823,7 +1072,7 @@ export function CelebrationScreen({
         >
           <Label
             style={{
-              color: sticker ? '#FFFFFF' : tokens.primary,
+              color: sticker ? tokens.onPrimary : tokens.primary,
               fontWeight: '800',
               textAlign: 'center',
             }}

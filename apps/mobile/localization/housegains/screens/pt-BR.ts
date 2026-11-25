@@ -175,6 +175,7 @@ const houseGainsScreensPtBR: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Toda semana: {days}',
   'housegains.screens.common.role.creator': 'Quem criou a casa',
   'housegains.screens.common.role.member': 'Pessoa participante',
+  'housegains.screens.common.role.admin': 'Admin da casa',
   'housegains.screens.tabs.today': 'Hoje',
   'housegains.screens.tabs.feed': 'Atividade',
   'housegains.screens.tabs.add': 'Adicionar tarefa',
@@ -390,6 +391,12 @@ const houseGainsScreensPtBR: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.locale.es-ES': 'Espanhol',
   'housegains.screens.dashboard.title.rookie': 'Iniciante',
   'housegains.screens.dashboard.title.tidyTitan': 'Titã da organização',
+  'housegains.screens.dashboard.title.helper': 'Ajudante',
+  'housegains.screens.dashboard.title.cleanMaster': 'Mestre da limpeza',
+  'housegains.screens.dashboard.title.homeLegend': 'Lenda da casa',
+  'housegains.screens.dashboard.title.houseGuardian': 'Guardião da casa',
+  'housegains.screens.celebration.percentValue': '{percent}%',
+  'housegains.screens.celebration.percentWord': 'concluída',
   'housegains.screens.invite.done': 'Concluído',
 
   'housegains.screens.chores.returnToChores': 'Voltar para as tarefas',
@@ -403,6 +410,71 @@ const houseGainsScreensPtBR: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.readOnlyHousehold':
     'Somente quem criou a casa pode editar este perfil.',
   'housegains.screens.builder.recurrence.every': 'Intervalo personalizado',
+
+  'housegains.screens.common.confirm': 'Confirmar',
+  'housegains.screens.members.makeAdmin': 'Tornar admin',
+  'housegains.screens.members.removeAdmin': 'Remover admin',
+  'housegains.screens.members.makeAdminTitle': 'Tornar {name} admin?',
+  'housegains.screens.members.makeAdminBody':
+    'Admins revisam conclusões denunciadas e podem marcar tarefas como não feitas.',
+  'housegains.screens.members.removeAdminTitle': 'Remover {name} do cargo de admin?',
+  'housegains.screens.members.removeAdminBody':
+    '{name} mantém os pontos e o histórico, mas não poderá mais revisar denúncias.',
+  'housegains.screens.settings.reports': 'Conclusões denunciadas',
+  'housegains.screens.reports.title': 'Conclusões denunciadas',
+  'housegains.screens.reports.description': 'Revise as conclusões denunciadas pela sua casa.',
+  'housegains.screens.reports.pendingCount': '{count} para revisar',
+  'housegains.screens.reports.emptyTitle': 'Nada para revisar',
+  'housegains.screens.reports.emptyBody':
+    'Quando alguém denunciar uma conclusão, ela aparecerá aqui.',
+  'housegains.screens.reports.reportedBy': 'Denunciado por {names}',
+  'housegains.screens.reports.reasonLine': 'Motivo: {reason}',
+  'housegains.screens.reports.disputedSteps': 'Etapas denunciadas',
+  'housegains.screens.reports.verdict.done': 'Feito',
+  'housegains.screens.reports.verdict.partial': 'Parcialmente feito',
+  'housegains.screens.reports.verdict.not_done': 'Não feito',
+  'housegains.screens.reports.confirmDoneTitle': 'Manter esta tarefa como feita?',
+  'housegains.screens.reports.confirmDoneBody':
+    'As etapas denunciadas mantêm o XP e a denúncia é encerrada.',
+  'housegains.screens.reports.confirmNotDoneTitle': 'Marcar esta tarefa como não feita?',
+  'housegains.screens.reports.confirmNotDoneBody':
+    'As etapas denunciadas perdem o XP e a denúncia é encerrada.',
+  'housegains.screens.moderation.pickTitle': 'Quais etapas não foram feitas?',
+  'housegains.screens.moderation.pickHint':
+    'Selecione pelo menos uma etapa e mantenha pelo menos uma feita.',
+  'housegains.screens.moderation.stepBy': '{step} · por {member}',
+  'housegains.screens.moderation.submitting': 'Enviando…',
+  'housegains.screens.choreDetail.underReview':
+    'Em revisão · um admin está verificando esta tarefa.',
+  'housegains.screens.choreDetail.reportNotDone': 'Denunciar: não feito',
+  'housegains.screens.choreDetail.reportSheetTitle': 'Denunciar esta tarefa',
+  'housegains.screens.choreDetail.reportSheetBody':
+    'Escolha as etapas que não foram feitas. Um admin revisa denúncias em até 72 horas.',
+  'housegains.screens.choreDetail.reportReasonLabel': 'Motivo (opcional)',
+  'housegains.screens.choreDetail.reportReasonPlaceholder': 'Conte ao admin o que aconteceu',
+  'housegains.screens.choreDetail.reportReasonCount': '{count}/280',
+  'housegains.screens.choreDetail.reportSubmit': 'Enviar denúncia',
+  'housegains.screens.choreDetail.reportSending': 'Enviando…',
+  'housegains.screens.choreDetail.alreadyReported':
+    'Você já denunciou esta tarefa. Um admin vai revisá-la.',
+  'housegains.screens.choreDetail.reportSent': 'Obrigado — um admin vai revisar.',
+  'housegains.screens.choreDetail.markNotDone': 'Marcar como não feito',
+  'housegains.screens.choreDetail.markPartial': 'Marcar como parcialmente feito',
+  'housegains.screens.choreDetail.conflictNote':
+    'Você concluiu parte desta tarefa, então outro admin deve revisá-la.',
+  'housegains.screens.choreDetail.confirmNotDoneTitle': 'Marcar como não feito?',
+  'housegains.screens.choreDetail.confirmNotDoneBody': 'Estas etapas perdem XP: {steps}.',
+  'housegains.screens.choreDetail.reviewWindowClosed':
+    'Conclusões podem ser revisadas por 72 horas após registradas.',
+  'housegains.screens.choreDetail.revocationsTitle': 'Revogado por um admin',
+  'housegains.screens.choreDetail.revocationNote':
+    '{actor} marcou “{subtask}” como {verdict} · −{xp} XP',
+  'housegains.screens.ranks.lastWeekTitle': 'Semana passada',
+  'housegains.screens.ranks.topMemberTitle': 'Destaque da semana',
+  'housegains.screens.ranks.topMemberDetail': '{subtasks} etapas concluídas · {xp} XP',
+  'housegains.screens.ranks.wallOfShameTitle': 'Mural da vergonha',
+  'housegains.screens.ranks.wallOfShameDetail': '{missed} de {assigned} tarefas perdidas',
+  'housegains.screens.ranks.noWeekYet': 'Nenhuma semana foi encerrada ainda.',
 };
 
 export default houseGainsScreensPtBR;

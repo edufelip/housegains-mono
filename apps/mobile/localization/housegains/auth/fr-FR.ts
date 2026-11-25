@@ -65,6 +65,13 @@ const authFrFR: Record<string, string> = {
   'housegains.auth.sync.notFound': "Cet élément n'existe plus.",
   'housegains.auth.sync.offline':
     "Tu es hors ligne. Ta modification n'a pas été enregistrée. Réessaie une fois reconnecté.",
+  'housegains.auth.sync.alreadyReported': 'Tu as déjà signalé cette tâche.',
+  'housegains.auth.sync.alreadyReviewed': 'Un admin a déjà examiné cette tâche.',
+  'housegains.auth.sync.reviewWindowClosed':
+    'Le délai de 72 heures pour examiner cette tâche est dépassé.',
+  'housegains.auth.sync.conflictOfInterest':
+    'Tu as terminé une partie de cette tâche, un autre admin doit donc l’examiner.',
+  'housegains.auth.sync.nothingToReport': 'Il n’y a aucune tâche d’un autre membre à signaler.',
 };
 
 export default authFrFR;

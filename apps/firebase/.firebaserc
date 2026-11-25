@@ -3,5 +3,20 @@
     "default": "housegains-dev",
     "dev": "housegains-dev",
     "prod": "housegains-prod"
+  },
+  "targets": {
+    "housegains-dev": {
+      "hosting": {
+        "site": ["housegains-dev"],
+        "admin": ["housegains-admin-dev"]
+      }
+    },
+    "housegains-prod": {
+      "hosting": {
+        "site": ["housegains-prod"],
+        "admin": ["housegains-admin-prod"]
+      }
+    }
   }
 }
+

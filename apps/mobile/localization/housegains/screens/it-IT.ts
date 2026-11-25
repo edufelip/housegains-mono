@@ -173,6 +173,7 @@ const houseGainsScreensItIT: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Ogni settimana: {days}',
   'housegains.screens.common.role.creator': 'Creatore della casa',
   'housegains.screens.common.role.member': 'Membro',
+  'housegains.screens.common.role.admin': 'Admin della casa',
   'housegains.screens.tabs.today': 'Oggi',
   'housegains.screens.tabs.feed': 'Attività',
   'housegains.screens.tabs.add': 'Aggiungi faccenda',
@@ -393,6 +394,12 @@ const houseGainsScreensItIT: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.locale.it-IT': 'Italiano',
   'housegains.screens.dashboard.title.rookie': 'Principiante',
   'housegains.screens.dashboard.title.tidyTitan': 'Titano dell’ordine',
+  'housegains.screens.dashboard.title.helper': 'Aiutante',
+  'housegains.screens.dashboard.title.cleanMaster': 'Maestro delle pulizie',
+  'housegains.screens.dashboard.title.homeLegend': 'Leggenda di casa',
+  'housegains.screens.dashboard.title.houseGuardian': 'Guardiano della casa',
+  'housegains.screens.celebration.percentValue': '{percent}%',
+  'housegains.screens.celebration.percentWord': 'completata',
   'housegains.screens.invite.done': 'Fatto',
   'housegains.screens.chores.returnToChores': 'Torna alle faccende',
   'housegains.screens.common.loadErrorBody': 'Controlla la connessione e riprova.',
@@ -405,6 +412,70 @@ const houseGainsScreensItIT: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.readOnlyHousehold':
     'Solo chi ha creato la casa può modificarne il profilo.',
   'housegains.screens.builder.recurrence.every': 'Intervallo personalizzato',
+
+  'housegains.screens.common.confirm': 'Conferma',
+  'housegains.screens.members.makeAdmin': 'Rendi admin',
+  'housegains.screens.members.removeAdmin': 'Rimuovi admin',
+  'housegains.screens.members.makeAdminTitle': 'Rendere {name} admin?',
+  'housegains.screens.members.makeAdminBody':
+    'Gli admin esaminano le attività segnalate e possono segnarle come non fatte.',
+  'housegains.screens.members.removeAdminTitle': 'Rimuovere {name} come admin?',
+  'housegains.screens.members.removeAdminBody':
+    '{name} mantiene i punti e lo storico, ma non potrà più esaminare le segnalazioni.',
+  'housegains.screens.settings.reports': 'Attività segnalate',
+  'housegains.screens.reports.title': 'Attività segnalate',
+  'housegains.screens.reports.description': 'Esamina le attività segnalate dalla tua casa.',
+  'housegains.screens.reports.pendingCount': '{count} da esaminare',
+  'housegains.screens.reports.emptyTitle': 'Niente da esaminare',
+  'housegains.screens.reports.emptyBody': 'Quando qualcuno segnala un’attività, comparirà qui.',
+  'housegains.screens.reports.reportedBy': 'Segnalato da {names}',
+  'housegains.screens.reports.reasonLine': 'Motivo: {reason}',
+  'housegains.screens.reports.disputedSteps': 'Passi segnalati',
+  'housegains.screens.reports.verdict.done': 'Fatto',
+  'housegains.screens.reports.verdict.partial': 'Fatto in parte',
+  'housegains.screens.reports.verdict.not_done': 'Non fatto',
+  'housegains.screens.reports.confirmDoneTitle': 'Mantenere questa attività come fatta?',
+  'housegains.screens.reports.confirmDoneBody':
+    'I passi segnalati mantengono i loro XP e la segnalazione viene chiusa.',
+  'housegains.screens.reports.confirmNotDoneTitle': 'Segnare questa attività come non fatta?',
+  'housegains.screens.reports.confirmNotDoneBody':
+    'I passi segnalati perdono i loro XP e la segnalazione viene chiusa.',
+  'housegains.screens.moderation.pickTitle': 'Quali passi non sono stati fatti?',
+  'housegains.screens.moderation.pickHint':
+    'Seleziona almeno un passaggio e lasciane almeno uno fatto.',
+  'housegains.screens.moderation.stepBy': '{step} · da {member}',
+  'housegains.screens.moderation.submitting': 'Invio…',
+  'housegains.screens.choreDetail.underReview':
+    'In revisione · un admin sta controllando questa attività.',
+  'housegains.screens.choreDetail.reportNotDone': 'Segnala: non fatto',
+  'housegains.screens.choreDetail.reportSheetTitle': 'Segnala questa attività',
+  'housegains.screens.choreDetail.reportSheetBody':
+    'Scegli i passi che non sono stati fatti. Un admin esamina le segnalazioni entro 72 ore.',
+  'housegains.screens.choreDetail.reportReasonLabel': 'Motivo (facoltativo)',
+  'housegains.screens.choreDetail.reportReasonPlaceholder': 'Dì all’admin cosa è successo',
+  'housegains.screens.choreDetail.reportReasonCount': '{count}/280',
+  'housegains.screens.choreDetail.reportSubmit': 'Invia segnalazione',
+  'housegains.screens.choreDetail.reportSending': 'Invio…',
+  'housegains.screens.choreDetail.alreadyReported':
+    'Hai già segnalato questa attività. Un admin la esaminerà.',
+  'housegains.screens.choreDetail.reportSent': 'Grazie — un admin lo esaminerà.',
+  'housegains.screens.choreDetail.markNotDone': 'Segna come non fatto',
+  'housegains.screens.choreDetail.markPartial': 'Segna come fatto in parte',
+  'housegains.screens.choreDetail.conflictNote':
+    'Hai completato parte di questa attività, quindi un altro admin deve esaminarla.',
+  'housegains.screens.choreDetail.confirmNotDoneTitle': 'Segnare come non fatto?',
+  'housegains.screens.choreDetail.confirmNotDoneBody': 'Questi passi perdono XP: {steps}.',
+  'housegains.screens.choreDetail.reviewWindowClosed':
+    'Le attività completate possono essere esaminate entro 72 ore dalla registrazione.',
+  'housegains.screens.choreDetail.revocationsTitle': 'Revocato da un admin',
+  'housegains.screens.choreDetail.revocationNote':
+    '{actor} ha segnato “{subtask}” come {verdict} · −{xp} XP',
+  'housegains.screens.ranks.lastWeekTitle': 'Settimana scorsa',
+  'housegains.screens.ranks.topMemberTitle': 'Membro della settimana',
+  'housegains.screens.ranks.topMemberDetail': '{subtasks} passi completati · {xp} XP',
+  'housegains.screens.ranks.wallOfShameTitle': 'Muro della vergogna',
+  'housegains.screens.ranks.wallOfShameDetail': '{missed} di {assigned} attività mancate',
+  'housegains.screens.ranks.noWeekYet': 'Nessuna settimana è ancora stata chiusa.',
 };
 
 export default houseGainsScreensItIT;

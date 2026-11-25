@@ -7,6 +7,7 @@ import {
   isValidInviteCode,
   parseRecurrence,
 } from './household-rules';
+import type { XpLedgerEntry } from './types';
 
 function expect(actual: unknown) {
   return {
@@ -61,6 +62,49 @@ void test('XP week starts on Monday and streak counts net-positive member days',
 
   expect(deriveWeeklyTotals(entries, ['member-1'], mondayAtMidnight)).toEqual({ 'member-1': 7 });
   expect(deriveMemberStreak(entries, 'member-1', mondayAtMidnight)).toBe(2);
+});
+
+void test('moderation revoke rows reverse weekly totals and streak days exactly like undo rows', () => {
+  const entries: XpLedgerEntry[] = [
+    {
+      id: 'monday-credit',
+      instanceId: 'monday-instance',
+      memberId: 'member-1',
+      amount: 10,
+      source: 'subtask',
+      createdAt: new Date(2026, 0, 5, 10, 0).toISOString(),
+    },
+    {
+      id: 'monday-revoke',
+      instanceId: 'monday-instance',
+      subtaskId: 'wash',
+      memberId: 'member-1',
+      amount: -10,
+      source: 'revoke-subtask',
+      createdAt: new Date(2026, 0, 5, 11, 0).toISOString(),
+    },
+    {
+      id: 'tuesday-credit',
+      instanceId: 'tuesday-instance',
+      memberId: 'member-1',
+      amount: 8,
+      source: 'subtask',
+      createdAt: new Date(2026, 0, 6, 10, 0).toISOString(),
+    },
+    {
+      id: 'tuesday-revoke',
+      instanceId: 'tuesday-instance',
+      memberId: 'member-1',
+      amount: -3,
+      source: 'revoke-bonus',
+      createdAt: new Date(2026, 0, 6, 11, 0).toISOString(),
+    },
+  ];
+  const wednesday = new Date(2026, 0, 7, 12, 0);
+
+  // Monday nets 0, Tuesday nets 5: the revoke rows cancel exactly like undo rows.
+  expect(deriveWeeklyTotals(entries, ['member-1'], wednesday)).toEqual({ 'member-1': 5 });
+  expect(deriveMemberStreak(entries, 'member-1', wednesday)).toBe(1);
 });
 
 void test('recurrence parses canonical RRULE daily intervals and weekly weekdays', () => {

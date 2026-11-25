@@ -174,6 +174,7 @@ const houseGainsScreensDeDE: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.common.weeklyDays': 'Jede Woche: {days}',
   'housegains.screens.common.role.creator': 'Person, die den Haushalt erstellt hat',
   'housegains.screens.common.role.member': 'Mitglied',
+  'housegains.screens.common.role.admin': 'Haushalts-Admin',
   'housegains.screens.tabs.today': 'Heute',
   'housegains.screens.tabs.feed': 'Aktivität',
   'housegains.screens.tabs.add': 'Aufgabe hinzufügen',
@@ -394,6 +395,12 @@ const houseGainsScreensDeDE: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.locale.it-IT': 'Italienisch',
   'housegains.screens.dashboard.title.rookie': 'Anfänger',
   'housegains.screens.dashboard.title.tidyTitan': 'Ordnungs-Titan',
+  'housegains.screens.dashboard.title.helper': 'Helfer',
+  'housegains.screens.dashboard.title.cleanMaster': 'Putzmeister',
+  'housegains.screens.dashboard.title.homeLegend': 'Haushaltslegende',
+  'housegains.screens.dashboard.title.houseGuardian': 'Hüter des Hauses',
+  'housegains.screens.celebration.percentValue': '{percent} %',
+  'housegains.screens.celebration.percentWord': 'erledigt',
   'housegains.screens.invite.done': 'Fertig',
   'housegains.screens.chores.returnToChores': 'Zurück zu den Aufgaben',
   'housegains.screens.common.loadErrorBody': 'Überprüfe deine Verbindung und versuche es erneut.',
@@ -406,6 +413,69 @@ const houseGainsScreensDeDE: Record<keyof typeof houseGainsScreensEnUS, string> 
   'housegains.screens.settings.readOnlyHousehold':
     'Nur die Person, die den Haushalt erstellt hat, kann dieses Profil bearbeiten.',
   'housegains.screens.builder.recurrence.every': 'Benutzerdefiniertes Intervall',
+
+  'housegains.screens.common.confirm': 'Bestätigen',
+  'housegains.screens.members.makeAdmin': 'Zum Admin machen',
+  'housegains.screens.members.removeAdmin': 'Admin-Rolle entfernen',
+  'housegains.screens.members.makeAdminTitle': '{name} zum Admin machen?',
+  'housegains.screens.members.makeAdminBody':
+    'Admins prüfen gemeldete Aufgaben und können sie als nicht erledigt markieren.',
+  'housegains.screens.members.removeAdminTitle': '{name} als Admin entfernen?',
+  'housegains.screens.members.removeAdminBody':
+    '{name} behält Punkte und Verlauf, kann aber keine Meldungen mehr prüfen.',
+  'housegains.screens.settings.reports': 'Gemeldete Aufgaben',
+  'housegains.screens.reports.title': 'Gemeldete Aufgaben',
+  'housegains.screens.reports.description': 'Prüfe die Aufgaben, die dein Haushalt gemeldet hat.',
+  'housegains.screens.reports.pendingCount': '{count} zu prüfen',
+  'housegains.screens.reports.emptyTitle': 'Nichts zu prüfen',
+  'housegains.screens.reports.emptyBody': 'Wenn jemand eine Aufgabe meldet, erscheint sie hier.',
+  'housegains.screens.reports.reportedBy': 'Gemeldet von {names}',
+  'housegains.screens.reports.reasonLine': 'Grund: {reason}',
+  'housegains.screens.reports.disputedSteps': 'Gemeldete Schritte',
+  'housegains.screens.reports.verdict.done': 'Erledigt',
+  'housegains.screens.reports.verdict.partial': 'Teilweise erledigt',
+  'housegains.screens.reports.verdict.not_done': 'Nicht erledigt',
+  'housegains.screens.reports.confirmDoneTitle': 'Diese Aufgabe als erledigt behalten?',
+  'housegains.screens.reports.confirmDoneBody':
+    'Die gemeldeten Schritte behalten ihre XP und die Meldung wird geschlossen.',
+  'housegains.screens.reports.confirmNotDoneTitle': 'Diese Aufgabe als nicht erledigt markieren?',
+  'housegains.screens.reports.confirmNotDoneBody':
+    'Die gemeldeten Schritte verlieren ihre XP und die Meldung wird geschlossen.',
+  'housegains.screens.moderation.pickTitle': 'Welche Schritte wurden nicht erledigt?',
+  'housegains.screens.moderation.pickHint':
+    'Wähle mindestens einen Schritt und lasse mindestens einen erledigt.',
+  'housegains.screens.moderation.stepBy': '{step} · von {member}',
+  'housegains.screens.moderation.submitting': 'Wird gesendet…',
+  'housegains.screens.choreDetail.underReview': 'Wird geprüft · ein Admin prüft diese Aufgabe.',
+  'housegains.screens.choreDetail.reportNotDone': 'Melden: nicht erledigt',
+  'housegains.screens.choreDetail.reportSheetTitle': 'Diese Aufgabe melden',
+  'housegains.screens.choreDetail.reportSheetBody':
+    'Wähle die Schritte, die nicht erledigt wurden. Ein Admin prüft Meldungen innerhalb von 72 Stunden.',
+  'housegains.screens.choreDetail.reportReasonLabel': 'Grund (optional)',
+  'housegains.screens.choreDetail.reportReasonPlaceholder': 'Sag dem Admin, was passiert ist',
+  'housegains.screens.choreDetail.reportReasonCount': '{count}/280',
+  'housegains.screens.choreDetail.reportSubmit': 'Meldung senden',
+  'housegains.screens.choreDetail.reportSending': 'Wird gesendet…',
+  'housegains.screens.choreDetail.alreadyReported':
+    'Du hast diese Aufgabe bereits gemeldet. Ein Admin prüft sie.',
+  'housegains.screens.choreDetail.reportSent': 'Danke — ein Admin prüft die Meldung.',
+  'housegains.screens.choreDetail.markNotDone': 'Als nicht erledigt markieren',
+  'housegains.screens.choreDetail.markPartial': 'Als teilweise erledigt markieren',
+  'housegains.screens.choreDetail.conflictNote':
+    'Du hast einen Teil dieser Aufgabe erledigt, daher muss ein anderer Admin sie prüfen.',
+  'housegains.screens.choreDetail.confirmNotDoneTitle': 'Als nicht erledigt markieren?',
+  'housegains.screens.choreDetail.confirmNotDoneBody': 'Diese Schritte verlieren XP: {steps}.',
+  'housegains.screens.choreDetail.reviewWindowClosed':
+    'Erledigte Aufgaben können bis zu 72 Stunden nach der Eintragung geprüft werden.',
+  'housegains.screens.choreDetail.revocationsTitle': 'Von einem Admin zurückgenommen',
+  'housegains.screens.choreDetail.revocationNote':
+    '{actor} hat „{subtask}“ als {verdict} markiert · −{xp} XP',
+  'housegains.screens.ranks.lastWeekTitle': 'Letzte Woche',
+  'housegains.screens.ranks.topMemberTitle': 'Mitglied der Woche',
+  'housegains.screens.ranks.topMemberDetail': '{subtasks} Schritte erledigt · {xp} XP',
+  'housegains.screens.ranks.wallOfShameTitle': 'Wand der Schande',
+  'housegains.screens.ranks.wallOfShameDetail': '{missed} von {assigned} Aufgaben verpasst',
+  'housegains.screens.ranks.noWeekYet': 'Es wurde noch keine Woche abgeschlossen.',
 };
 
 export default houseGainsScreensDeDE;

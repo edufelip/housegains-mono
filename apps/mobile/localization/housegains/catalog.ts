@@ -16,6 +16,14 @@ import { deDE } from './de-DE';
 import { enUS } from './en-US';
 import { esES } from './es-ES';
 import { frFR } from './fr-FR';
+import {
+  gamificationDeDE,
+  gamificationEnUS,
+  gamificationEsES,
+  gamificationFrFR,
+  gamificationItIT,
+  gamificationPtBR,
+} from './gamification';
 import { itIT } from './it-IT';
 import { ptBR } from './pt-BR';
 import type { SupportedLocale } from '@/localization/core';
@@ -24,12 +32,12 @@ export type HouseGainsLocale = SupportedLocale;
 export type HouseGainsTranslationDictionary = Record<string, string>;
 
 export const HOUSEGAINS_DICTIONARIES: Record<HouseGainsLocale, HouseGainsTranslationDictionary> = {
-  'en-US': { ...enUS, ...authEnUS, ...accountEnUS },
-  'pt-BR': { ...ptBR, ...authPtBR, ...accountPtBR },
-  'es-ES': { ...esES, ...authEsES, ...accountEsES },
-  'fr-FR': { ...frFR, ...authFrFR, ...accountFrFR },
-  'de-DE': { ...deDE, ...authDeDE, ...accountDeDE },
-  'it-IT': { ...itIT, ...authItIT, ...accountItIT },
+  'en-US': { ...enUS, ...authEnUS, ...accountEnUS, ...gamificationEnUS },
+  'pt-BR': { ...ptBR, ...authPtBR, ...accountPtBR, ...gamificationPtBR },
+  'es-ES': { ...esES, ...authEsES, ...accountEsES, ...gamificationEsES },
+  'fr-FR': { ...frFR, ...authFrFR, ...accountFrFR, ...gamificationFrFR },
+  'de-DE': { ...deDE, ...authDeDE, ...accountDeDE, ...gamificationDeDE },
+  'it-IT': { ...itIT, ...authItIT, ...accountItIT, ...gamificationItIT },
 };
 
 function humanizeKey(key: string): string {

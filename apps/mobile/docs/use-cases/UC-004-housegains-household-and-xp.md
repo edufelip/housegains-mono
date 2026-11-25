@@ -53,10 +53,65 @@
 - **Alternate flows:** If the instance closes before all subtasks finish, status is partial, earned XP remains, and no bonus is paid. A member may undo only their own completion within five minutes; this reverses ledger effects, including any instance bonus, and reopens the instance as appropriate.
 - **Postconditions:** XP, attribution, instance status, and feed entries are derived from the same instance ledger.
 
+## UC-004.5 Report a completion and review it as an admin
+
+- **Primary actors:** Household member (reporter); household admin (reviewer)
+- **Trigger:** A member sees a completion by someone else that was not actually done; an admin opens the reports screen or a disputed chore detail.
+- **Preconditions:** The completion is younger than 72 hours, the instance has completions, and no resolved or expired dispute covers it. The reporter has no admin rights and has not reported this instance before.
+- **Main flow:**
+  1. Member opens the chore detail and chooses "Report: not done"; the disputed steps (completed by others, inside the window) come preselected and the member may adjust the selection and add an optional reason (0–280 characters).
+  2. The report opens a dispute; the chore detail shows an "Under review" state, and admins get a notification.
+  3. An admin opens the reports screen, sees the chore, reporter names, reasons, and disputed steps with completers, and picks a verdict: Done, Partially done (a strict subset of steps to revoke), or Not done.
+  4. Revoked steps lose their XP, appear on the chore detail as revocations naming the acting admin and the verdict, and the dispute closes.
+- **Alternate flows:** An admin who completed a disputed step (and is not the only admin) sees a conflict note instead of verdict actions on the Reports screen; another admin reviews. On the chore detail the same admin has no "Mark as not done" (it would revoke their own step) but can still give a partial verdict on other members' steps; the partial action only appears when the picker (in-window steps they may select) has something to split. Reports past the 72-hour window, on resolved or expired disputes, or duplicate reports by the same member are refused with the reason. A failed submission keeps the sheet open, shows the localized failure, and allows retry.
+- **Postconditions:** The dispute status, verdict, and revocations come from the backend; the client never writes moderation paths directly.
+
+## UC-004.6 Manage admin roles and view last week's standings
+
+- **Primary actors:** Household creator; household member
+- **Trigger:** The creator opens Settings → members, or any member opens Ranks after a week closes.
+- **Main flow:**
+  1. Creator makes a member an admin or removes the role with a confirmation; the member list reflects the new role label immediately.
+  2. Ranks shows the latest closed week: the top member of the week and the wall of shame with the recorded counts.
+- **Alternate flows:** A role change or standings load fails; the failure is shown with retry and no success is implied.
+- **Postconditions:** Roles and week snapshots stay server-owned; the client only renders what the backend recorded.
+
+## UC-004.7 Earn Ganhos and celebrate
+
+- **Primary actors:** Household member (also the creator, for Care)
+- **Preconditions:** The program is visible (flag on and live cohort, BR-413 rule 22).
+- **Trigger:** The member completes a step, finishes a chore, shares a completion, or opens the app after a week closed.
+- **Main flow:**
+  1. The callable response (or the inbox) delivers celebrations; the app dedupes them by id.
+  2. A toast shows the amount counting up; a level-up or streak milestone shows its moment; a silver or gold badge shows the full-screen unlock (once per session).
+  3. When the same action finished the chore, a badge shows inside the S3 screen instead.
+  4. Inbox rows are acknowledged once shown (failed acknowledgements are retried with a backoff). A level celebration at or below the member's level floor is acknowledged without being shown.
+- **Alternate flows:** Reduced motion shows the final numbers without particles or spin. Later full-screen badges and bronze badges are toasts. Control/shadow households and the flag-off app see nothing.
+- **Postconditions:** Balances, levels, streaks and badges are server-owned; the client only renders them.
+
+## UC-004.8 Review the wallet and the weekly streak, and set Away mode
+
+- **Primary actor:** Household member
+- **Trigger:** The member taps the Ganhos chip on Today.
+- **Main flow:**
+  1. The wallet shows the private balance (counting up from the last seen value), pending balance and the date it becomes available, lifetime total, level ring, achievements and recent activity.
+  2. The member opens the weekly streak: week cells, counter, rest passes and milestones.
+  3. The member picks Mondays for Away mode and saves; the app confirms.
+- **Alternate flows:** Loading, an error with retry, and an empty state before the first earn. A broken streak shows the calm message with the record. A pick that is not a future Monday or exceeds three weeks in the calendar year is refused with a localized message, before or after the call.
+- **Postconditions:** Away weeks are stored on the wallet by the backend; the streak waits and reminders stay quiet.
+
+## UC-004.9 See the household organizer
+
+- **Primary actor:** Any household member
+- **Trigger:** The member opens Ranks.
+- **Main flow:** The organizer card shows the creator's Care, organizer title, "Casa em dia" streak, the recent on-time rate and organizer achievements.
+- **Alternate flows:** Loading, an error with retry, and the not-yet-earned state (zero Care and a start message).
+- **Postconditions:** Read-only; the creator's Zelo is never a spendable balance.
+
 ## References
 
 - [Screen specification](../screens/housegains-v1.md)
 - [FR-275](../functional-requirements/FR-275-housegains-v1.md)
 - [BR-413](../business-rules/BR-413-housegains-domain.md)
-- [AC-618–AC-630](../acceptance-criteria/AC-007-housegains-v1.md)
-- [TC-535–TC-549](../test-cases/TC-535-housegains-v1.md)
+- [AC-618–AC-646](../acceptance-criteria/AC-007-housegains-v1.md)
+- [TC-535–TC-568](../test-cases/TC-535-housegains-v1.md)

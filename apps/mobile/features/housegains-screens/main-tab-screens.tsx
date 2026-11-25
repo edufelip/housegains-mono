@@ -11,7 +11,14 @@ import { HouseholdPeopleSection } from './household-safety';
 import { MemberBadge, ScreenTitle } from './screen-elements';
 import { deriveScoreSnapshot, resolveInstanceChore, choreDisplayName } from './screen-model';
 import type { AppTab } from './screen-types';
-import type { Chore, FeedPost, Household, Instance, Member } from '@/features/household';
+import type {
+  Chore,
+  FeedPost,
+  Household,
+  Instance,
+  Member,
+  WeekStandings,
+} from '@/features/household';
 
 function MainTabShell({
   active,
@@ -139,12 +146,18 @@ export function HouseholdRanksScreen({
   members,
   weeklyTotals,
   currentMember,
+  lastWeek,
+  organizerCard,
   onNavigate,
 }: {
   household: Household;
   members: Member[];
   weeklyTotals: Record<string, number>;
   currentMember: Member;
+  /** Latest closed week snapshot (contract Part B), or null before any week has closed. */
+  lastWeek: WeekStandings | null;
+  /** The household organizer card; only passed while gamification is visible. */
+  organizerCard?: ReactNode;
   onNavigate(tab: AppTab): void;
 }) {
   const { tokens } = useAppearance();
@@ -154,6 +167,11 @@ export function HouseholdRanksScreen({
     (left, right) => (weeklyTotals[right.id] ?? 0) - (weeklyTotals[left.id] ?? 0),
   );
   const hasPoints = sorted.some((member) => (weeklyTotals[member.id] ?? 0) > 0);
+  // Closed-week titles keep their member ids; tombstoned members still resolve by name.
+  const weekMemberName = (memberId: string): string =>
+    members.find((member) => member.id === memberId)?.name ??
+    (household.formerMembers ?? []).find((member) => member.id === memberId)?.name ??
+    t('housegains.screens.feed.memberUnavailable');
   return (
     <MainTabShell active="ranks" onNavigate={onNavigate}>
       <View>
@@ -163,12 +181,74 @@ export function HouseholdRanksScreen({
           description={t('housegains.screens.ranks.description')}
         />
       </View>
+      {organizerCard}
       {!hasPoints ? (
         <Card style={{ gap: 7 }}>
           <Label variant="heading">{t('housegains.screens.ranks.emptyTitle')}</Label>
           <Label>{t('housegains.screens.ranks.emptyBody')}</Label>
         </Card>
       ) : null}
+      <Card style={{ gap: 12 }} testID="housegains.ranks.lastWeek">
+        <Label variant="heading">{t('housegains.screens.ranks.lastWeekTitle')}</Label>
+        {lastWeek === null ? (
+          <Label variant="caption" testID="housegains.ranks.lastWeek.empty">
+            {t('housegains.screens.ranks.noWeekYet')}
+          </Label>
+        ) : (
+          <>
+            {lastWeek.topMember ? (
+              <View
+                style={{ alignItems: 'center', flexDirection: 'row', gap: 12 }}
+                testID="housegains.ranks.lastWeek.top"
+              >
+                <Ionicons
+                  accessibilityElementsHidden
+                  color={tokens.accent}
+                  name="trophy-outline"
+                  size={tokens.iconSize.lg}
+                />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Label variant="caption">{t('housegains.screens.ranks.topMemberTitle')}</Label>
+                  <Label style={{ fontWeight: '800' }} testID="housegains.ranks.lastWeek.topName">
+                    {weekMemberName(lastWeek.topMember.memberId)}
+                  </Label>
+                  <Label variant="caption">
+                    {t('housegains.screens.ranks.topMemberDetail', {
+                      subtasks: lastWeek.topMember.subtasks,
+                      xp: lastWeek.topMember.xp,
+                    })}
+                  </Label>
+                </View>
+              </View>
+            ) : null}
+            {lastWeek.wallOfShame ? (
+              <View
+                style={{ alignItems: 'center', flexDirection: 'row', gap: 12 }}
+                testID="housegains.ranks.lastWeek.shame"
+              >
+                <Ionicons
+                  accessibilityElementsHidden
+                  color={tokens.danger}
+                  name="alert-circle-outline"
+                  size={tokens.iconSize.lg}
+                />
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Label variant="caption">{t('housegains.screens.ranks.wallOfShameTitle')}</Label>
+                  <Label style={{ fontWeight: '800' }} testID="housegains.ranks.lastWeek.shameName">
+                    {weekMemberName(lastWeek.wallOfShame.memberId)}
+                  </Label>
+                  <Label variant="caption">
+                    {t('housegains.screens.ranks.wallOfShameDetail', {
+                      missed: lastWeek.wallOfShame.missed,
+                      assigned: lastWeek.wallOfShame.assignedDue,
+                    })}
+                  </Label>
+                </View>
+              </View>
+            ) : null}
+          </>
+        )}
+      </Card>
       {sorted.map((member) => {
         const points = weeklyTotals[member.id] ?? 0;
         const rank = members.filter((item) => (weeklyTotals[item.id] ?? 0) > points).length + 1;
@@ -234,24 +314,32 @@ export function HouseholdRanksScreen({
 export function HouseGainsSettingsScreen({
   household,
   currentMember,
+  openDisputeCount,
   onNavigate,
   onOpenChores,
+  onOpenReports,
   onEditHousehold,
   onOpenInvite,
   onSelectTheme,
   onDeleteAccount,
+  onSetMemberRole,
   onLeftHousehold,
   hasError,
   onError,
 }: {
   household: Household;
   currentMember: Member;
+  /** Open disputes waiting for an admin verdict (contract A2). */
+  openDisputeCount: number;
   onNavigate(tab: AppTab): void;
   onOpenChores(): void;
+  onOpenReports(): void;
   onEditHousehold(): void;
   onOpenInvite(): void;
   onSelectTheme(themeId: StyleId): Promise<void>;
   onDeleteAccount(): void;
+  /** Creator-only role management, passed to the people section (contract A1). */
+  onSetMemberRole(memberId: string, role: 'admin' | 'member'): Promise<void>;
   onLeftHousehold(): void;
   hasError: boolean;
   onError: (hasError: boolean) => void;
@@ -260,6 +348,7 @@ export function HouseGainsSettingsScreen({
   const { t, locale } = useHouseGainsTranslation();
   const [themeBusy, setThemeBusy] = useState(false);
   const isCreator = currentMember.role === 'creator';
+  const isAdmin = currentMember.role === 'creator' || currentMember.role === 'admin';
 
   const selectTheme = async (id: StyleId) => {
     if (themeBusy || (id === savedTheme && !saveError)) return;
@@ -328,6 +417,25 @@ export function HouseGainsSettingsScreen({
           )}
           variant="secondary"
         />
+        {isAdmin ? (
+          <View style={{ alignItems: 'center', flexDirection: 'row', gap: 8 }}>
+            <Button
+              onPress={onOpenReports}
+              style={{ flex: 1 }}
+              testID="housegains.settings.reports"
+              title={t('housegains.screens.settings.reports')}
+              variant="secondary"
+            />
+            {openDisputeCount > 0 ? (
+              <Label
+                style={{ color: tokens.danger, fontWeight: '800' }}
+                testID="housegains.settings.reports.count"
+              >
+                {t('housegains.screens.reports.pendingCount', { count: openDisputeCount })}
+              </Label>
+            ) : null}
+          </View>
+        ) : null}
       </Card>
 
       <Card style={{ gap: 12 }}>
@@ -396,6 +504,7 @@ export function HouseGainsSettingsScreen({
         currentMember={currentMember}
         household={household}
         onLeft={onLeftHousehold}
+        onSetMemberRole={onSetMemberRole}
       />
       <ReminderSection />
       <AccountSection onDeleteAccount={onDeleteAccount} />

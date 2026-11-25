@@ -62,6 +62,14 @@ const authItIT: Record<string, string> = {
   'housegains.auth.sync.notFound': 'Questo elemento non esiste più.',
   'housegains.auth.sync.offline':
     'Sei offline. La modifica non è stata salvata. Riprova quando ti riconnetti.',
+  'housegains.auth.sync.alreadyReported': 'Hai già segnalato questa attività.',
+  'housegains.auth.sync.alreadyReviewed': 'Un admin ha già esaminato questa attività.',
+  'housegains.auth.sync.reviewWindowClosed':
+    'Le 72 ore per esaminare questa attività sono scadute.',
+  'housegains.auth.sync.conflictOfInterest':
+    'Hai completato parte di questa attività, quindi un altro admin deve esaminarla.',
+  'housegains.auth.sync.nothingToReport':
+    'Non ci sono attività completate da altri membri da segnalare.',
 };
 
 export default authItIT;

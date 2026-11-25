@@ -117,7 +117,10 @@ async function renderSettings({
         onNavigate={jest.fn()}
         onOpenChores={jest.fn()}
         onOpenInvite={jest.fn()}
+        onOpenReports={jest.fn()}
         onSelectTheme={jest.fn(async () => undefined)}
+        onSetMemberRole={jest.fn(async () => undefined)}
+        openDisputeCount={0}
       />
     </Providers>,
   );

@@ -3,6 +3,7 @@ import {
   generateChoreInstances,
   instanceIdFor,
   isEditableFuture,
+  isFutureReviewRecord,
   refreshedFields,
   type ChoreRecord,
   type InstanceRecord,
@@ -86,6 +87,22 @@ describe('editable future instances', () => {
     expect(isEditableFuture({ ...future, completions: [{} as never] }, now)).toBe(false);
     expect(isEditableFuture({ ...future, status: 'partial' }, now)).toBe(false);
     expect(isEditableFuture(future, new Date('2026-01-10T00:00:00.000Z'))).toBe(false);
+    // Review records are never rewritten: a dispute or a revocation pins the instance (B2).
+    expect(isEditableFuture({ ...future, disputeStatus: 'open' }, now)).toBe(false);
+    expect(isEditableFuture({ ...future, disputeStatus: 'expired' }, now)).toBe(false);
+    expect(isEditableFuture({ ...future, revocations: [{}] }, now)).toBe(false);
+    expect(isEditableFuture({ ...future, revocations: [] }, now)).toBe(true);
+  });
+
+  it('a review record is a future open instance with a revocation or dispute and nothing earned', () => {
+    expect(isFutureReviewRecord(future, now)).toBe(false);
+    expect(isFutureReviewRecord({ ...future, revocations: [{}] }, now)).toBe(true);
+    expect(isFutureReviewRecord({ ...future, disputeStatus: 'open' }, now)).toBe(true);
+    expect(isFutureReviewRecord({ ...future, revocations: [] }, now)).toBe(false);
+    // Started work, a closed instance or a past due time is never retired.
+    expect(isFutureReviewRecord({ ...future, revocations: [{}], completions: [{} as never] }, now)).toBe(false);
+    expect(isFutureReviewRecord({ ...future, revocations: [{}], status: 'partial' }, now)).toBe(false);
+    expect(isFutureReviewRecord({ ...future, revocations: [{}] }, new Date('2026-01-10T00:00:00.000Z'))).toBe(false);
   });
 
   it('moves the due time to the new local due time on the same date', () => {

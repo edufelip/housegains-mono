@@ -102,6 +102,35 @@ Renders a stored chore emoji as an Ionicon. `size` defaults to 22. Color default
 | `ArcadeDashboard`, `StickerDashboard`, `SoftDashboard` | `components/housegains/variants/` | Per-theme dashboard compositions over shared `DashboardProps` |
 | `ReportSheet` | `features/housegains-screens/household-safety.tsx` | Modal sheet using the `scrim` token; the model for new sheets |
 
+## Motion and gamification components
+
+Built for the Ganhos & Zelo program (see [motion-and-haptics.md](motion-and-haptics.md)). They read tokens only, expose no color props, and every animation goes through `components/housegains/gamification/motion.ts` (`timed`, `springed`, `useCountUp`), which passes `reduceMotion: ReduceMotion.System`, plus `useMotionReduced()` for the static layout.
+
+### `GanhosToast` *(components/housegains/gamification/ganhos-toast.tsx)*
+An earned toast.
+
+| Prop | Notes |
+|---|---|
+| `title`, `detail` | Text from localization keys; `detail` is the breakdown or badge detail |
+| `amount`, `formatAmount` | Final amount; the visible number counts up (500 ms) while text and `accessibilityLabel` carry the final value |
+| `announcement` | The same copy, announced with `AccessibilityInfo.announceForAccessibility` |
+| `dismissLabel`, `onDismiss` | Tap dismisses; it also dismisses itself after 2.4 s (3 s with reduced motion) |
+| `icon` | An Ionicons name |
+
+Slides down with a spring (damping 18), radial particle burst (12 particles, 700 ms). The full-screen wrapper is `pointerEvents="box-none"`, so the list underneath stays interactive. Reduced motion: opacity fade, final number, no particles. Themes: surface, border, radius and shadow tokens.
+
+### `AchievementMedal` *(achievement-medal.tsx)*
+An icon in a disc with a tier ring and 1 to 3 pips (bronze 1, silver 2, gold 3), so the tier is never color alone. `tier` undefined draws the locked medal; `paused` dims an active badge that lapsed; `animate` runs the unlock (scale from 0.4 with one turn in 600 ms, ring draws in 500 ms). Tier colors: bronze `accent`, silver `muted`, gold `primary`. Decorative: callers always render the name and tier as text.
+
+### `ProgressRing` *(progress-ring.tsx)*
+An SVG ring: `size`, `strokeWidth`, `color`, `trackColor` (tokens), `fraction` with `durationMs` for a sweep, or an external `progress` shared value (the level-up sequence). The value is always also in text next to it.
+
+### `ParticleBurst` *(particles.tsx)*
+Decorative particles (`radial` for toasts, `fall` for the unlock confetti), deterministic, hidden from screen readers, not rendered with reduced motion.
+
+### Feature screens and cards *(features/gamification/)*
+`AchievementUnlockScreen` (full screen), `LevelUpMoment`, `CelebrationHost` (renders the active celebration from the queue; renders nothing when the program is not visible), `CompletionBadges` (section inside S3), `WalletScreen`, `WeeklyStreakScreen`, `OrganizerCard`, `GanhosChip`. They compose `Screen`, `Card`, `Label`, `Button` and `StatePanel`; loading, error-with-retry and empty states use `StatePanel`.
+
 ## Adding a component
 
 1. Check this catalog and `screen-elements.tsx`. If something similar exists, extend it.

@@ -70,3 +70,29 @@ jobs:
       - name: Emulator tests
         working-directory: apps/firebase
         run: npx -y firebase-tools@14 emulators:exec --only auth,firestore,functions --project demo-housegains "cd functions && npm run test:emulator"
+
+  admin:
+    name: Admin checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        working-directory: .
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Unit tests
+        run: bun run test
+
+      - name: Build
+        run: bun run build

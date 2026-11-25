@@ -11,19 +11,23 @@ import {
 } from '@/features/account/account-rules';
 import { useAppearance } from '@/features/appearance';
 import { useHouseGainsTranslation } from '@/localization/housegains';
+import { ConfirmSheet, type ConfirmRequest } from './moderation-screens';
 import { MemberBadge } from './screen-elements';
 import type { Household, Member } from '@/features/household';
 
 type ReportTarget = { kind: ReportKind; targetId: string };
 
-/** Member list with Remove (creator only), Report, and Leave household. */
+/** Member list with role management (creator only), Remove (creator only), Report, and Leave. */
 export function HouseholdPeopleSection({
   household,
   currentMember,
+  onSetMemberRole,
   onLeft,
 }: {
   household: Household;
   currentMember: Member;
+  /** Creator-only role management (contract A1). */
+  onSetMemberRole(memberId: string, role: 'admin' | 'member'): Promise<void>;
   onLeft(): void;
 }) {
   const { tokens } = useAppearance();
@@ -31,6 +35,9 @@ export function HouseholdPeopleSection({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<ReportTarget | null>(null);
+  const [roleChange, setRoleChange] = useState<{ member: Member; role: 'admin' | 'member' } | null>(
+    null,
+  );
   const isCreator = currentMember.role === 'creator';
   const isLastMember = household.members.length <= 1;
 
@@ -46,6 +53,35 @@ export function HouseholdPeopleSection({
       setBusy(false);
     }
   };
+
+  const confirmRoleChange = async () => {
+    if (!roleChange) return;
+    await onSetMemberRole(roleChange.member.id, roleChange.role);
+    setRoleChange(null);
+  };
+
+  const roleChangeRequest: ConfirmRequest = roleChange
+    ? {
+        title: t(
+          roleChange.role === 'admin'
+            ? 'housegains.screens.members.makeAdminTitle'
+            : 'housegains.screens.members.removeAdminTitle',
+          { name: roleChange.member.name },
+        ),
+        body: t(
+          roleChange.role === 'admin'
+            ? 'housegains.screens.members.makeAdminBody'
+            : 'housegains.screens.members.removeAdminBody',
+          { name: roleChange.member.name },
+        ),
+        confirmTitle: t(
+          roleChange.role === 'admin'
+            ? 'housegains.screens.members.makeAdmin'
+            : 'housegains.screens.members.removeAdmin',
+        ),
+        onConfirm: confirmRoleChange,
+      }
+    : null;
 
   const confirmRemove = (member: Member) =>
     Alert.alert(
@@ -104,6 +140,24 @@ export function HouseholdPeopleSection({
             {isCreator && !isSelf ? (
               <Button
                 disabled={busy}
+                onPress={() =>
+                  setRoleChange({
+                    member,
+                    role: member.role === 'admin' ? 'member' : 'admin',
+                  })
+                }
+                testID={`housegains.members.setRole.${member.id}`}
+                title={t(
+                  member.role === 'admin'
+                    ? 'housegains.screens.members.removeAdmin'
+                    : 'housegains.screens.members.makeAdmin',
+                )}
+                variant="ghost"
+              />
+            ) : null}
+            {isCreator && !isSelf ? (
+              <Button
+                disabled={busy}
                 onPress={() => confirmRemove(member)}
                 testID={`housegains.members.remove.${member.id}`}
                 title={t('housegains.account.members.remove')}
@@ -142,6 +196,11 @@ export function HouseholdPeopleSection({
         variant="outline"
       />
       <ReportSheet householdId={household.id} onClose={() => setReport(null)} target={report} />
+      <ConfirmSheet
+        onClose={() => setRoleChange(null)}
+        request={roleChangeRequest}
+        testID="housegains.members.roleSheet"
+      />
     </Card>
   );
 }

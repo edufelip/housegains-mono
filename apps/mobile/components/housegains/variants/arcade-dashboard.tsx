@@ -25,11 +25,11 @@ export function ArcadeDock({
   const { tokens } = useAppearance();
   const { t, locale } = useHouseGainsTranslation();
   const tabs: { id: AppTab; icon: ComponentProps<typeof Ionicons>['name']; key: string }[] = [
-    { id: 'today', icon: 'home-outline', key: 'todayTab' },
-    { id: 'feed', icon: 'images-outline', key: 'feedTab' },
-    { id: 'add', icon: 'add', key: 'addTab' },
-    { id: 'ranks', icon: 'trophy-outline', key: 'ranksTab' },
-    { id: 'me', icon: 'person-outline', key: 'meTab' },
+    { id: 'today', icon: 'home-outline', key: 'today' },
+    { id: 'feed', icon: 'images-outline', key: 'feed' },
+    { id: 'add', icon: 'add', key: 'add' },
+    { id: 'ranks', icon: 'trophy-outline', key: 'ranks' },
+    { id: 'me', icon: 'person-outline', key: 'me' },
   ];
   return (
     <View
@@ -95,7 +95,7 @@ export function ArcadeDashboard(props: DashboardProps) {
     props.weeklyTotals,
     props.currentMember.id,
   );
-  const progression = deriveProgression(props.totalXp);
+  const progression = deriveProgression(props.totalXp, props.currentMember);
   const weeklyGoal = deriveWeeklyGoal(summary.weeklyPoints, props.weeklyGoalXp);
   const completionRatio = weeklyGoal.ratio;
   const completedToday = summary.orderedInstances.reduce(
@@ -157,6 +157,8 @@ export function ArcadeDashboard(props: DashboardProps) {
             </Label>
           </View>
         </View>
+
+        {props.ganhosChip}
 
         <Card
           style={{ backgroundColor: tokens.surface, borderColor: '#303740', gap: 10, padding: 18 }}

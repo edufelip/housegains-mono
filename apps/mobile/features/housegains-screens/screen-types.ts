@@ -1,5 +1,6 @@
 import type { ThemeId } from '@/features/appearance';
 import type { Chore, Household, Instance, Member } from '@/features/household';
+import type { ReactNode } from 'react';
 
 export type AppTab = 'today' | 'feed' | 'add' | 'ranks' | 'me';
 
@@ -13,7 +14,10 @@ export type HouseGainsScreen =
   | { name: 'today' }
   | { name: 'feed' }
   | { name: 'ranks' }
+  | { name: 'wallet' }
+  | { name: 'streak' }
   | { name: 'settings' }
+  | { name: 'reports' }
   | { name: 'household-edit' }
   | { name: 'delete-account' }
   | { name: 'chore-list'; returnTo: 'today' | 'settings' }
@@ -46,4 +50,6 @@ export interface DashboardProps {
   streak: number;
   onOpenInstance(instanceId: string): void;
   onNavigate(tab: AppTab): void;
+  /** The Ganhos wallet chip; only passed while gamification is visible, so nothing else changes. */
+  ganhosChip?: ReactNode;
 }

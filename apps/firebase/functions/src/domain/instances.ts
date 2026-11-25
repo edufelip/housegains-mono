@@ -32,6 +32,12 @@ export interface ChoreRecord extends ChoreFields {
   id: string;
   recurrenceAnchor: string;
   generatedThrough: string;
+  /** Server-set metadata (gamification contract Part C): engine inputs, not client input. */
+  createdAt?: Date | null;
+  updatedAt?: Date | null;
+  createdBy?: string | null;
+  /** Set when a save raised XP; cleared by the next non-raising save (C9 alert input). */
+  xpRaisedAt?: Date | null;
 }
 
 export interface ChoreSnapshot {
@@ -53,6 +59,16 @@ export interface Completion {
   isAssist: boolean;
 }
 
+/** A moderation reversal, appended when a completion is revoked (contract A3). */
+export interface Revocation {
+  subtaskId: string;
+  memberId: string;
+  xp: number;
+  actorUid: string;
+  verdict: 'partial' | 'not_done';
+  at: Date;
+}
+
 export interface InstanceRecord {
   id: string;
   choreId: string;
@@ -65,6 +81,14 @@ export interface InstanceRecord {
   bonusAwards: Record<string, number>;
   choreSnapshot: ChoreSnapshot;
   reminderSentAt?: Date;
+  revocations?: Revocation[];
+  disputeStatus?: 'open' | 'resolved' | 'expired';
+  /**
+   * Set when the instance is a review record (it carries a dispute or revocations) whose chore
+   * was deleted or paused while the instance sat open in the future. The record stays, but the
+   * instance is out of play: no reminders, no completions, never counted as assigned or missed.
+   */
+  retiredAt?: Date;
 }
 
 export function instanceIdFor(choreId: string, dateKey: string): string {
@@ -122,9 +146,53 @@ export function generateChoreInstances(
   return { instances, generatedThrough };
 }
 
-/** Future, untouched instances: the only ones a chore edit may rewrite or remove. */
-export function isEditableFuture(instance: { status: string; completions: unknown[]; dueAt: Date }, now: Date): boolean {
-  return instance.status === 'open' && instance.completions.length === 0 && instance.dueAt.getTime() > now.getTime();
+/**
+ * Future, untouched instances: the only ones a chore edit may rewrite or remove. An instance
+ * that carries a dispute or a moderation revocation is part of a review record (the dispute
+ * and the revocations live on it), so it is never editable, even when undo left it open with
+ * no completions.
+ */
+export function isEditableFuture(
+  instance: {
+    status: string;
+    completions: unknown[];
+    dueAt: Date;
+    revocations?: unknown[];
+    disputeStatus?: string;
+  },
+  now: Date,
+): boolean {
+  return (
+    instance.status === 'open' &&
+    instance.completions.length === 0 &&
+    (instance.revocations?.length ?? 0) === 0 &&
+    instance.disputeStatus === undefined &&
+    instance.dueAt.getTime() > now.getTime()
+  );
+}
+
+/**
+ * A future, open instance with nothing earned on it that is nevertheless a review record
+ * (a dispute or a revocation lives on it, e.g. an undo or not_done verdict reopened it). A chore
+ * delete or pause cannot remove it, so it is retired instead (`retiredAt`); a chore edit only
+ * refreshes its assignees.
+ */
+export function isFutureReviewRecord(
+  instance: {
+    status: string;
+    completions: unknown[];
+    dueAt: Date;
+    revocations?: unknown[];
+    disputeStatus?: string;
+  },
+  now: Date,
+): boolean {
+  return (
+    instance.status === 'open' &&
+    instance.completions.length === 0 &&
+    ((instance.revocations?.length ?? 0) > 0 || instance.disputeStatus !== undefined) &&
+    instance.dueAt.getTime() > now.getTime()
+  );
 }
 
 /** Fields to rewrite on an editable future instance after its chore changed. */

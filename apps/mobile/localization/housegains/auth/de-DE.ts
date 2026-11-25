@@ -68,6 +68,14 @@ const authDeDE: Record<string, string> = {
   'housegains.auth.sync.notFound': 'Dieses Element gibt es nicht mehr.',
   'housegains.auth.sync.offline':
     'Du bist offline. Deine Änderung wurde nicht gespeichert. Versuche es erneut, sobald du wieder verbunden bist.',
+  'housegains.auth.sync.alreadyReported': 'Du hast diese Aufgabe bereits gemeldet.',
+  'housegains.auth.sync.alreadyReviewed': 'Ein Admin hat diese Aufgabe bereits geprüft.',
+  'housegains.auth.sync.reviewWindowClosed':
+    'Die 72-Stunden-Frist zum Prüfen dieser Aufgabe ist abgelaufen.',
+  'housegains.auth.sync.conflictOfInterest':
+    'Du hast einen Teil dieser Aufgabe erledigt, daher muss ein anderer Admin sie prüfen.',
+  'housegains.auth.sync.nothingToReport':
+    'Es gibt keine erledigten Aufgaben anderer Mitglieder zu melden.',
 };
 
 export default authDeDE;

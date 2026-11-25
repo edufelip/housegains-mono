@@ -3,8 +3,13 @@ import test from 'node:test';
 import {
   callableErrorKey,
   isoOf,
+  mapHousehold,
+  mapDispute,
+  mapInstance,
   mapInvite,
+  mapLedgerEntry,
   mapMember,
+  mapWeekStandings,
   placeholderMember,
   splitMembers,
 } from './household-mapping';
@@ -57,6 +62,93 @@ test('the signed-in member placeholder is a plain member until the snapshot arri
     color: '#FFD33D',
     role: 'member',
   });
+});
+
+test('the admin role is kept and unknown roles fall back to member', () => {
+  assert.equal(mapMember('a', { role: 'admin' }).role, 'admin');
+  assert.equal(mapMember('b', { role: 'creator' }).role, 'creator');
+  assert.equal(mapMember('c', { role: 'former' }).role, 'member');
+});
+
+test('instances map dispute status and moderation revocations', () => {
+  const at = new Date('2026-11-20T10:00:00.000Z');
+  const base = {
+    choreId: 'c1',
+    dueAt: at,
+    subtasks: [],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'partial',
+    completions: [],
+    bonusAwards: {},
+  };
+  const instance = mapInstance('i1', {
+    ...base,
+    disputeStatus: 'resolved',
+    revocations: [
+      { subtaskId: 'wash', memberId: 'm1', xp: 10, actorUid: 'creator', verdict: 'not_done', at },
+    ],
+  });
+  assert.equal(instance.disputeStatus, 'resolved');
+  assert.deepEqual(instance.revocations, [
+    {
+      subtaskId: 'wash',
+      memberId: 'm1',
+      xp: 10,
+      actorUid: 'creator',
+      verdict: 'not_done',
+      at: '2026-11-20T10:00:00.000Z',
+    },
+  ]);
+});
+
+test('an instance that was never disputed omits the moderation fields', () => {
+  const instance = mapInstance('i1', {
+    choreId: 'c1',
+    dueAt: new Date(),
+    subtasks: [],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'open',
+    completions: [],
+    bonusAwards: {},
+  });
+  assert.equal(instance.disputeStatus, undefined);
+  assert.equal(instance.revocations, undefined);
+});
+
+test('revoke ledger rows keep their source and reversal pointer', () => {
+  const at = new Date('2026-11-20T10:00:00.000Z');
+  assert.equal(
+    mapLedgerEntry('e1', {
+      instanceId: 'i',
+      subtaskId: 'wash',
+      memberId: 'm',
+      amount: -10,
+      source: 'revoke-subtask',
+      createdAt: at,
+    }).source,
+    'revoke-subtask',
+  );
+  assert.deepEqual(
+    mapLedgerEntry('e2', {
+      instanceId: 'i',
+      memberId: 'm',
+      amount: -5,
+      source: 'revoke-bonus',
+      createdAt: at,
+      reversesEntryId: 'e0',
+    }),
+    {
+      id: 'e2',
+      instanceId: 'i',
+      memberId: 'm',
+      amount: -5,
+      source: 'revoke-bonus',
+      createdAt: '2026-11-20T10:00:00.000Z',
+      reversesEntryId: 'e0',
+    },
+  );
 });
 
 test('invite codes map to the invite-specific messages', () => {
@@ -129,4 +221,172 @@ test('permission, connection and unknown failures map to their messages', () => 
     'housegains.auth.error.generic',
   );
   assert.equal(callableErrorKey('internal', 'boom'), 'housegains.auth.error.generic');
+});
+
+test('disputes map reports, verdict fields and ISO timestamps', () => {
+  const at = new Date('2026-11-22T08:00:00.000Z');
+  const dispute = mapDispute('inst-1', {
+    instanceId: 'inst-1',
+    choreName: 'Dog care',
+    status: 'open',
+    subtaskIds: ['feed', 'walk'],
+    completerIds: ['bia'],
+    reports: [{ uid: 'rafa', subtaskIds: ['feed'], reason: 'not done', createdAt: at }],
+    createdAt: at,
+    expiresAt: at,
+  });
+  assert.equal(dispute.id, 'inst-1');
+  assert.equal(dispute.status, 'open');
+  assert.deepEqual(dispute.reports, [
+    {
+      uid: 'rafa',
+      subtaskIds: ['feed'],
+      reason: 'not done',
+      createdAt: '2026-11-22T08:00:00.000Z',
+    },
+  ]);
+  assert.equal(dispute.verdict, undefined);
+  assert.equal(dispute.resolverUid, undefined);
+
+  const resolved = mapDispute('inst-2', {
+    choreName: 'Dishes',
+    status: 'resolved',
+    verdict: 'partial',
+    revokedSubtaskIds: ['wash'],
+    resolverUid: 'edu',
+    createdAt: at,
+    resolvedAt: at,
+    expiresAt: at,
+  });
+  assert.equal(resolved.status, 'resolved');
+  assert.equal(resolved.verdict, 'partial');
+  assert.deepEqual(resolved.revokedSubtaskIds, ['wash']);
+  assert.equal(resolved.resolverUid, 'edu');
+  assert.equal(mapDispute('inst-3', { status: 'weird' }).status, 'open');
+});
+
+test('weeks map the closed snapshot, nullable titles, and member totals', () => {
+  assert.equal(mapWeekStandings(undefined), null);
+  assert.equal(mapWeekStandings({}), null);
+
+  const week = mapWeekStandings({
+    weekStart: '2026-11-16',
+    weekEnd: '2026-11-22',
+    members: { bia: { xp: 40, subtasks: 8, assignedDue: 9, missed: 1 } },
+    topMember: { memberId: 'bia', xp: 40, subtasks: 8 },
+    wallOfShame: { memberId: 'rafa', missed: 3, assignedDue: 5 },
+  });
+  assert.deepEqual(week, {
+    weekStart: '2026-11-16',
+    weekEnd: '2026-11-22',
+    topMember: { memberId: 'bia', xp: 40, subtasks: 8 },
+    wallOfShame: { memberId: 'rafa', missed: 3, assignedDue: 5 },
+    members: { bia: { xp: 40, subtasks: 8, assignedDue: 9, missed: 1 } },
+  });
+
+  const hidden = mapWeekStandings({
+    weekStart: '2026-11-16',
+    weekEnd: '2026-11-22',
+    topMember: null,
+    wallOfShame: null,
+    members: {},
+  });
+  assert.ok(hidden);
+  assert.equal(hidden.topMember, null);
+  assert.equal(hidden.wallOfShame, null);
+  assert.deepEqual(hidden.members, {});
+});
+
+test('moderation failures map to their own messages', () => {
+  assert.equal(
+    callableErrorKey('failed-precondition', 'An admin already reviewed this chore.'),
+    'housegains.auth.sync.alreadyReviewed',
+  );
+  assert.equal(
+    callableErrorKey('failed-precondition', 'The 72-hour dispute window has closed.'),
+    'housegains.auth.sync.reviewWindowClosed',
+  );
+  assert.equal(
+    callableErrorKey('failed-precondition', 'Completions can only be disputed within 72 hours.'),
+    'housegains.auth.sync.reviewWindowClosed',
+  );
+  assert.equal(
+    callableErrorKey(
+      'failed-precondition',
+      'There is nothing completed by another member to report.',
+    ),
+    'housegains.auth.sync.nothingToReport',
+  );
+  assert.equal(
+    callableErrorKey('already-exists', 'You already reported this chore.'),
+    'housegains.auth.sync.alreadyReported',
+  );
+  assert.equal(
+    callableErrorKey(
+      'permission-denied',
+      'You completed part of this chore, so another admin must review it.',
+    ),
+    'housegains.auth.sync.conflictOfInterest',
+  );
+});
+
+test('maps xpPeak, levelFloor and the gamification cohort when present, and omits them when missing', () => {
+  const withLevel = mapMember('uid', { name: 'A', xp: 1840, xpPeak: 1900, levelFloor: 1 });
+  assert.equal(withLevel.xpPeak, 1900);
+  assert.equal(withLevel.levelFloor, 1);
+  const legacy = mapMember('uid', { name: 'A', xp: 1840 });
+  assert.equal('xpPeak' in legacy, false);
+  assert.equal('levelFloor' in legacy, false);
+
+  const live = mapHousehold(
+    'h',
+    { name: 'H', gamificationCohort: 'live' },
+    [],
+    [],
+    mapInvite(undefined),
+  );
+  assert.equal(live.gamificationCohort, 'live');
+  const unknown = mapHousehold(
+    'h',
+    { name: 'H', gamificationCohort: 'weird' },
+    [],
+    [],
+    mapInvite(undefined),
+  );
+  assert.equal(unknown.gamificationCohort, undefined);
+  const missing = mapHousehold('h', { name: 'H' }, [], [], mapInvite(undefined));
+  assert.equal('gamificationCohort' in missing, false);
+});
+
+test('instances map retiredAt to an ISO string and omit it while the chore is live', () => {
+  const base = {
+    choreId: 'c1',
+    dueAt: new Date('2026-11-20T10:00:00.000Z'),
+    subtasks: [],
+    bonusXp: 0,
+    assigneeIds: [],
+    status: 'done',
+    completions: [],
+    bonusAwards: {},
+  };
+  assert.equal(mapInstance('i1', base).retiredAt, undefined);
+  assert.equal(
+    mapInstance('i1', { ...base, retiredAt: new Date('2026-11-21T09:30:00.000Z') }).retiredAt,
+    '2026-11-21T09:30:00.000Z',
+  );
+});
+
+test('disputes map the reported completion ids and omit them on legacy disputes', () => {
+  const at = new Date('2026-11-22T08:00:00.000Z');
+  const base = {
+    choreName: 'Dog care',
+    status: 'open',
+    subtaskIds: ['feed'],
+    createdAt: at,
+    expiresAt: at,
+  };
+  assert.deepEqual(mapDispute('inst-1', { ...base, completionIds: ['c-feed'] }).completionIds, [
+    'c-feed',
+  ]);
+  assert.equal('completionIds' in mapDispute('inst-2', base), false);
 });

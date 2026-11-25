@@ -6,6 +6,8 @@ import { fileURLToPath, URL } from 'node:url';
 import { SUPPORTED_LOCALES } from '../core';
 import { HOUSEGAINS_DICTIONARIES, translateHouseGains } from './catalog';
 import { THEME_IDS } from '../../features/appearance/types';
+import { ACHIEVEMENTS, RULE_IDS } from '../../features/gamification/gamification-catalog';
+import { MEMBER_TITLE_KEYS, ORGANIZER_TITLE_KEYS } from '../../features/gamification/levels';
 import { CATALOG } from '../../features/household/catalog';
 
 const MOBILE_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -21,6 +23,7 @@ function collectTsxFiles(directory: string): string[] {
 function collectScreenTranslationKeys(): Set<string> {
   const sourceFiles = [
     'features/housegains-screens',
+    'features/gamification',
     'components/housegains',
     'features/onboarding',
   ].flatMap((directory) => collectTsxFiles(resolve(MOBILE_ROOT, directory)));
@@ -46,10 +49,65 @@ function collectScreenTranslationKeys(): Set<string> {
   for (const locale of SUPPORTED_LOCALES) {
     keys.add(`housegains.screens.settings.locale.${locale}`);
   }
-  for (const title of ['rookie', 'tidyTitan']) {
+  for (const title of MEMBER_TITLE_KEYS) {
     keys.add(`housegains.screens.dashboard.title.${title}`);
   }
-  for (const role of ['creator', 'member']) {
+  // Ganhos & Zelo program copy built from ids (features/gamification).
+  for (const title of ORGANIZER_TITLE_KEYS) {
+    keys.add(`housegains.gamification.organizer.rank.${title}`);
+  }
+  for (const achievement of ACHIEVEMENTS) {
+    keys.add(`housegains.gamification.achievement.${achievement.id}.name`);
+    keys.add(`housegains.gamification.achievement.${achievement.id}.description`);
+  }
+  for (const rule of RULE_IDS) keys.add(`housegains.gamification.rule.${rule}`);
+  for (const tier of ['bronze', 'silver', 'gold']) {
+    keys.add(`housegains.gamification.tier.${tier}`);
+  }
+  for (const track of ['ganhos', 'zelo']) {
+    keys.add(`housegains.gamification.amount.${track}`);
+    keys.add(`housegains.gamification.total.${track}`);
+  }
+  for (const reason of [
+    'chore',
+    'bonus',
+    'assist',
+    'on_time',
+    'share',
+    'week_goal',
+    'welcome',
+    'zelo',
+    'generic',
+    'badge',
+    'streak',
+  ]) {
+    keys.add(`housegains.gamification.toast.title.${reason}`);
+  }
+  for (const plural of [
+    'countOne',
+    'countOther',
+    'recordOne',
+    'recordOther',
+    'brokenOne',
+    'brokenOther',
+  ]) {
+    keys.add(`housegains.gamification.streak.${plural}`);
+  }
+  for (const status of ['counted', 'missed', 'away', 'current']) {
+    keys.add(`housegains.gamification.streak.week.${status}`);
+  }
+  for (const error of [
+    'notMonday',
+    'notFuture',
+    'yearLimit',
+    'tooMany',
+    'noHousehold',
+    'network',
+    'generic',
+  ]) {
+    keys.add(`housegains.gamification.away.error.${error}`);
+  }
+  for (const role of ['creator', 'member', 'admin']) {
     keys.add(`housegains.screens.common.role.${role}`);
   }
   for (const category of ['all', ...new Set(CATALOG.map((chore) => chore.category))]) {

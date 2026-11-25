@@ -95,7 +95,9 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
         slices.chores !== undefined &&
         slices.instances !== undefined &&
         slices.ledger !== undefined &&
-        slices.feed !== undefined));
+        slices.feed !== undefined &&
+        slices.disputes !== undefined &&
+        slices.lastWeek !== undefined));
   // A listener error also ends hydration so the app can show its retry screen.
   const hydrated = uid !== null && (loaded || error !== null);
 
@@ -154,9 +156,9 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
     [],
   );
 
-  const perform = async (operation: () => Promise<void>): Promise<void> => {
+  const perform = async <T,>(operation: () => Promise<T>): Promise<T> => {
     try {
-      await operation();
+      return await operation();
     } catch (cause) {
       const message =
         cause instanceof CallableError
@@ -238,13 +240,13 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
         await householdCalls.deleteChore({ householdId: requireHouseholdId(), choreId: id });
       }),
     completeSubtask: (instanceId, subtaskId) =>
-      perform(async () => {
-        await householdCalls.completeSubtask({
+      perform(() =>
+        householdCalls.completeSubtask({
           householdId: requireHouseholdId(),
           instanceId,
           subtaskId,
-        });
-      }),
+        }),
+      ),
     undoSubtask: (instanceId, subtaskId) =>
       perform(async () => {
         await householdCalls.undoSubtask({
@@ -264,15 +266,52 @@ export function HouseholdProvider({ children }: PropsWithChildren): React.JSX.El
     setupComplete: slices.householdDoc?.data.setupComplete === true,
     feed: slices.feed ?? [],
     postCompletion: (instanceId) =>
-      perform(async () => {
-        await householdCalls.postCompletion({
+      perform(() =>
+        householdCalls.postCompletion({
           householdId: requireHouseholdId(),
           instanceId,
+        }),
+      ),
+    setMemberRole: (memberId, role) =>
+      perform(async () => {
+        await householdCalls.setMemberRole({
+          householdId: requireHouseholdId(),
+          memberId,
+          role,
+        });
+      }),
+    reportCompletion: (instanceId, subtaskIds, reason) =>
+      perform(async () => {
+        await householdCalls.reportCompletion({
+          householdId: requireHouseholdId(),
+          instanceId,
+          ...(subtaskIds ? { subtaskIds } : {}),
+          ...(reason ? { reason } : {}),
+        });
+      }),
+    resolveDispute: (disputeId, verdict, subtaskIds) =>
+      perform(async () => {
+        await householdCalls.resolveDispute({
+          householdId: requireHouseholdId(),
+          disputeId,
+          verdict,
+          ...(subtaskIds ? { subtaskIds } : {}),
+        });
+      }),
+    moderateInstance: (instanceId, verdict, subtaskIds) =>
+      perform(async () => {
+        await householdCalls.moderateInstance({
+          householdId: requireHouseholdId(),
+          instanceId,
+          verdict,
+          ...(subtaskIds ? { subtaskIds } : {}),
         });
       }),
     weeklyTotals,
     streak,
     xpLedger: ledger,
+    disputes: slices.disputes ?? null,
+    lastWeek: slices.lastWeek ?? null,
   };
 
   return <HouseholdContext.Provider value={value}>{children}</HouseholdContext.Provider>;

@@ -17,7 +17,6 @@ const LEGACY_FILES = [
   'components/housegains/variants/soft-dashboard.tsx',
   'components/housegains/variants/sticker-dashboard.tsx',
   'features/auth/sign-in-screen.tsx',
-  'features/housegains-screens/chore-completion-screens.tsx',
   'features/housegains-screens/chore-management-screens.tsx',
   'features/housegains-screens/create-household-screen.tsx',
   'features/housegains-screens/household-flow-screens.tsx',

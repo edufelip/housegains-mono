@@ -108,16 +108,22 @@ function fakeModel(overrides: Partial<HouseholdViewModel> = {}): HouseholdViewMo
     setAssignments: noop,
     pauseChore: noop,
     deleteChore: noop,
-    completeSubtask: noop,
+    completeSubtask: async () => ({ celebrations: [] }),
     undoSubtask: noop,
     regenerateInvite: noop,
     finishSetup: noop,
     setupComplete: true,
     feed: [],
-    postCompletion: noop,
+    postCompletion: async () => ({ celebrations: [] }),
     weeklyTotals: { me: 0 },
     streak: 0,
     xpLedger: [],
+    disputes: [],
+    lastWeek: null,
+    setMemberRole: noop,
+    reportCompletion: noop,
+    resolveDispute: noop,
+    moderateInstance: noop,
     ...overrides,
   };
 }
@@ -185,7 +191,7 @@ afterEach(() => jest.useRealTimers());
 
 describe('HouseGains signed-in flow', () => {
   test('completing a chore step on today’s dashboard calls completeSubtask with the instance and step', async () => {
-    const model = fakeModel({ completeSubtask: jest.fn(async () => undefined) });
+    const model = fakeModel({ completeSubtask: jest.fn(async () => ({ celebrations: [] })) });
     const view = await renderApp(model);
 
     const todayChore = await findByTestId(

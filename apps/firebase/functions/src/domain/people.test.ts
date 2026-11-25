@@ -1,0 +1,80 @@
+import { describe, expect, it } from 'vitest';
+import {
+  gamiHouseRateBody,
+  gamiHouseRateTitle,
+  gamiStreakReminderBody,
+  gamiStreakReminderTitle,
+  gamiWeekCloseBody,
+  gamiWeekCloseTitle,
+  weekShameBody,
+  weekShameTitle,
+  weekTopBody,
+  weekTopTitle,
+} from './people';
+
+// Weekly standings push copy (contract Part B): six locales, en and pt-BR names fixed
+// by the contract, natural copy for the rest.
+
+const ALL_LOCALES = ['en-US', 'pt-BR', 'es-ES', 'fr-FR', 'de-DE', 'it-IT'] as const;
+
+describe('weekly standings copy', () => {
+  it('gives every locale its own title and body', () => {
+    expect(new Set(ALL_LOCALES.map((locale) => weekTopTitle(locale))).size).toBe(ALL_LOCALES.length);
+    expect(new Set(ALL_LOCALES.map((locale) => weekShameTitle(locale))).size).toBe(ALL_LOCALES.length);
+    expect(new Set(ALL_LOCALES.map((locale) => weekTopBody(locale, 'Sam', 40))).size).toBe(ALL_LOCALES.length);
+    expect(new Set(ALL_LOCALES.map((locale) => weekShameBody(locale, 'Sam', 3))).size).toBe(ALL_LOCALES.length);
+  });
+
+  it('uses the contract names for en-US and pt-BR', () => {
+    expect(weekTopTitle('en-US')).toBe('Top member of the week');
+    expect(weekShameTitle('en-US')).toBe('Wall of shame');
+    expect(weekTopTitle('pt-BR')).toBe('Destaque da semana');
+    expect(weekShameTitle('pt-BR')).toBe('Mural da vergonha');
+  });
+
+  it('interpolates the member name, xp and missed count', () => {
+    expect(weekTopBody('en-US', 'Sam', 40)).toBe('Sam earned 40 XP this week.');
+    expect(weekTopBody('pt-BR', 'Sam', 40)).toBe('Sam ganhou 40 XP nesta semana.');
+    expect(weekShameBody('en-US', 'Sam', 3)).toBe('Sam missed 3 of their chores this week.');
+    expect(weekShameBody('pt-BR', 'Sam', 3)).toBe('Sam deixou 3 tarefa(s) para trás nesta semana.');
+  });
+
+  it('falls back to en-US for unknown locales', () => {
+    expect(weekTopTitle('ja-JP')).toBe(weekTopTitle('en-US'));
+    expect(weekTopBody(undefined, 'Sam', 40)).toBe('Sam earned 40 XP this week.');
+    expect(weekShameTitle(null)).toBe('Wall of shame');
+    expect(weekShameBody(7, 'Sam', 3)).toBe('Sam missed 3 of their chores this week.');
+  });
+});
+
+describe('gamification push copy (contract C7)', () => {
+  it('uses the contract pt-BR reminder copy', () => {
+    expect(gamiStreakReminderBody('pt-BR', 2, 8)).toBe('Faltam 2 etapas para manter suas 8 semanas.');
+    expect(gamiHouseRateBody('pt-BR', 52)).toBe('A casa está em 52% esta semana.');
+  });
+
+  it('has interpolated copy in all six locales with nothing left unreplaced', () => {
+    for (const locale of ALL_LOCALES) {
+      const copy = [
+        gamiStreakReminderTitle(locale),
+        gamiStreakReminderBody(locale, 2, 8),
+        gamiHouseRateTitle(locale),
+        gamiHouseRateBody(locale, 52),
+        gamiWeekCloseTitle(locale, 'ganhos'),
+        gamiWeekCloseBody(locale, 'ganhos', 55),
+        gamiWeekCloseTitle(locale, 'zelo'),
+        gamiWeekCloseBody(locale, 'zelo', 60),
+      ];
+      for (const text of copy) {
+        expect(text.length).toBeGreaterThan(0);
+        expect(text).not.toMatch(/[{}]/);
+      }
+      expect(gamiStreakReminderBody(locale, 2, 8)).toContain('8');
+      expect(gamiHouseRateBody(locale, 52)).toContain('52');
+    }
+  });
+
+  it('falls back to en-US for unknown locales', () => {
+    expect(gamiHouseRateBody('ja-JP', 40)).toBe('The house is at 40% this week.');
+  });
+});

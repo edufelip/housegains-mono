@@ -58,6 +58,13 @@ const authEnUS: Record<string, string> = {
   'housegains.auth.sync.notFound': 'That item no longer exists.',
   'housegains.auth.sync.offline':
     "You're offline. Your change was not saved. Try again when you reconnect.",
+  'housegains.auth.sync.alreadyReported': 'You already reported this chore.',
+  'housegains.auth.sync.alreadyReviewed': 'An admin already reviewed this chore.',
+  'housegains.auth.sync.reviewWindowClosed':
+    'The 72-hour window to review this completion has closed.',
+  'housegains.auth.sync.conflictOfInterest':
+    'You completed part of this chore, so another admin must review it.',
+  'housegains.auth.sync.nothingToReport': 'There is nothing completed by another member to report.',
 };
 
 export default authEnUS;
