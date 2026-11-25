@@ -75,7 +75,10 @@ async function closeWeek(context: WeekClosedContext): Promise<void> {
   const config = await loadGamiConfig();
   const householdRef = db().doc(`households/${context.householdId}`);
   const weekRef = householdRef.collection('weeks').doc(context.weekStart);
-  if (config.mode === 'off') return markSkipped(weekRef, 'off');
+  // A week that closed while the program was off is terminal; one that closed while it could run
+  // stays pending while ops has it switched off, and is processed once it is back on.
+  if (!context.gamiEligible) return markSkipped(weekRef, 'off');
+  if (config.mode === 'off') return;
   const householdSnap = await householdRef.get();
   if (!householdSnap.exists) return;
   const hh = householdSnap.data()!;

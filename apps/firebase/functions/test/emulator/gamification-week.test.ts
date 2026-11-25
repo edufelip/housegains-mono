@@ -149,6 +149,7 @@ describe('closeAllWeeks with the engine live', () => {
       ),
       topMember: week.topMember,
       wallOfShame: week.wallOfShame,
+      gamiEligible: true,
     });
     expect(await walletLedger(a.uid)).toEqual(ledger);
     expect(await walletOf(a.uid)).toEqual(wallet);

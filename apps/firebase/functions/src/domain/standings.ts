@@ -176,6 +176,13 @@ export interface WeekClosedContext {
   members: Record<string, MemberWeekStats>;
   topMember: TopMember | null;
   wallOfShame: WallOfShame | null;
+  /**
+   * Whether the gamification program could run for this household when the week closed (mode not
+   * 'off'). Fixed at close time, so a later switch of the kill switch neither drops a week that
+   * closed while live nor retro-processes one that closed while off. Absent on week docs written
+   * before this field existed: those are treated as ineligible.
+   */
+  gamiEligible: boolean;
 }
 
 // Part C (gamification) registers its engine here when it lands; empty until then.

@@ -109,7 +109,7 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
 - `weeks/{weekStart}` — closed-week snapshot written only by the hourly `closeWeeks` job
   (moderation contract Part B); readable by members, never rewritten by later moderation.
   `weekStart` is the Monday's `YYYY-MM-DD`, `weekEnd` the Sunday's:
-  `weekStart, weekEnd, timeZone, closedAt,
+  `weekStart, weekEnd, timeZone, closedAt, gamiEligible,
   members: { [uid]: { xp, subtasks, assignedDue, missed } },
   topMember: { memberId, xp, subtasks } | null,
   wallOfShame: { memberId, missed, assignedDue } | null,
@@ -223,9 +223,10 @@ Paths: `gamification/config`, `gamification/ruleSets/items/{version}`, `gamifica
   localized FCM for the week's earnings under live) and writes `weeks/{weekStart}.gamification`, with `processedAt`
   once the engine run committed. A pass that finds closed week docs of the last 8 weeks without `processedAt` runs the
   hook again, oldest first, from each stored week doc (same `closedAt`, same member stats, same stored aggregates); the
-  engine's keys make that idempotent, and weeks with a doc are never replayed as gap weeks. A week closed while the
-  program was `off` (or otherwise unprocessable) gets a terminal `skipped` marker, so switching the program on later
-  does not retro-process it.
+  engine's keys make that idempotent, and weeks with a doc are never replayed as gap weeks. The week doc stores
+  `gamiEligible` at creation. A week closed while the program was `off` (`gamiEligible` false or absent) or without a
+  creator gets a terminal `skipped` marker, so switching the program on later does not retro-process it; a week closed
+  while the program could run stays pending while the kill switch is `off` and is processed once it is back on.
 - `gamificationReminders` — every 60 minutes: streak-at-risk push on Sunday 18:00 local and house-running-late push on
   Saturday 10:00 local, `live` households only, once per household per week and kind (the claim doc
   `gamiReminders/{weekStart}:{kind}` is created first), localized in 6 languages, `remindersEnabled` respected, then a

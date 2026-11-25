@@ -174,6 +174,53 @@ describe('the weekly gamification close is retryable (G4)', () => {
     expect(await walletLedger(a.uid)).toEqual({});
   });
 
+  it('keeps a week that closed while live pending while ops switches the program off, then processes it', async () => {
+    await setGamiConfig(LIVE);
+    const { a, householdId } = await weekHousehold('g4-kill');
+
+    // The close runs live but its engine run fails, so the week stays without its marker.
+    const original = Transaction.prototype.create;
+    const spy = vi
+      .spyOn(Transaction.prototype, 'create')
+      .mockImplementation(function (this: Transaction, ref: DocumentReference, data: Record<string, unknown>) {
+        if (ref.path.startsWith(`wallets/${a.uid}/`)) throw new Error('injected engine failure');
+        return original.call(this, ref, data);
+      });
+    try {
+      await closeAllWeeks(CLOSE_AT);
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await weekDoc(householdId).get()).get('gamiEligible')).toBe(true);
+
+    // Ops flips the kill switch: the retry pass must not stamp the live week as skipped.
+    await setGamiConfig({ mode: 'off' });
+    await closeAllWeeks(new Date('2026-11-23T04:00:00Z'));
+    const pending = await weekDoc(householdId).get();
+    expect(pending.get('gamification.processedAt')).toBeUndefined();
+    expect(pending.get('gamification.skipped')).toBeUndefined();
+
+    // Back on: the week is processed, not lost as a gap.
+    await setGamiConfig(LIVE);
+    await closeAllWeeks(new Date('2026-11-23T05:00:00Z'));
+    const processed = await weekDoc(householdId).get();
+    expect(processed.get('gamification.processedAt')).toBeInstanceOf(Timestamp);
+    expect(processed.get('gamification.skipped')).toBeUndefined();
+    expect((await walletLedger(a.uid))[`earn.week_goal:${WEEK}:${a.uid}`]).toMatchObject({ amount: 30 });
+  });
+
+  it('treats a week doc written before gamiEligible existed as closed while off', async () => {
+    await setGamiConfig(LIVE);
+    const { a, householdId } = await weekHousehold('g4-legacy');
+    await closeAllWeeks(CLOSE_AT);
+    // Rewrite the doc as the pre-flag close left it: no eligibility, no gamification data.
+    await weekDoc(householdId).update({ gamiEligible: FieldValue.delete(), gamification: FieldValue.delete() });
+    const before = await walletLedger(a.uid);
+    await closeAllWeeks(new Date('2026-11-23T04:00:00Z'));
+    expect((await weekDoc(householdId).get()).get('gamification.skipped')).toBe('off');
+    expect(await walletLedger(a.uid)).toEqual(before);
+  });
+
   it('stamps a week of a household without a creator as skipped: no-creator', async () => {
     await setGamiConfig(LIVE);
     const { a, householdId } = await weekHousehold('g4-nocreator');
@@ -253,6 +300,7 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
     await adminDb()
       .doc(`households/${householdId}/weeks/${OLDER_WEEK}`)
       .set({
+        gamiEligible: true,
         weekStart: OLDER_WEEK,
         weekEnd: '2026-11-15',
         timeZone: 'UTC',
@@ -325,6 +373,7 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
     await adminDb()
       .doc(`households/${householdId}/weeks/${stale}`)
       .set({
+        gamiEligible: true,
         weekStart: stale,
         weekEnd: '2026-09-27',
         timeZone: 'UTC',

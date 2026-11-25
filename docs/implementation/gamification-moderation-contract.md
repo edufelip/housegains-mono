@@ -563,10 +563,12 @@ Decisions taken while wiring the engine (`functions/src/gamification/*`), where 
   engine run committed. The aggregates are a snapshot: a replay reuses the stored ones and only computes them (from the
   instances as they are then) when the doc has none. The run uses the throwing variant of the runner
   (`runGamificationStrict`), so a failure leaves the week without `processedAt`; the next hourly pass rebuilds the context
-  from the week doc (same `closedAt` and member stats) and runs it again. A week closed while the program could not
-  process it gets a terminal marker, `gamification = { processedAt, skipped: 'off' | 'cohort' | 'no-creator' }`, and is
-  never replayed: switching the program on does not retro-process an old week (and the first deploy replays nothing
-  for households whose engine is `off`). Weeks older than the 8-week window that never got a marker are not replayed
+  from the week doc (same `closedAt` and member stats) and runs it again. The week doc records `gamiEligible` (the mode
+  was not `off`) when it is created. A week that closed while the program was `off` (`gamiEligible` false, or absent on
+  docs written before the field existed), or whose household has no creator, gets a terminal marker,
+  `gamification = { processedAt, skipped: 'off' | 'cohort' | 'no-creator' }`, and is never replayed: switching the
+  program on does not retro-process an old week, and the first deploy replays nothing. A week that closed while the
+  program could run stays pending (no marker) while ops has the kill switch at `off`, and is processed when it is back on. Weeks older than the 8-week window that never got a marker are not replayed
   either. Replays are safe: the ledger keys, the event ids and `lastActionWeek` make a second run a no-op.
   FCM and inbox rows only under `live`.
 - **Cohort** is recomputed on every run and persisted when it differs (C1); the config is never cached in tests.

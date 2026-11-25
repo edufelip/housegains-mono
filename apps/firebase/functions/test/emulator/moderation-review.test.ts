@@ -34,13 +34,15 @@ async function setup(label: string): Promise<Setup> {
   const creator = await withProfile(`${label}-c`, 'Alex');
   const { householdId, code } = await createHousehold(creator);
   const { choreId } = await must('saveChore', creator.token, { householdId, chore: choreInput() });
-  const [memberA, memberB, memberC] = await Promise.all(
-    ['a', 'b', 'c'].map(async (suffix) => {
-      const user = await withProfile(`${label}-${suffix}`, `Member ${suffix}`);
-      await must('joinHousehold', user.token, { code });
-      return user;
-    }),
-  );
+  // Joins run one at a time: concurrent joinHousehold transactions on the same invite contend, and
+  // the emulator answers that with "Transaction is invalid or closed" instead of a retryable abort.
+  const joined: TestUser[] = [];
+  for (const suffix of ['a', 'b', 'c']) {
+    const user = await withProfile(`${label}-${suffix}`, `Member ${suffix}`);
+    await must('joinHousehold', user.token, { code });
+    joined.push(user);
+  }
+  const [memberA, memberB, memberC] = joined;
   return { creator, memberA, memberB, memberC, householdId, choreId };
 }
 
