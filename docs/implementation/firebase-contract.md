@@ -53,7 +53,7 @@ gamification contract C3).
 `wallets/{uid}` — owner can read, client writes: none. The Ganhos wallet projection (gamification contract C3), and its
 append-only `wallets/{uid}/ledger/{key}` rows (owner reads). Deleted with the account.
 
-`gamification/**` — no client access: `gamification/config` (rollout mode, cohort, published rule set version),
+`gamification/**` — no client access: `gamification/config` (the published rule set pointer only: `activeVersion`, `previousVersion`; the program itself is always on, a missing doc means the built-in default rule set),
 `gamification/ruleSets/items/{version}`, `gamification/alerts/items/{id}`, `gamification/audit/items/{id}`,
 `gamification/adjustments/items/{id}`. See gamification contract C1/C2/C9.
 
@@ -62,7 +62,6 @@ Client writes: none.
 ```
 name (1..40)  icon  color  timeZone (IANA)  weeklyGoalXp: number|null
 creatorUid  memberUids: string[] (max 12)  setupComplete: bool  createdAt  updatedAt
-gamificationCohort: 'live'|'control'|'shadow'   // server-written (createHousehold and every engine run)
 ```
 
 Subcollections of `households/{hid}` (all readable by members, client writes: none):
@@ -109,15 +108,16 @@ Subcollections of `households/{hid}` (all readable by members, client writes: no
 - `weeks/{weekStart}` — closed-week snapshot written only by the hourly `closeWeeks` job
   (moderation contract Part B); readable by members, never rewritten by later moderation.
   `weekStart` is the Monday's `YYYY-MM-DD`, `weekEnd` the Sunday's:
-  `weekStart, weekEnd, timeZone, closedAt, gamiEligible,
+  `weekStart, weekEnd, timeZone, closedAt,
   members: { [uid]: { xp, subtasks, assignedDue, missed } },
   topMember: { memberId, xp, subtasks } | null,
   wallOfShame: { memberId, missed, assignedDue } | null,
   gamification?: { onTimeRate, dueInstances, doneOnTime, goalReached, weeklyGoalXp, processedAt, skipped? }` (the Part C
-  aggregates, a snapshot a replay reuses, written by the same close whenever the gamification engine is not `off`;
+  aggregates, a snapshot a replay reuses, written by the same close on every close;
   `processedAt` is written only once the engine run for the week committed, and its absence is what makes `closeWeeks`
-  replay the week, oldest first, within the last 8 weeks. A week closed while the program could not process it carries
-  only `{ processedAt, skipped: 'off'|'cohort'|'no-creator' }` and is never replayed).
+  replay the week, oldest first, within the last 8 weeks. A week of a household without a creator carries
+  only `{ processedAt, skipped: 'no-creator' }` and is never replayed; there is no eligibility flag and no `'off'`/`'cohort'`
+  marker any more, though old docs may still carry one, terminal).
 - `feed/{postId}` — `instanceId, memberId, createdAt`. Id `${instanceId}_${uid}`
   (one post per member per instance).
 - `meta/invite` — `code, expiresAt, uses, maxUses, revoked` (the current invite).
@@ -157,14 +157,14 @@ call takes `householdId` and fails `permission-denied` unless the caller is in `
 | `setAssignments` | `{householdId, choreId, assigneeIds}` | Creator only. Updates chore + future open instances. |
 | `setChoreActive` | `{householdId, choreId, isActive}` | Creator only. Pausing deletes future untouched instances. |
 | `deleteChore` | `{householdId, choreId}` | Creator only. Deletes chore and future untouched instances; keeps history. |
-| `completeSubtask` | `{householdId, instanceId, subtaskId}` | Any member. Transaction: `already-exists` if that subtask is done; append completion (`isAssist` = caller not in assignees), ledger `subtask` credit. When all subtasks are done: status `done`, compute `bonusAwards` with the existing `calculateBonusAwards` rule and write `bonus` ledger rows. Else status `partial`. Writes `xp` and `xpPeak` (never decreasing) in the same transaction, then runs the gamification engine (mode `off`: no-op). Returns `{instanceId, subtaskId, status, completionId, celebrations}`: `celebrations` is the caller's `Celebration[]` under mode `live` + cohort `live`, else `[]`. |
+| `completeSubtask` | `{householdId, instanceId, subtaskId}` | Any member. Transaction: `already-exists` if that subtask is done; append completion (`isAssist` = caller not in assignees), ledger `subtask` credit. When all subtasks are done: status `done`, compute `bonusAwards` with the existing `calculateBonusAwards` rule and write `bonus` ledger rows. Else status `partial`. Writes `xp` and `xpPeak` (never decreasing) in the same transaction, then runs the gamification engine (always on). Returns `{instanceId, subtaskId, status, completionId, celebrations}`: `celebrations` is the caller's `Celebration[]` (`[]` when the run earned the caller nothing). |
 | `undoSubtask` | `{householdId, instanceId, subtaskId}` | Only the completer, within 5 minutes. Reverses subtask credit and, if the instance was `done`, every still-active bonus row (`undo-*` rows with negative amounts and `reversesEntryId`). A revoked (already reversed) row is never reversed again. The engine claws back exactly what the rows paid. `xpPeak` is not lowered. |
 | `setMemberRole` | `{householdId, memberId, role: 'admin'\|'member'}` | Creator only (`permission-denied`). `invalid-argument` if `memberId` is the caller; `not-found` if not in `memberUids`. Idempotent. Returns `{memberId, role}`. |
 | `reportCompletion` | `{householdId, instanceId, subtaskIds?, reason?}` | Any member **without** admin rights; admins get `permission-denied`. `subtaskIds` defaults to every completed subtask the caller did not complete; each id must be completed (`failed-precondition`) and not the caller's own (`invalid-argument`). `failed-precondition` for an instance without completions, an empty target list, completions older than 72 h, or a resolved/expired dispute. Creates or appends to `households/{hid}/disputes/{instanceId}` (`already-exists` if the caller already reported), sets `instances.disputeStatus = 'open'`, pushes FCM to every admin-rights member. Returns `{disputeId}`. |
 | `resolveDispute` | `{householdId, disputeId, verdict: 'done'\|'partial'\|'not_done', subtaskIds?}` | Admin rights required. `not-found` / `failed-precondition` for a missing / not-open (or past-window) dispute. Conflict of interest: `permission-denied` if any disputed completion was made by the caller, unless they are the only admin. A verdict only touches the completions a report named (`completionIds`): a subtask the reported member undid and somebody else then completed stands, and is not part of the conflict check or the notifications. Disputes without `completionIds` match by subtask id. `done` keeps everything; `not_done` revokes every disputed subtask; `partial` needs a strict subset of the disputed subtasks (`invalid-argument`, also when only one subtask is disputed). If the dispute's instance no longer exists the dispute resolves without revocations (nothing is left to revoke). Revocation per contract A3; notifies the completers and reporters who are still members via FCM only (no inbox row). Returns `{disputeId, verdict, revokedSubtaskIds}`. |
 | `moderateInstance` | `{householdId, instanceId, verdict: 'partial'\|'not_done', subtaskIds?}` | Admins mark a logged completion directly. `not_done` targets every completed subtask (or `subtaskIds`); `partial` needs a strict subset of the completed subtasks. Same 72 h window and conflict-of-interest rule as `resolveDispute`; when an open dispute exists the rule covers the targets and the completions the dispute covers (the call closes that dispute). Resolves an open dispute for the instance with this verdict and stamps its id in `moderation.disputeId` of the revoke rows. Returns `{instanceId, verdict, revokedSubtaskIds}`. |
 | `finishSetup` | `{householdId}` | Creator only. `setupComplete = true`. Pays the one-off Zelo setup award (engine, once per household). |
-| `postCompletion` | `{householdId, instanceId}` | Member who completed at least one subtask of a `done` instance. Idempotent by id. Returns `{postId, created, celebrations}` (the 2-Ganhos share earn, once per day, under live + live cohort). |
+| `postCompletion` | `{householdId, instanceId}` | Member who completed at least one subtask of a `done` instance. Idempotent by id. Returns `{postId, created, celebrations}` (the 2-Ganhos share earn, once per day). |
 | `ackCelebrations` | `{ids: string[]}` | Marks the caller's `users/{uid}/inbox/{id}` rows seen. 1..50 ids (`invalid-argument`); unknown ids and other users' rows are ignored. Returns `{ok, acknowledged}`. |
 | `setAwayWeeks` | `{householdId?, weekStarts: string[]}` | Away mode (gamification C7): future Mondays in the household time zone, at most 3 per calendar year (past away weeks count). Replaces the future list; stores `wallets/{uid}.streak.awayWeeks`. `invalid-argument` (format, not a Monday), `failed-precondition` (not in the future, yearly limit, no household), `permission-denied` (not a member). Returns `{weekStarts}`. |
 | `leaveHousehold` | `{householdId}` | Removes caller from `memberUids`, tombstones member doc, removes caller from chore and open-instance assignees, clears `users.householdId`. If the caller is the creator, ownership moves to the longest-standing remaining member. If nobody remains, the household and all subcollections and its invite codes are deleted. |
@@ -179,13 +179,11 @@ Code in `functions/src/admin-gamification/`. Every one requires `request.auth.to
 `functions/scripts/set-admin-claim.mjs`). The request/response shapes are `apps/admin/src/api-types.ts`
 (`functions/src/admin-gamification/api-types.ts` is a checked copy). Dates are ISO strings. Every mutation writes
 `gamification/audit/items/{id}` — `{action, actorUid, at, before, after}` — in the same transaction as the change.
-Paths: `gamification/config`, `gamification/ruleSets/items/{version}`, `gamification/alerts/items/{id}`,
+Paths: `gamification/config` (the rule-set pointer, written by publish/rollback only), `gamification/ruleSets/items/{version}`, `gamification/alerts/items/{id}`,
 `gamification/audit/items/{id}`, `gamification/adjustments/items/{id}`.
 
 | Name | Input | Effect / rules |
 | --- | --- | --- |
-| `adminGetConfig` | `{}` | The config; a missing document reads as `mode: 'off'`, no versions, empty salt. |
-| `adminSetConfig` | `{mode, livePercent, controlPercent}` | `invalid-argument` unless mode is off/shadow/live, both percentages are numbers 0..100 and their sum is ≤ 100. Creates `cohortSalt` the first time and never changes it; leaves `activeVersion`/`previousVersion` alone. Audit `config.set`. |
 | `adminListRuleSets` | `{}` | Every rule set, newest version first, rules inlined. |
 | `adminSaveDraft` | `{version?, notes, rules}` | `rules` goes through `validateRuleSet`; failures are `invalid-argument` with every error in the message. No `version`: creates the next integer as a `draft`. With `version`: overwrites that draft (`not-found`; `failed-precondition` if it is not a draft). Audit `ruleSet.createDraft` / `ruleSet.updateDraft`. |
 | `adminPublish` | `{version}` | One transaction: draft (re-validated) → `published`, the previously active set → `archived`, `activeVersion` = version, `previousVersion` = the old active. `not-found`; `failed-precondition` if not a draft. The config cache of the serving instance is dropped; other instances pick it up within 60 s. Audit `ruleSet.publish`. |
@@ -220,15 +218,15 @@ Paths: `gamification/config`, `gamification/ruleSets/items/{version}`, `gamifica
   `functions/src/domain/standings.ts`; the gamification engine (contract Part C) hooks
   into the exported `afterWeekClosed(context)` after a fresh close: `scheduled.ts` registers the
   `gamiWeekClosedHook`, which runs `household.week_closed` through the engine (goal, streak, Zelo, achievements,
-  localized FCM for the week's earnings under live) and writes `weeks/{weekStart}.gamification`, with `processedAt`
+  localized FCM for the week's earnings) and writes `weeks/{weekStart}.gamification`, with `processedAt`
   once the engine run committed. A pass that finds closed week docs of the last 8 weeks without `processedAt` runs the
   hook again, oldest first, from each stored week doc (same `closedAt`, same member stats, same stored aggregates); the
-  engine's keys make that idempotent, and weeks with a doc are never replayed as gap weeks. The week doc stores
-  `gamiEligible` at creation. A week closed while the program was `off` (`gamiEligible` false or absent) or without a
-  creator gets a terminal `skipped` marker, so switching the program on later does not retro-process it; a week closed
-  while the program could run stays pending while the kill switch is `off` and is processed once it is back on.
+  engine's keys make that idempotent, and weeks with a doc are never replayed as gap weeks. A week of a household
+  without a creator gets a terminal `skipped: 'no-creator'` marker; every other week is always processed (the program has
+  no switch). A week doc from before the eligibility flag existed (closed while the program was off) and still without a
+  marker would be replayed and paid; stamp such docs with `gamification.processedAt` before deploying if that is not wanted.
 - `gamificationReminders` — every 60 minutes: streak-at-risk push on Sunday 18:00 local and house-running-late push on
-  Saturday 10:00 local, `live` households only, once per household per week and kind (the claim doc
+  Saturday 10:00 local, every household, once per household per week and kind (the claim doc
   `gamiReminders/{weekStart}:{kind}` is created first), localized in 6 languages, `remindersEnabled` respected, then a
   `gami_reminder_sent` server event (gamification contract C7).
 
@@ -237,7 +235,7 @@ Paths: `gamification/config`, `gamification/ruleSets/items/{version}`, `gamifica
 - `replayGamiLedgerRowTrigger` — `onDocumentCreated('households/{hid}/ledger/{entryId}')`, the gamification safety net
   (contract C8). Skips rows the callable already marked in `gamiProcessed/{rowId}`; otherwise waits 3 s, re-checks, and
   re-runs the engine for the row. Ledger keys are deterministic and created with `create()` in the engine's
-  transaction, so the callable and the trigger never double-pay. A no-op under mode `off`.
+  transaction, so the callable and the trigger never double-pay.
 
 ## Hosting
 
