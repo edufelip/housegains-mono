@@ -4,8 +4,7 @@
 // - evaluate(event, input)            after every XP-affecting action;
 // - rebuildWalletProjection(rows, s)  for the admin rebuildWallet callable;
 // - validateRuleSet(raw)              in adminSaveDraft;
-// - DEFAULT_RULE_SET                  when activeVersion is null;
-// - cohortFor/visibility              to gate writes and celebrations (C1).
+// - DEFAULT_RULE_SET                  when activeVersion is null.
 
 export * from './types';
 export { DEFAULT_RULE_SET } from './default-rule-set';
@@ -17,7 +16,6 @@ export {
   organizerLevel,
   xpForLevel,
 } from './levels';
-export { cohortFor, fnv1a32, visibility, type Cohort, type CohortConfig, type RolloutMode } from './cohort';
 export {
   escapeRef,
   householdCapKey,

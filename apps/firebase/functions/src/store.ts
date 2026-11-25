@@ -52,7 +52,6 @@ import {
   resolveTargets,
 } from './domain/moderation';
 import { pushToMembers } from './notify';
-import { cohortOf, loadGamiConfig } from './gamification/config';
 import { recentSubtaskTimes } from './gamification/facts';
 import { runGamification, type GamiHouseholdInfo } from './gamification/runner';
 import { walletFromDoc, walletToDoc } from './gamification/serialize';
@@ -92,22 +91,7 @@ export function householdInfo(hh: Record<string, any>): GamiHouseholdInfo {
     timeZone: typeof hh.timeZone === 'string' ? hh.timeZone : 'UTC',
     creatorUid: hh.creatorUid as string,
     memberCount: (hh.memberUids as string[]).length,
-    cohort: typeof hh.gamificationCohort === 'string' ? hh.gamificationCohort : null,
   };
-}
-
-/**
- * The household's rollout cohort at create time (C1); the runner keeps it fresh afterwards.
- * Null when the config cannot be read: the household is created without it and the first
- * engine run writes it.
- */
-async function initialCohort(householdId: string): Promise<string | null> {
-  try {
-    return cohortOf(householdId, await loadGamiConfig());
-  } catch (error) {
-    console.error('initialCohort failed', { householdId }, error);
-    return null;
-  }
 }
 
 // ---- Read helpers -------------------------------------------------------------
@@ -297,8 +281,6 @@ export async function createHousehold(uid: string, raw: unknown) {
     maxUses: INVITE_MAX_USES,
     revoked: false,
   };
-  const gamificationCohort = await initialCohort(hid);
-
   await db().runTransaction(async (tx) => {
     const user = await tx.get(userRef(uid));
     if (!user.exists) fail('failed-precondition', 'Create your profile first.');
@@ -313,7 +295,6 @@ export async function createHousehold(uid: string, raw: unknown) {
       creatorUid: uid,
       memberUids: [uid],
       setupComplete: false,
-      ...(gamificationCohort !== null ? { gamificationCohort } : {}),
       createdAt: ts(now),
       updatedAt: ts(now),
     });

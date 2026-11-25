@@ -5,7 +5,6 @@ import { gamiWeekCloseBody, gamiWeekCloseTitle } from '../domain/people';
 import {
   escapeRef,
   evaluate,
-  visibility,
   walletKey,
   type AlertDraft,
   type Celebration,
@@ -18,7 +17,7 @@ import {
   type ServerEventDraft,
   type WalletProjection,
 } from '../domain/gamification';
-import { cohortOf, loadGamiConfig } from './config';
+import { loadGamiConfig } from './config';
 import { GAMI_ALERTS_PATH, gamiProcessedPath } from './paths';
 import {
   alertToDoc,
@@ -48,8 +47,6 @@ export interface GamiHouseholdInfo {
   timeZone: string;
   creatorUid: string;
   memberCount: number;
-  /** households/{hid}.gamificationCohort as last written; recomputed every run. */
-  cohort?: string | null;
 }
 
 export interface GamiRunContext {
@@ -98,8 +95,8 @@ export const ORGANIZER_KINDS = new Set<GamiEvent['kind']>([
   'household.week_closed',
 ]);
 
-/** Engine no-ops (it acts on credits, not membership churn); cohort refresh only. */
-const COHORT_ONLY_KINDS = new Set<GamiEvent['kind']>(['member.joined', 'member.activated', 'chore.created']);
+/** Engine no-ops: it acts on credits, not membership churn. */
+const NO_OP_KINDS = new Set<GamiEvent['kind']>(['member.joined', 'member.activated', 'chore.created']);
 
 const IN_QUERY_CHUNK = 10;
 const TIERS = ['bronze', 'silver', 'gold'] as const;
@@ -127,13 +124,7 @@ export async function runGamificationStrict(events: GamiEvent[], ctx: GamiRunCon
 
 async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebration[]> {
   const config = await loadGamiConfig();
-  if (config.mode === 'off') return [];
-  const cohort = cohortOf(ctx.householdId, config);
-  if (cohort !== (ctx.household.cohort ?? null)) await persistCohort(ctx.householdId, cohort);
-  const vis = visibility(config.mode, cohort);
-  if (!vis.write) return [];
-
-  const active = events.filter((event) => !COHORT_ONLY_KINDS.has(event.kind));
+  const active = events.filter((event) => !NO_OP_KINDS.has(event.kind));
   if (active.length === 0) return [];
   const rules = config.rules;
   const { creatorUid } = ctx.household;
@@ -265,9 +256,7 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
     // The caller's own celebrations travel in the callable response (sync
     // runs); everything else lands in the owner's inbox.
     const inboxOwned = celebrations.filter((entry) => !(ctx.sync && entry.owner === ctx.callerUid));
-    const inboxRefs = vis.celebrate
-      ? inboxOwned.map((entry) => db().doc(`users/${entry.owner}/inbox/${entry.celebration.id}`))
-      : [];
+    const inboxRefs = inboxOwned.map((entry) => db().doc(`users/${entry.owner}/inbox/${entry.celebration.id}`));
     const existingInbox = new Set<string>();
     if (inboxRefs.length > 0) {
       for (const snap of await tx.getAll(...inboxRefs)) if (snap.exists) existingInbox.add(snap.ref.path);
@@ -314,20 +303,17 @@ async function run(events: GamiEvent[], ctx: GamiRunContext): Promise<Celebratio
     for (const [id, entry] of dedupe(alerts, ({ alert, sourceKey }) => `alert:${alert.kind}:${alert.memberId ?? ctx.householdId}:${sourceKey}`)) {
       tx.set(firestore.doc(`${GAMI_ALERTS_PATH}/${id}`), alertToDoc(entry.alert));
     }
-    if (vis.celebrate) {
-      const written = new Set<string>();
-      for (const { owner, celebration } of inboxOwned) {
-        const path = `users/${owner}/inbox/${celebration.id}`;
-        if (existingInbox.has(path) || written.has(path)) continue;
-        written.add(path);
-        tx.create(firestore.doc(path), celebrationToDoc(celebration, ctx.now));
-      }
+    const written = new Set<string>();
+    for (const { owner, celebration } of inboxOwned) {
+      const path = `users/${owner}/inbox/${celebration.id}`;
+      if (existingInbox.has(path) || written.has(path)) continue;
+      written.add(path);
+      tx.create(firestore.doc(path), celebrationToDoc(celebration, ctx.now));
     }
     return celebrations;
   });
 
-  if (!vis.celebrate) return [];
-  // FCM only for week-close earns (live only); pushToMembers logs its own failures.
+  // FCM only for week-close earns; pushToMembers logs its own failures.
   const pushes = outcome.filter(
     (entry) => entry.kind === 'household.week_closed' && entry.celebration.amount !== undefined,
   );
@@ -528,12 +514,4 @@ export function enrichReversal(event: ReversalEvent, walletOwner: string | null,
     return { ...event, reversedAward: { bonus: awarded('earn.bonus') } };
   }
   return { ...event, reversedAward: { subtask: awarded('earn.subtask'), assist: awarded('earn.assist') } };
-}
-
-async function persistCohort(householdId: string, cohort: string): Promise<void> {
-  try {
-    await db().doc(`households/${householdId}`).update({ gamificationCohort: cohort });
-  } catch (error) {
-    console.error('persistCohort failed', { householdId, cohort }, error);
-  }
 }

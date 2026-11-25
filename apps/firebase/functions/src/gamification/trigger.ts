@@ -5,7 +5,6 @@ import type { ChoreRecord, InstanceRecord } from '../domain/instances';
 import type { GamiEvent } from '../domain/gamification';
 import { householdInfo, readChore, readInstance } from '../store';
 import { recentSubtaskTimes } from './facts';
-import { loadGamiConfig } from './config';
 import { gamiProcessedPath } from './paths';
 import { runGamification } from './runner';
 
@@ -54,7 +53,6 @@ async function replay(doc: QueryDocumentSnapshot, graceMs: number): Promise<void
   const instanceId = data.instanceId;
   const memberId = data.memberId;
   if (!isLedgerSource(source) || typeof instanceId !== 'string' || typeof memberId !== 'string') return;
-  if ((await loadGamiConfig()).mode === 'off') return;
   if (await isProcessed(hid, doc.id)) return;
   if (graceMs > 0) {
     await new Promise((resolve) => setTimeout(resolve, graceMs));

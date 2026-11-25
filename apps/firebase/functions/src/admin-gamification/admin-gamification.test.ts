@@ -2,7 +2,7 @@ import { HttpsError } from 'firebase-functions/v2/https';
 import { describe, expect, it } from 'vitest';
 import { DomainError } from '../domain/errors';
 import { DEFAULT_RULE_SET, type LedgerSubtaskEvent, type RuleSet } from '../domain/gamification';
-import { parseSetConfig } from './config';
+import { configFromDoc } from './config';
 import { requireAdmin } from './index';
 import { explainRow } from './lookup';
 import { perRuleTable, SimulationSide, type SimHousehold } from './simulation-side';
@@ -57,21 +57,21 @@ describe('requireAdmin', () => {
   });
 });
 
-describe('parseSetConfig', () => {
-  it('accepts a valid rollout and rejects bad ones with invalid-argument', () => {
-    expect(parseSetConfig({ mode: 'live', livePercent: 60, controlPercent: 40 })).toEqual({
-      mode: 'live',
-      livePercent: 60,
-      controlPercent: 40,
+describe('configFromDoc', () => {
+  it('reads only the rule-set pointer, leniently', () => {
+    expect(configFromDoc(undefined)).toEqual({ activeVersion: null, previousVersion: null });
+    expect(configFromDoc({ activeVersion: 3, previousVersion: 2 })).toEqual({ activeVersion: 3, previousVersion: 2 });
+    expect(configFromDoc({ activeVersion: 0, previousVersion: 1.5 })).toEqual({
+      activeVersion: null,
+      previousVersion: null,
     });
-    for (const bad of [
-      null,
-      { mode: 'x', livePercent: 1, controlPercent: 1 },
-      { mode: 'live', livePercent: Number.NaN, controlPercent: 0 },
-      { mode: 'live', livePercent: 70, controlPercent: 31 },
-    ]) {
-      expect(() => parseSetConfig(bad)).toThrow(DomainError);
-    }
+  });
+
+  it('ignores fields left over from the retired rollout switch', () => {
+    expect(configFromDoc({ mode: 'off', livePercent: 10, cohortSalt: 's', activeVersion: 4 })).toEqual({
+      activeVersion: 4,
+      previousVersion: null,
+    });
   });
 });
 

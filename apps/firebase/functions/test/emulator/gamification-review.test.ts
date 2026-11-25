@@ -1,18 +1,15 @@
 import { FieldValue, Timestamp, Transaction, type DocumentReference } from 'firebase-admin/firestore';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { dateKeyInTimeZone } from '../../src/domain/time';
 import { weekStartKeyForDateKey } from '../../src/domain/gamification';
 import { closeAllWeeks } from '../../src/scheduled';
 import { adminDb, createHousehold, must, withProfile, type TestUser } from './helpers';
 import {
-  LIVE,
   gamiHousehold,
   inboxOf,
   nextOpenInstance,
   organizerLedger,
-  resetGamiConfig,
   serverEvents,
-  setGamiConfig,
   walletLedger,
   walletOf,
 } from './gami-helpers';
@@ -20,16 +17,12 @@ import {
 // Review fixes for the gamification wiring: Zelo clawbacks reverse what was paid (G1) and the week close
 // is retryable (G4), plus a week close that survives a failing dispute expiry (B2).
 
-afterAll(resetGamiConfig);
-beforeEach(resetGamiConfig);
-
 const WEEK = '2026-11-16';
 const CLOSE_AT = new Date('2026-11-23T03:00:00Z');
 const T = (iso: string) => Timestamp.fromDate(new Date(iso));
 
 describe('Zelo clawbacks reverse the paid amount (G1)', () => {
   it('removeMember claws back what member_activated actually paid after the weekly Zelo pool trimmed it', async () => {
-    await setGamiConfig(LIVE);
     const { member, creator, householdId, choreId } = await gamiHousehold('g1', {
       subtasks: [
         { id: 'a', name: 'A', xp: 5, position: 0 },
@@ -112,7 +105,6 @@ const weekDoc = (householdId: string) => adminDb().doc(`households/${householdId
 
 describe('the weekly gamification close is retryable (G4)', () => {
   it('replays a failed engine run on the next pass, once, and then leaves the week alone', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await weekHousehold('g4');
 
     // The engine run for this household fails (a wallet write throws) after the week doc was created.
@@ -151,78 +143,12 @@ describe('the weekly gamification close is retryable (G4)', () => {
   });
 
   it('marks a week processed on the first successful run', async () => {
-    await setGamiConfig(LIVE);
     const { householdId } = await weekHousehold('g4-ok');
     await closeAllWeeks(CLOSE_AT);
     expect((await weekDoc(householdId).get()).get('gamification.processedAt')).toBeInstanceOf(Timestamp);
   });
 
-  it('stamps a week closed while the program was off with a terminal marker, and never replays it', async () => {
-    const { a, householdId } = await weekHousehold('g4-off');
-    await closeAllWeeks(CLOSE_AT);
-    const doc = await weekDoc(householdId).get();
-    expect(doc.exists).toBe(true);
-    expect(doc.get('gamification')).toEqual({ processedAt: expect.any(Timestamp), skipped: 'off' });
-    const marker = doc.get('gamification.processedAt').toMillis();
-
-    // Turning the program on later does not retro-process the old week.
-    await setGamiConfig(LIVE);
-    await closeAllWeeks(new Date('2026-11-23T04:00:00Z'));
-    const after = await weekDoc(householdId).get();
-    expect(after.get('gamification')).toEqual({ processedAt: expect.any(Timestamp), skipped: 'off' });
-    expect(after.get('gamification.processedAt').toMillis()).toBe(marker);
-    expect(await walletLedger(a.uid)).toEqual({});
-  });
-
-  it('keeps a week that closed while live pending while ops switches the program off, then processes it', async () => {
-    await setGamiConfig(LIVE);
-    const { a, householdId } = await weekHousehold('g4-kill');
-
-    // The close runs live but its engine run fails, so the week stays without its marker.
-    const original = Transaction.prototype.create;
-    const spy = vi
-      .spyOn(Transaction.prototype, 'create')
-      .mockImplementation(function (this: Transaction, ref: DocumentReference, data: Record<string, unknown>) {
-        if (ref.path.startsWith(`wallets/${a.uid}/`)) throw new Error('injected engine failure');
-        return original.call(this, ref, data);
-      });
-    try {
-      await closeAllWeeks(CLOSE_AT);
-    } finally {
-      spy.mockRestore();
-    }
-    expect((await weekDoc(householdId).get()).get('gamiEligible')).toBe(true);
-
-    // Ops flips the kill switch: the retry pass must not stamp the live week as skipped.
-    await setGamiConfig({ mode: 'off' });
-    await closeAllWeeks(new Date('2026-11-23T04:00:00Z'));
-    const pending = await weekDoc(householdId).get();
-    expect(pending.get('gamification.processedAt')).toBeUndefined();
-    expect(pending.get('gamification.skipped')).toBeUndefined();
-
-    // Back on: the week is processed, not lost as a gap.
-    await setGamiConfig(LIVE);
-    await closeAllWeeks(new Date('2026-11-23T05:00:00Z'));
-    const processed = await weekDoc(householdId).get();
-    expect(processed.get('gamification.processedAt')).toBeInstanceOf(Timestamp);
-    expect(processed.get('gamification.skipped')).toBeUndefined();
-    expect((await walletLedger(a.uid))[`earn.week_goal:${WEEK}:${a.uid}`]).toMatchObject({ amount: 30 });
-  });
-
-  it('treats a week doc written before gamiEligible existed as closed while off', async () => {
-    await setGamiConfig(LIVE);
-    const { a, householdId } = await weekHousehold('g4-legacy');
-    await closeAllWeeks(CLOSE_AT);
-    // Rewrite the doc as the pre-flag close left it: no eligibility, no gamification data.
-    await weekDoc(householdId).update({ gamiEligible: FieldValue.delete(), gamification: FieldValue.delete() });
-    const before = await walletLedger(a.uid);
-    await closeAllWeeks(new Date('2026-11-23T04:00:00Z'));
-    expect((await weekDoc(householdId).get()).get('gamification.skipped')).toBe('off');
-    expect(await walletLedger(a.uid)).toEqual(before);
-  });
-
   it('stamps a week of a household without a creator as skipped: no-creator', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await weekHousehold('g4-nocreator');
     await adminDb().doc(`households/${householdId}`).update({ creatorUid: FieldValue.delete() });
     await closeAllWeeks(CLOSE_AT);
@@ -256,7 +182,6 @@ async function seedInstances(householdId: string, assignee: string, count: numbe
 
 describe('a replayed week keeps its snapshot (N5)', () => {
   it('reuses the stored aggregates instead of recomputing them from the current instances', async () => {
-    await setGamiConfig(LIVE);
     const { creator, a, householdId } = await weekHousehold('n5-snap');
     await seedInstances(householdId, a.uid, 5, 5);
 
@@ -300,7 +225,6 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
     await adminDb()
       .doc(`households/${householdId}/weeks/${OLDER_WEEK}`)
       .set({
-        gamiEligible: true,
         weekStart: OLDER_WEEK,
         weekEnd: '2026-11-15',
         timeZone: 'UTC',
@@ -321,7 +245,6 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
   }
 
   it('counts a week whose gamification failed for more than a week instead of replaying it as a gap', async () => {
-    await setGamiConfig(LIVE);
     const { a, b, householdId } = await weekHousehold('n4-order');
     await seedOlderWeek(householdId, a, b);
 
@@ -336,7 +259,6 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
   });
 
   it('holds the latest week back while an older one is still failing, then replays both in order', async () => {
-    await setGamiConfig(LIVE);
     const { a, b, householdId } = await weekHousehold('n4-block');
     await seedOlderWeek(householdId, a, b);
 
@@ -365,7 +287,6 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
   });
 
   it('only replays weeks inside the replay window', async () => {
-    await setGamiConfig(LIVE);
     const { a, b, householdId } = await weekHousehold('n4-window');
     await seedOlderWeek(householdId, a, b);
     // The latest week's window starts 7 weeks back (2026-09-28); this doc is older than that.
@@ -373,7 +294,6 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
     await adminDb()
       .doc(`households/${householdId}/weeks/${stale}`)
       .set({
-        gamiEligible: true,
         weekStart: stale,
         weekEnd: '2026-09-27',
         timeZone: 'UTC',
@@ -394,7 +314,6 @@ describe('unprocessed week docs replay oldest first (N4)', () => {
 
 describe('a week close survives a dispute that cannot be expired (B2)', () => {
   it('still runs the gamification close when a stale dispute has no instance', async () => {
-    await setGamiConfig(LIVE);
     const { a, householdId } = await weekHousehold('b2-hook');
     // A stale open dispute whose instance document does not exist: expiring it used to fail the
     // whole batch, after the week doc was written and before the hooks ran.
@@ -421,7 +340,6 @@ describe('a week close survives a dispute that cannot be expired (B2)', () => {
 
 describe('organizer level-ups are recorded once (N8)', () => {
   it('writes gami_level_up once per level when a clawback lets the organizer cross it again', async () => {
-    await setGamiConfig(LIVE);
     const { creator, member, householdId, choreId } = await gamiHousehold('n8', {
       subtasks: [
         { id: 'a', name: 'A', xp: 5, position: 0 },

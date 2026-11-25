@@ -6,35 +6,11 @@
 // is defined here. Dates cross the wire as ISO strings; the callables require
 // the Auth custom claim `admin: true` and audit every mutation.
 
-import type { RolloutMode, RuleSet, Track } from './engine-types';
+import type { RuleSet, Track } from './engine-types';
 
 export type AdjustReasonCode = 'correction' | 'abuse' | 'support-goodwill';
 export type RuleSetStatus = 'draft' | 'published' | 'archived';
 export type AlertKind = 'velocity' | 'chore-xp-raise' | 'undo-rate';
-
-/** gamification/config (C1), serialized. */
-export interface AdminConfig {
-  mode: RolloutMode;
-  activeVersion: number | null;
-  previousVersion: number | null;
-  cohortSalt: string;
-  livePercent: number;
-  controlPercent: number;
-}
-
-// ---- adminGetConfig ------------------------------------------------------------
-
-export type AdminGetConfigRequest = Record<string, never>;
-export type AdminGetConfigResponse = AdminConfig;
-
-// ---- adminSetConfig ------------------------------------------------------------
-
-export interface AdminSetConfigRequest {
-  mode: RolloutMode;
-  livePercent: number;
-  controlPercent: number;
-}
-export type AdminSetConfigResponse = AdminConfig;
 
 // ---- adminListRuleSets ---------------------------------------------------------
 
