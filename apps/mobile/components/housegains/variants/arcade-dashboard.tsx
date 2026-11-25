@@ -159,6 +159,7 @@ export function ArcadeDashboard(props: DashboardProps) {
         </View>
 
         {props.ganhosChip}
+        {props.ratingBanner}
 
         <Card
           style={{ backgroundColor: tokens.surface, borderColor: '#303740', gap: 10, padding: 18 }}

@@ -182,6 +182,7 @@ export function SoftDashboard(props: DashboardProps) {
         </View>
 
         {props.ganhosChip}
+        {props.ratingBanner}
 
         <Card
           style={{

@@ -167,6 +167,7 @@ export function StickerDashboard(props: DashboardProps) {
         </View>
 
         {props.ganhosChip}
+        {props.ratingBanner}
 
         <View style={{ marginRight: 4 }}>
           <Card

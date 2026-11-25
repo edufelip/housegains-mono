@@ -112,6 +112,8 @@ export default ({ config }: ConfigContext): ExpoConfig => {
       edgeToEdgeEnabled: true,
       predictiveBackGestureEnabled: false,
       package: androidPackage,
+      // Fallback target of the "rate the app" banner when the native review dialog is unavailable.
+      playStoreUrl: `https://play.google.com/store/apps/details?id=${androidPackage}`,
       intentFilters: [
         {
           action: 'VIEW',

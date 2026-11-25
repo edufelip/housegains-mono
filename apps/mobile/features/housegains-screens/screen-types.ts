@@ -52,4 +52,6 @@ export interface DashboardProps {
   onNavigate(tab: AppTab): void;
   /** The Ganhos wallet chip; only passed while gamification is visible, so nothing else changes. */
   ganhosChip?: ReactNode;
+  /** The "rate the app" banner; renders nothing unless it is due. */
+  ratingBanner?: ReactNode;
 }
